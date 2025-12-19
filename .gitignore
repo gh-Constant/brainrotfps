@@ -1,0 +1,23 @@
+# Rojo
+*.rbxl
+*.rbxlx
+*.rbxm
+*.rbxmx
+
+# Wally
+Packages/
+wally.lock
+
+# Roblox Studio
+*.rsm
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Sourcemap
+sourcemap.json

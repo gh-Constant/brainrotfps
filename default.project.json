@@ -1,0 +1,75 @@
+{
+  "name": "brainrotfps",
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "$ignoreUnknownInstances": true,
+      "Rojo": {
+        "$className": "Folder",
+        "Shared": {
+          "$path": "src/Shared"
+        },
+        "Packages": {
+          "$className": "Folder"
+        }
+      }
+    },
+
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "$ignoreUnknownInstances": true,
+      "Rojo": {
+        "$className": "Folder",
+        "Server": {
+          "$path": "src/Server"
+        }
+      }
+    },
+
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "$ignoreUnknownInstances": true,
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "$ignoreUnknownInstances": true,
+        "Rojo": {
+          "$className": "Folder",
+          "Client": {
+            "$path": "src/Client"
+          }
+        }
+      },
+      "StarterCharacterScripts": {
+        "$className": "StarterCharacterScripts",
+        "$ignoreUnknownInstances": true
+      }
+    },
+
+    "StarterGui": {
+      "$className": "StarterGui",
+      "$ignoreUnknownInstances": true
+    },
+
+    "Workspace": {
+      "$className": "Workspace",
+      "$ignoreUnknownInstances": true
+    },
+
+    "Lighting": {
+      "$className": "Lighting",
+      "$ignoreUnknownInstances": true
+    },
+
+    "SoundService": {
+      "$className": "SoundService",
+      "$ignoreUnknownInstances": true
+    },
+
+    "ReplicatedFirst": {
+      "$className": "ReplicatedFirst",
+      "$ignoreUnknownInstances": true
+    }
+  }
+}
