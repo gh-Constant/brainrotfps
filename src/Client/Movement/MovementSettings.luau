@@ -1,90 +1,72 @@
 --!strict
--- MovementSettings.luau
--- Reads movement configuration from character attributes
 
 local MovementSettings = {}
 MovementSettings.__index = MovementSettings
 
 export type MovementSettings = typeof(setmetatable({} :: {
-	-- Ground movement
 	GroundSpeed: number,
 	GroundAcceleration: number,
 	GroundFriction: number,
-	
-	-- Air movement
 	AirSpeed: number,
 	AirAcceleration: number,
 	AirFriction: number,
-	
-	-- Jump
 	JumpForce: number,
 	BhopMultiplier: number,
-	BhopWindow: number, -- seconds after landing to preserve momentum
-	
-	-- Slide
+	BhopWindow: number,
 	SlideSpeed: number,
 	SlideFriction: number,
 	SlideCooldown: number,
-	SlideMinSpeed: number, -- minimum speed to initiate slide
-	
-	-- General
+	SlideMinSpeed: number,
+	WallJumpForce: number,
+	WallPushForce: number,
+	WallJumpCooldown: number,
+	WallCheckDistance: number,
 	Gravity: number,
 	MaxVelocity: number,
 }, MovementSettings))
 
--- Default values if attributes are missing
-local DEFAULTS = {
-	-- Ground
-	GroundSpeed = 24,
-	GroundAcceleration = 100,
-	GroundFriction = 8,
-	
-	-- Air
-	AirSpeed = 2,
-	AirAcceleration = 50,
-	AirFriction = 0.1,
-	
-	-- Jump
-	JumpForce = 50,
-	BhopMultiplier = 1.05,
-	BhopWindow = 0.15,
-	
-	-- Slide
-	SlideSpeed = 35,
+local DEFAULTS: { [string]: number } = {
+	GroundSpeed = 32,
+	GroundAcceleration = 60,
+	GroundFriction = 6,
+	AirSpeed = 32,
+	AirAcceleration = 30,
+	AirFriction = 0,
+	JumpForce = 28,
+	BhopMultiplier = 1,
+	BhopWindow = 0.2,
+	SlideSpeed = 40,
 	SlideFriction = 1,
-	SlideCooldown = 0.5,
-	SlideMinSpeed = 15,
-	
-	-- General
-	Gravity = 75,
-	MaxVelocity = 100,
+	SlideCooldown = 0.15,
+	SlideMinSpeed = 5,
+	WallJumpForce = 45,
+	WallPushForce = 38,
+	WallJumpCooldown = 0.15,
+	WallCheckDistance = 3.5,
+	Gravity = 80,
+	MaxVelocity = 36,
 }
 
-function MovementSettings.new(character: Model): MovementSettings
+local clientScript = script.Parent.Parent
+
+function MovementSettings.new(): MovementSettings
 	local self = setmetatable({}, MovementSettings)
 	
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	
-	-- Read each setting from attributes, falling back to defaults
 	for key, default in DEFAULTS do
-		local attrValue = if humanoid then humanoid:GetAttribute(key) else nil
-		self[key] = if attrValue ~= nil then attrValue else default
+		local attrValue = clientScript:GetAttribute(key)
+		(self :: any)[key] = if attrValue ~= nil then attrValue else default
 	end
 	
 	return self :: MovementSettings
 end
 
--- Refresh settings from attributes (useful for live tweaking)
-function MovementSettings.Refresh(self: MovementSettings, character: Model)
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	
+function MovementSettings.Refresh(self: MovementSettings)
 	for key, default in DEFAULTS do
-		local attrValue = if humanoid then humanoid:GetAttribute(key) else nil
-		self[key] = if attrValue ~= nil then attrValue else default
+		local attrValue = clientScript:GetAttribute(key)
+		(self :: any)[key] = if attrValue ~= nil then attrValue else default
 	end
 end
 
--- Get all default values (for setting up attributes)
 function MovementSettings.GetDefaults(): { [string]: number }
 	return table.clone(DEFAULTS)
 end
