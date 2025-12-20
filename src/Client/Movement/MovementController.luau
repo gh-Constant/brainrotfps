@@ -30,6 +30,7 @@ export type MovementController = typeof(setmetatable({} :: {
 
 local SLIDE_JUMP_WINDOW = 0.3
 local SLIDE_JUMP_BOOST = 1.15
+local RAMP_JUMP_CONVERT = 1.2
 
 function MovementController.new(character: Model): MovementController
 	local self = setmetatable({}, MovementController)
@@ -129,8 +130,13 @@ function MovementController._handleSliding(
 ): Vector3
 	
 	if self._wishJump and groundResult.IsGrounded then
+		-- Capture uphill momentum before ending slide for ramp jump boost
+		local rampBoost = self._slideController.UphillMomentum * RAMP_JUMP_CONVERT
+		self._slideController.UphillMomentum = 0
 		self._slideController:EndSlide()
 		velocity = self:_applyJump(velocity)
+		-- Apply ramp jump boost (converts uphill momentum to vertical velocity)
+		velocity = Vector3.new(velocity.X, velocity.Y + rampBoost, velocity.Z)
 		self._wishJump = false
 	else
 		-- Allow sliding to continue in the air - only end on low speed or jump

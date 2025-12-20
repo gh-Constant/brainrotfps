@@ -21,6 +21,7 @@ export type SlideController = typeof(setmetatable({} :: {
 	SlideStartTime: number,
 	LastSlideEnd: number,
 	SlideSpeed: number,
+	UphillMomentum: number,
 }, SlideController))
 
 local SLIDE_HIP_HEIGHT = 0.8
@@ -31,6 +32,8 @@ local SLOPE_UPHILL_MULT = 2.5  -- Extra penalty multiplier when sliding uphill
 local STEER_RATE = 2.0
 local MIN_SLIDE_SPEED = 3
 local MIN_CAMERA_HEIGHT = 0.5
+local MAX_STORED_MOMENTUM = 25
+local MOMENTUM_DECAY = 0.85
 
 local TWEEN_IN = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local TWEEN_OUT = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -74,6 +77,7 @@ function SlideController.new(character: Model): SlideController
 	self.SlideStartTime = 0
 	self.LastSlideEnd = 0
 	self.SlideSpeed = 0
+	self.UphillMomentum = 0
 	
 	return self :: SlideController
 end
@@ -125,6 +129,7 @@ function SlideController.UpdateSlide(self: SlideController, dt: number, slopeNor
 	self:_updateCameraOffset()
 	
 	local slopeBonus = 0
+	local isGoingUphill = false
 	if slopeNormal and slopeNormal.Y < 0.99 and slopeNormal.Y > 0.1 then
 		-- Project gravity onto the slope plane to get the true downhill direction
 		local gravity = Vector3.new(0, -1, 0)
@@ -142,8 +147,17 @@ function SlideController.UpdateSlide(self: SlideController, dt: number, slopeNor
 			else
 				-- Sliding uphill: lose momentum faster
 				slopeBonus = slopeFactor * SLOPE_DOWNHILL_MULT * SLOPE_UPHILL_MULT * dt
+				isGoingUphill = true
 			end
 		end
+	end
+	
+	-- Track uphill momentum for ramp jumping
+	if isGoingUphill and slopeBonus < 0 then
+		local momentumLost = math.abs(slopeBonus)
+		self.UphillMomentum = math.min(self.UphillMomentum + momentumLost, MAX_STORED_MOMENTUM)
+	else
+		self.UphillMomentum = self.UphillMomentum * MOMENTUM_DECAY
 	end
 	
 	self.SlideSpeed = math.max(self.SlideSpeed - (SLIDE_DECEL * dt) + slopeBonus, MIN_SLIDE_SPEED)
