@@ -10,6 +10,7 @@ realm = "shared"
 # Signal = "stravant/goodsignal@0.2.0"
 # Knit = "sleitnick/knit@1.7.0"
 zoneplus = "essentiallyblue/zoneplus@3.2.2"
+profilestore = "vyon/profilestore@1.0.3"
 [server-dependencies]
 # Server-only packages go here
 

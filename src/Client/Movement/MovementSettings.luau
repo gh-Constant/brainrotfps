@@ -32,12 +32,12 @@ local DEFAULTS: { [string]: number } = {
 	GroundAcceleration = 60,
 	GroundFriction = 6,
 	AirSpeed = 32,
-	AirAcceleration = 30,
+	AirAcceleration = 1.5,
 	AirFriction = 0,
 	JumpForce = 28,
 	BhopMultiplier = 1,
 	BhopWindow = 0.2,
-	SlideSpeed = 40,
+	SlideSpeed = 55,
 	SlideFriction = 1,
 	SlideCooldown = 0.15,
 	SlideMinSpeed = 5,
@@ -46,7 +46,7 @@ local DEFAULTS: { [string]: number } = {
 	WallJumpCooldown = 0.15,
 	WallCheckDistance = 3.5,
 	Gravity = 80,
-	BhopMaxVelocity = 36,
+	BhopMaxVelocity = 100,
 }
 
 local function getMovementConfig(): Configuration?

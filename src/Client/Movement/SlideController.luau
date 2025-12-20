@@ -22,10 +22,11 @@ export type SlideController = typeof(setmetatable({} :: {
 	LastSlideEnd: number,
 	SlideSpeed: number,
 	UphillMomentum: number,
+	ExitVelocity: Vector3,
 }, SlideController))
 
 local SLIDE_HIP_HEIGHT = 0.8
-local CAMERA_DROP = -2.5
+local CAMERA_DROP = -1.5
 local SLIDE_DECEL = 8
 local SLOPE_DOWNHILL_MULT = 35 -- Speed gain when sliding downhill
 local SLOPE_UPHILL_MULT = 2.5  -- Extra penalty multiplier when sliding uphill
@@ -34,6 +35,8 @@ local MIN_SLIDE_SPEED = 3
 local MIN_CAMERA_HEIGHT = 0.5
 local MAX_STORED_MOMENTUM = 25
 local MOMENTUM_DECAY = 0.85
+local SLIDE_BOOST = 1.25 -- Speed multiplier when starting a slide
+local MAX_SLIDE_DURATION = 3.0 -- Auto-end slide after 3 seconds
 
 local TWEEN_IN = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local TWEEN_OUT = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -78,6 +81,7 @@ function SlideController.new(character: Model): SlideController
 	self.LastSlideEnd = 0
 	self.SlideSpeed = 0
 	self.UphillMomentum = 0
+	self.ExitVelocity = Vector3.zero
 	
 	return self :: SlideController
 end
@@ -93,7 +97,8 @@ function SlideController.StartSlide(self: SlideController, direction: Vector3, i
 	self.IsSliding = true
 	self.SlideDirection = direction.Unit
 	self.SlideStartTime = tick()
-	self.SlideSpeed = initialSpeed
+	self.SlideSpeed = initialSpeed * SLIDE_BOOST -- Apply big boost on slide start
+	self.ExitVelocity = Vector3.zero
 	
 	-- Smooth tween for hip height and camera
 	TweenService:Create(self._humanoid, TWEEN_IN, { HipHeight = SLIDE_HIP_HEIGHT }):Play()
@@ -107,6 +112,9 @@ end
 
 function SlideController.EndSlide(self: SlideController)
 	if not self.IsSliding then return end
+	
+	-- Store exit velocity before ending (for momentum preservation on jump)
+	self.ExitVelocity = self.SlideDirection * self.SlideSpeed
 	
 	self.IsSliding = false
 	self.LastSlideEnd = tick()
@@ -189,6 +197,11 @@ end
 function SlideController.Steer(self: SlideController, wishDir: Vector3, dt: number)
 	if not self.IsSliding or wishDir.Magnitude < 0.01 then return end
 	self.SlideDirection = (self.SlideDirection + wishDir * STEER_RATE * dt).Unit
+end
+
+function SlideController.HasExpired(self: SlideController): boolean
+	if not self.IsSliding then return false end
+	return (tick() - self.SlideStartTime) >= MAX_SLIDE_DURATION
 end
 
 function SlideController.Destroy(self: SlideController)

@@ -29,7 +29,7 @@ export type MovementController = typeof(setmetatable({} :: {
 }, MovementController))
 
 local SLIDE_JUMP_WINDOW = 0.3
-local SLIDE_JUMP_BOOST = 1.15
+local SLIDE_JUMP_BOOST = 1.05
 local RAMP_JUMP_CONVERT = 1.2
 
 function MovementController.new(character: Model): MovementController
@@ -108,13 +108,18 @@ function MovementController._update(self: MovementController, dt: number)
 		velocity = self:_handleNormalMovement(velocity, wishDir, groundResult, dt)
 	end
 	
-	-- Cap velocity only when NOT sliding (allow slide boost to work)
-	if not self._slideController.IsSliding then
-		local horizontalVel = Vector3.new(velocity.X, 0, velocity.Z)
-		if horizontalVel.Magnitude > self._settings.BhopMaxVelocity then
-			horizontalVel = horizontalVel.Unit * self._settings.BhopMaxVelocity
-			velocity = Vector3.new(horizontalVel.X, velocity.Y, horizontalVel.Z)
-		end
+	local horizontalVel = Vector3.new(velocity.X, 0, velocity.Z)
+	local currentSpeed = horizontalVel.Magnitude
+	
+	-- Print current velocity in logs as requested
+	if currentSpeed > 0.1 then
+		print(string.format("Current Velocity: %.2f", currentSpeed))
+	end
+	
+	-- Re-introduce speed limit (BhopMaxVelocity = 100)
+	if currentSpeed > self._settings.BhopMaxVelocity then
+		horizontalVel = horizontalVel.Unit * self._settings.BhopMaxVelocity
+		velocity = Vector3.new(horizontalVel.X, velocity.Y, horizontalVel.Z)
 	end
 	
 	self._velocity = velocity
@@ -129,15 +134,30 @@ function MovementController._handleSliding(
 	dt: number
 ): Vector3
 	
+	-- Check if slide has expired (3 seconds max duration) - auto-end and return to walking
+	if self._slideController:HasExpired() then
+		self._slideController:EndSlide()
+		return velocity
+	end
+	
 	if self._wishJump and groundResult.IsGrounded then
 		-- Capture uphill momentum before ending slide for ramp jump boost
 		local rampBoost = self._slideController.UphillMomentum * RAMP_JUMP_CONVERT
 		self._slideController.UphillMomentum = 0
+		
+		-- Store current slide velocity before ending
+		local slideVelocity = self._slideController.SlideDirection * self._slideController.SlideSpeed
+		
 		self._slideController:EndSlide()
-		velocity = self:_applyJump(velocity)
+		
+		-- Apply jump with preserved slide momentum
+		local preservedVel = Vector3.new(slideVelocity.X, velocity.Y, slideVelocity.Z)
+		preservedVel = self:_applyJump(preservedVel)
+		
 		-- Apply ramp jump boost (converts uphill momentum to vertical velocity)
-		velocity = Vector3.new(velocity.X, velocity.Y + rampBoost, velocity.Z)
+		preservedVel = Vector3.new(preservedVel.X, preservedVel.Y + rampBoost, preservedVel.Z)
 		self._wishJump = false
+		return preservedVel
 	else
 		-- Allow sliding to continue in the air - only end on low speed or jump
 		self._slideController:Steer(wishDir, dt)
@@ -310,15 +330,19 @@ function MovementController._applyAirMovement(
 ): Vector3
 	local settings = self._settings
 	local horizontalVel = Vector3.new(velocity.X, 0, velocity.Z)
+	local currentSpeed = horizontalVel.Magnitude
 	
 	if wishDir.Magnitude > 0.01 then
-		local wishSpeed = settings.AirSpeed
-		local currentSpeedInWishDir = horizontalVel:Dot(wishDir)
-		local addSpeed = wishSpeed - currentSpeedInWishDir
+		-- Blend current direction with wish direction for smoother turning
+		local blendRate = settings.AirAcceleration * dt
+		local newDir = (horizontalVel.Unit + wishDir * blendRate)
 		
-		if addSpeed > 0 then
-			local accelSpeed = math.min(settings.AirAcceleration * wishSpeed * dt, addSpeed)
-			horizontalVel = horizontalVel + wishDir * accelSpeed
+		if newDir.Magnitude > 0.01 then
+			newDir = newDir.Unit
+			-- Preserve current speed when turning (don't lose speed from strafing)
+			-- Allow small speed gain up to AirSpeed
+			local targetSpeed = math.max(currentSpeed, math.min(currentSpeed + blendRate, settings.AirSpeed))
+			horizontalVel = newDir * targetSpeed
 		end
 	end
 	
