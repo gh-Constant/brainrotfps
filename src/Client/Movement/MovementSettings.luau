@@ -1,5 +1,7 @@
 --!strict
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
 local MovementSettings = {}
 MovementSettings.__index = MovementSettings
 
@@ -22,7 +24,7 @@ export type MovementSettings = typeof(setmetatable({} :: {
 	WallJumpCooldown: number,
 	WallCheckDistance: number,
 	Gravity: number,
-	MaxVelocity: number,
+	BhopMaxVelocity: number,
 }, MovementSettings))
 
 local DEFAULTS: { [string]: number } = {
@@ -44,16 +46,23 @@ local DEFAULTS: { [string]: number } = {
 	WallJumpCooldown = 0.15,
 	WallCheckDistance = 3.5,
 	Gravity = 80,
-	MaxVelocity = 36,
+	BhopMaxVelocity = 36,
 }
 
-local clientScript = script.Parent.Parent
+local function getMovementConfig(): Configuration?
+	local config = ReplicatedStorage:FindFirstChild("Config")
+	if config then
+		return config:FindFirstChild("Movement") :: Configuration?
+	end
+	return nil
+end
 
 function MovementSettings.new(): MovementSettings
 	local self = setmetatable({}, MovementSettings)
+	local movementConfig = getMovementConfig()
 	
 	for key, default in DEFAULTS do
-		local attrValue = clientScript:GetAttribute(key)
+		local attrValue = if movementConfig then movementConfig:GetAttribute(key) else nil;
 		(self :: any)[key] = if attrValue ~= nil then attrValue else default
 	end
 	
@@ -61,8 +70,10 @@ function MovementSettings.new(): MovementSettings
 end
 
 function MovementSettings.Refresh(self: MovementSettings)
+	local movementConfig = getMovementConfig()
+	
 	for key, default in DEFAULTS do
-		local attrValue = clientScript:GetAttribute(key)
+		local attrValue = if movementConfig then movementConfig:GetAttribute(key) else nil;
 		(self :: any)[key] = if attrValue ~= nil then attrValue else default
 	end
 end

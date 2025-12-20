@@ -30,7 +30,6 @@ export type MovementController = typeof(setmetatable({} :: {
 
 local SLIDE_JUMP_WINDOW = 0.3
 local SLIDE_JUMP_BOOST = 1.15
-local MIN_SLIDE_DURATION = 0.3
 
 function MovementController.new(character: Model): MovementController
 	local self = setmetatable({}, MovementController)
@@ -108,10 +107,13 @@ function MovementController._update(self: MovementController, dt: number)
 		velocity = self:_handleNormalMovement(velocity, wishDir, groundResult, dt)
 	end
 	
-	local horizontalVel = Vector3.new(velocity.X, 0, velocity.Z)
-	if horizontalVel.Magnitude > self._settings.MaxVelocity then
-		horizontalVel = horizontalVel.Unit * self._settings.MaxVelocity
-		velocity = Vector3.new(horizontalVel.X, velocity.Y, horizontalVel.Z)
+	-- Cap velocity only when NOT sliding (allow slide boost to work)
+	if not self._slideController.IsSliding then
+		local horizontalVel = Vector3.new(velocity.X, 0, velocity.Z)
+		if horizontalVel.Magnitude > self._settings.BhopMaxVelocity then
+			horizontalVel = horizontalVel.Unit * self._settings.BhopMaxVelocity
+			velocity = Vector3.new(horizontalVel.X, velocity.Y, horizontalVel.Z)
+		end
 	end
 	
 	self._velocity = velocity
@@ -125,20 +127,23 @@ function MovementController._handleSliding(
 	groundResult: GroundCheck.GroundCheckResult,
 	dt: number
 ): Vector3
-	local slideTime = tick() - self._slideController.SlideStartTime
 	
 	if self._wishJump and groundResult.IsGrounded then
 		self._slideController:EndSlide()
 		velocity = self:_applyJump(velocity)
 		self._wishJump = false
-	elseif not groundResult.IsGrounded and slideTime > MIN_SLIDE_DURATION then
-		self._slideController:EndSlide()
 	else
+		-- Allow sliding to continue in the air - only end on low speed or jump
 		self._slideController:Steer(wishDir, dt)
 		local slideSpeed = self._slideController:UpdateSlide(dt, groundResult.Normal)
 		local slideDir = self._slideController.SlideDirection
 		local horizontalVel = slideDir * slideSpeed
 		velocity = Vector3.new(horizontalVel.X, velocity.Y, horizontalVel.Z)
+		
+		-- Apply gravity when airborne during slide
+		if not groundResult.IsGrounded then
+			velocity = self:_applyGravity(velocity, dt)
+		end
 		
 		if slideSpeed < 3 then
 			self._slideController:EndSlide()
@@ -156,6 +161,12 @@ function MovementController._handleNormalMovement(
 	dt: number
 ): Vector3
 	if groundResult.IsGrounded then
+		-- Reset Y velocity when grounded to prevent clipping into the ground
+		-- Only keep positive Y velocity (e.g., from a jump that's about to happen)
+		if velocity.Y < 0 then
+			velocity = Vector3.new(velocity.X, 0, velocity.Z)
+		end
+		
 		local timeSinceLand = tick() - self._lastLandTime
 		local inBhopWindow = timeSinceLand < self._settings.BhopWindow
 		local isBhopping = inBhopWindow and self._wishJump

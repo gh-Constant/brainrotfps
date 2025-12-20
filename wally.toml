@@ -9,6 +9,7 @@ realm = "shared"
 # Promise = "evaera/promise@4.0.0"
 # Signal = "stravant/goodsignal@0.2.0"
 # Knit = "sleitnick/knit@1.7.0"
+zoneplus = "gh-constant/zoneplus@3.2.0"
 
 [server-dependencies]
 # Server-only packages go here
