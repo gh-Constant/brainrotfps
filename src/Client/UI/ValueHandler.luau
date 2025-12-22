@@ -57,7 +57,7 @@ local function updateXP()
     local totalXP = xpValueObj and xpValueObj.Value or 0
     
     -- Update level label
-    xpBar:SetSecondaryLabel("Lv. " .. tostring(level))
+    xpBar:SetSecondaryLabel(tostring(level))
     
     -- Simple XP formula: level * 100 (level 1 = 100, level 2 = 200, level 4 = 400, etc.)
     local requiredXP = level * 100
@@ -94,28 +94,29 @@ function ValueHandler.Init(context: any)
     local playerGui = context.PlayerGui
     
     -- Wait for UI with timeout
-    local baseGui = playerGui:WaitForChild("Base", 10)
+    local baseGui = playerGui:WaitForChild("Base", 1)
     if not baseGui then
         warn("[ValueHandler] Base UI not found in PlayerGui!")
         return
     end
     
-    local bottom = baseGui:WaitForChild("Bottom", 5)
+    local bottom = baseGui:WaitForChild("Bottom", 1)
     if not bottom then
         warn("[ValueHandler] Bottom frame not found!")
         return
     end
     
     -- HP Bar Elements
-    local hpFrame = bottom:WaitForChild("HP", 5)
-    local hpFill = hpFrame and hpFrame:WaitForChild("Current", 5)
-    local hpLabel = hpFrame and hpFrame:WaitForChild("CurrentHP", 5) :: TextLabel?
+    local hpFrame = bottom:WaitForChild("HP", 1)
+    local hpFill = hpFrame and hpFrame:WaitForChild("Current", 1)
+    local hpLabel = hpFrame and hpFrame:WaitForChild("CurrentHP", 1) :: TextLabel?
     
     -- XP Bar Elements
-    local xpFrame = bottom:WaitForChild("XP", 5)
-    local xpFill = xpFrame and xpFrame:WaitForChild("Current", 5)
-    local levelLabel = xpFrame and xpFrame:WaitForChild("CurrentLevel", 5) :: TextLabel?
-    local xpLabel = xpFrame and xpFrame:WaitForChild("CurrentXP", 5) :: TextLabel?
+    local xpFrame = bottom:WaitForChild("XP", 1)
+    local xpFill = xpFrame and xpFrame:WaitForChild("Current", 1)
+    local imageLabel = xpFrame and xpFrame:WaitForChild("ImageLabel", 5)
+    local levelLabel = imageLabel and imageLabel:WaitForChild("CurrentLevel", 5) :: TextLabel?
+    local xpLabel = xpFrame and xpFrame:WaitForChild("CurrentXP", 1) :: TextLabel?
     
     -- Create progress bar controllers only if UI exists
     if hpFrame and hpFill and hpLabel then
@@ -138,7 +139,7 @@ function ValueHandler.Init(context: any)
             ValueLabel = xpLabel,
             SecondaryLabel = levelLabel,
             TweenDuration = 0.3,
-            ValueFormat = "%d / %d XP",
+            ValueFormat = "%d / %d",
         })
         ValueHandler.XPBar = xpBar
     else
@@ -153,14 +154,14 @@ function ValueHandler.Init(context: any)
     
     -- Setup XP tracking (in background to not block)
     task.spawn(function()
-        local leaderstats = player:WaitForChild("leaderstats", 10)
+        local leaderstats = player:WaitForChild("leaderstats")
         if not leaderstats then
             warn("[ValueHandler] leaderstats not found!")
             return
         end
         
-        local levelValue = leaderstats:WaitForChild("Level", 5)
-        local xpValueObj = leaderstats:WaitForChild("XP", 5)
+        local levelValue = leaderstats:WaitForChild("Level", 1)
+        local xpValueObj = leaderstats:WaitForChild("XP", 1)
         
         if not levelValue or not xpValueObj then
             warn("[ValueHandler] Level or XP value not found in leaderstats!")

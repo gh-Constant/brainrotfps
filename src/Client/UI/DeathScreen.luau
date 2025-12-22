@@ -17,7 +17,6 @@ local playerGui = player:WaitForChild("PlayerGui")
 
 -- Configuration
 local FADE_IN_TIME = 0.3
-local HOLD_TIME = 1.0
 local FADE_OUT_TIME = 0.5
 
 -- Module
@@ -27,6 +26,7 @@ local DeathScreen = {}
 local screenGui: ScreenGui? = nil
 local overlay: Frame? = nil
 local wastedLabel: TextLabel? = nil
+local respawnButton: TextButton? = nil
 
 --[[
     Creates the death screen UI elements.
@@ -87,10 +87,39 @@ local function createUI()
     shadow.ZIndex = -1
     shadow.Parent = wasted
     
+    -- Respawn button
+    local button = Instance.new("TextButton")
+    button.Name = "RespawnButton"
+    button.Size = UDim2.fromOffset(200, 60)
+    button.Position = UDim2.new(0.5, -100, 0.65, 0)
+    button.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+    button.BackgroundTransparency = 1 -- Start invisible
+    button.Text = "RESPAWN"
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.Font = Enum.Font.GothamBold
+    button.TextSize = 24
+    button.TextTransparency = 1 -- Start invisible
+    button.BorderSizePixel = 0
+    button.AutoButtonColor = false
+    button.Parent = gui
+    
+    -- Button styling (rounded corners)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = button
+    
+    -- Button stroke
+    local buttonStroke = Instance.new("UIStroke")
+    buttonStroke.Color = Color3.fromRGB(150, 0, 0)
+    buttonStroke.Thickness = 3
+    buttonStroke.Transparency = 1 -- Start invisible
+    buttonStroke.Parent = button
+    
     -- Store references
     screenGui = gui
     overlay = overlayFrame
     wastedLabel = wasted
+    respawnButton = button
 end
 
 --[[
@@ -171,6 +200,27 @@ function DeathScreen.Show()
             {TextTransparency = 0.3, TextSize = 140}
         ):Play()
     end
+    
+    -- Fade in respawn button after a short delay
+    if respawnButton then
+        local buttonStroke = respawnButton:FindFirstChild("UIStroke") :: UIStroke?
+        
+        task.wait(FADE_IN_TIME + 0.5) -- Wait for death animation
+        
+        TweenService:Create(
+            respawnButton,
+            TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+            {BackgroundTransparency = 0, TextTransparency = 0}
+        ):Play()
+        
+        if buttonStroke then
+            TweenService:Create(
+                buttonStroke,
+                TweenInfo.new(0.4),
+                {Transparency = 0}
+            ):Play()
+        end
+    end
 end
 
 --[[
@@ -214,6 +264,25 @@ function DeathScreen.Hide()
         ):Play()
     end
     
+    -- Fade out respawn button
+    if respawnButton then
+        local buttonStroke = respawnButton:FindFirstChild("UIStroke") :: UIStroke?
+        
+        TweenService:Create(
+            respawnButton,
+            TweenInfo.new(FADE_OUT_TIME),
+            {BackgroundTransparency = 1, TextTransparency = 1}
+        ):Play()
+        
+        if buttonStroke then
+            TweenService:Create(
+                buttonStroke,
+                TweenInfo.new(FADE_OUT_TIME),
+                {Transparency = 1}
+            ):Play()
+        end
+    end
+    
     -- Disable after fade
     task.delay(FADE_OUT_TIME, function()
         if screenGui then
@@ -230,14 +299,11 @@ function DeathScreen.Hide()
 end
 
 --[[
-    Play the full death sequence (show, hold, hide).
+    Play the full death sequence (show until manual respawn).
 ]]
-function DeathScreen.PlaySequence(holdTime: number?)
+function DeathScreen.PlaySequence()
     DeathScreen.Show()
-    
-    task.delay(FADE_IN_TIME + (holdTime or HOLD_TIME), function()
-        DeathScreen.Hide()
-    end)
+    -- Note: No auto-hide, player must click respawn button
 end
 
 --[[
@@ -255,6 +321,38 @@ function DeathScreen.Init()
     packets.playerDeath.listen(function()
         DeathScreen.PlaySequence()
     end)
+    
+    -- Setup respawn button click handler
+    if respawnButton then
+        respawnButton.MouseButton1Click:Connect(function()
+            -- Send respawn request to server
+            packets.playerRespawn.send({})
+            
+            -- Hide death screen
+            DeathScreen.Hide()
+        end)
+        
+        -- Add hover effects
+        respawnButton.MouseEnter:Connect(function()
+            if respawnButton then
+                TweenService:Create(
+                    respawnButton,
+                    TweenInfo.new(0.2),
+                    {BackgroundColor3 = Color3.fromRGB(255, 80, 80)}
+                ):Play()
+            end
+        end)
+        
+        respawnButton.MouseLeave:Connect(function()
+            if respawnButton then
+                TweenService:Create(
+                    respawnButton,
+                    TweenInfo.new(0.2),
+                    {BackgroundColor3 = Color3.fromRGB(255, 50, 50)}
+                ):Play()
+            end
+        end)
+    end
     
     print("[DeathScreen] Initialized with ByteNet!")
 end

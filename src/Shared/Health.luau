@@ -67,11 +67,18 @@ function Health.new(instance: Instance, maxHealth: number?): HealthObject
         healthCache[instance] = nil
     end)
     
-    -- Initialize Attributes if server
-    print("[Health] Creating Health for", instance.Name, "- IsServer:", RunService:IsServer(), "IsClient:", RunService:IsClient())
+    -- Check if this is a player's character
+    local isPlayerCharacter = false
+    if instance:IsA("Model") then
+        local player = game:GetService("Players"):GetPlayerFromCharacter(instance)
+        isPlayerCharacter = player ~= nil
+    end
     
-    if RunService:IsServer() then
-        print("[Health] Initializing attributes (server-side)")
+    -- Initialize Attributes only for players (server-side)
+    print("[Health] Creating Health for", instance.Name, "- IsServer:", RunService:IsServer(), "IsClient:", RunService:IsClient(), "IsPlayer:", isPlayerCharacter)
+    
+    if RunService:IsServer() and isPlayerCharacter then
+        print("[Health] Initializing attributes for player (server-side)")
         if not instance:GetAttribute(ATTR_MAX_HEALTH) then
             instance:SetAttribute(ATTR_MAX_HEALTH, maxHealth or 100)
         end
@@ -82,8 +89,10 @@ function Health.new(instance: Instance, maxHealth: number?): HealthObject
         
         -- Reset dead state on new creation (spawning)
         instance:SetAttribute(ATTR_IS_DEAD, false)
-        
-        -- Start regeneration loop
+    end
+    
+    -- Start regeneration loop only on server
+    if RunService:IsServer() then
         self._regenThread = task.spawn(function()
             while self.Instance and self.Instance.Parent do
                 task.wait(0.1) -- Check every 0.1 seconds

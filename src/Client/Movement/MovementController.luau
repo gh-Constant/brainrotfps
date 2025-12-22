@@ -126,6 +126,14 @@ function MovementController._update(self: MovementController, dt: number)
 	
 	self._velocity = velocity
 	self._rootPart.AssemblyLinearVelocity = velocity
+	
+	-- Rotate character to face movement direction when moving (but only in third-person)
+	local Players = game:GetService("Players")
+	local player = Players:GetPlayerFromCharacter(self._character)
+	if player and player.CameraMode ~= Enum.CameraMode.LockFirstPerson and horizontalVel.Magnitude > 1 then
+		local targetCFrame = CFrame.lookAt(self._rootPart.Position, self._rootPart.Position + horizontalVel)
+		self._rootPart.CFrame = self._rootPart.CFrame:Lerp(targetCFrame, dt * 10)
+	end
 end
 
 function MovementController._handleSliding(

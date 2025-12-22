@@ -4,25 +4,29 @@
 
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
 local Packages = Rojo:WaitForChild("Packages")
 local Shared = Rojo:WaitForChild("Shared")
+local Server = ServerScriptService:WaitForChild("Rojo"):WaitForChild("Server")
 local Zone = require(Packages:WaitForChild("zoneplus"))
 local Health = require(Shared:WaitForChild("Health"))
+local MobAI = require(Server:WaitForChild("Brainrot"):WaitForChild("MobAI"))
+local MobDisplay = require(Server:WaitForChild("Brainrot"):WaitForChild("MobDisplay"))
 
 local BrainrotSpawner = {}
 
 -- Types
-type ZoneData = {
-	zone: any,
+type ZoneGroup = {
 	zoneName: string,
+	parts: { BasePart },
 	spawnedBrainrots: { Model },
-	part: BasePart,
+	zoneObjects: { any }, -- Keep references to ZonePlus objects if needed
 }
 
 -- State
-local zones: { ZoneData } = {}
+local zoneGroups: { [string]: ZoneGroup } = {}
 local config: Folder? = nil
 local zonesConfig: Folder? = nil
 
@@ -108,8 +112,7 @@ local function getZoneModels(zoneName: string): { Model }
 	return models
 end
 
-local function getRandomSpawnPosition(zoneData: ZoneData): Vector3?
-	local part = zoneData.part
+local function getRandomSpawnPosition(part: BasePart): Vector3?
 	local size = part.Size
 	local cframe = part.CFrame
 	
@@ -175,15 +178,15 @@ local function getRandomSpawnPosition(zoneData: ZoneData): Vector3?
 	return nil
 end
 
-local function spawnBrainrot(zoneData: ZoneData)
-	local models = getZoneModels(zoneData.zoneName)
+local function spawnBrainrot(group: ZoneGroup)
+	local models = getZoneModels(group.zoneName)
 	if #models == 0 then
 		return
 	end
 	
-	-- Check max per zone
+	-- Check max per zone GROUP
 	local maxPerZone = getMaxPerZone()
-	if #zoneData.spawnedBrainrots >= maxPerZone then
+	if #group.spawnedBrainrots >= maxPerZone then
 		return
 	end
 	
@@ -191,8 +194,12 @@ local function spawnBrainrot(zoneData: ZoneData)
 	local template = models[math.random(1, #models)]
 	local brainrot = template:Clone()
 	
+	-- Pick a random part from the group
+	if #group.parts == 0 then return end
+	local randomPart = group.parts[math.random(1, #group.parts)]
+	
 	-- Get spawn position
-	local spawnPos = getRandomSpawnPosition(zoneData)
+	local spawnPos = getRandomSpawnPosition(randomPart)
 	if not spawnPos then
 		brainrot:Destroy()
 		return
@@ -205,12 +212,12 @@ local function spawnBrainrot(zoneData: ZoneData)
 	end
 	
 	-- Track the spawned brainrot
-	table.insert(zoneData.spawnedBrainrots, brainrot)
+	table.insert(group.spawnedBrainrots, brainrot)
 	
 	-- Parent to Workspace.Zones.{ZoneName} folder
 	local zonesFolder = workspace:FindFirstChild("Zones")
 	if zonesFolder then
-		local zoneFolder = zonesFolder:FindFirstChild(zoneData.zoneName)
+		local zoneFolder = zonesFolder:FindFirstChild(group.zoneName)
 		if zoneFolder then
 			brainrot.Parent = zoneFolder
 		else
@@ -226,40 +233,126 @@ local function spawnBrainrot(zoneData: ZoneData)
 	local maxHealth: number = if typeof(maxHealthAttr) == "number" then maxHealthAttr else 100
 	local health = Health.new(brainrot, maxHealth)
 	
+	-- Setup AI pathfinding and animation
+	local mobAI = MobAI.new(brainrot)
+	if mobAI then
+		mobAI:Start()
+		log("[BrainrotSpawner] Started AI for: " .. brainrot.Name)
+	else
+		warn("[BrainrotSpawner] Failed to create AI for: " .. brainrot.Name)
+	end
+
+	-- Setup Mob Display (UI)
+	local mobDisplay = MobDisplay.new(brainrot)
+
 	health.Died:Connect(function()
-		-- Optional: Play death animation here if you have one
-		-- For now, just destroy after a short delay (like ragdoll time)
-		task.delay(3, function()
-			if brainrot and brainrot.Parent then
-				brainrot:Destroy()
+		-- Stop AI when mob dies
+		if mobAI then
+			mobAI:Stop()
+		end
+		
+		-- Use VfxInstance for positioning if it exists, otherwise PrimaryPart
+		-- Sourced from mob.VFX.Death
+		if primaryPart then
+			local vfxFolder = brainrot:FindFirstChild("VFX")
+			if vfxFolder then
+				local deathVFX = vfxFolder:FindFirstChild("Death")
+				if deathVFX and deathVFX:IsA("Attachment") then
+					-- Create invisible part to hold VFX (persists after mob despawns)
+					local vfxPart = Instance.new("Part")
+					vfxPart.Anchored = true
+					vfxPart.CanCollide = false
+					vfxPart.Transparency = 1
+					vfxPart.Size = Vector3.new(0.1, 0.1, 0.1)
+					
+					-- Use VfxInstance for positioning if it exists, otherwise PrimaryPart
+					local vfxTarget = brainrot:FindFirstChild("VfxInstance") or primaryPart
+					if vfxTarget and vfxTarget:IsA("BasePart") then
+						vfxPart.CFrame = vfxTarget.CFrame
+					else
+						vfxPart.CFrame = primaryPart.CFrame
+					end
+					
+					vfxPart.Parent = workspace
+					
+					-- Clone and attach death VFX to the separate part
+					local vfxClone = deathVFX:Clone()
+					vfxClone.Parent = vfxPart
+					
+					-- Emit all particle emitters
+					task.wait(0.1)
+					local emittersFound = 0
+					for _, Particles in vfxClone:GetDescendants() do
+						if Particles:IsA("ParticleEmitter") then
+							emittersFound += 1
+							Particles:Emit(Particles:GetAttribute("EmitCount") :: number or 1)
+						end
+					end
+					
+					-- log("[BrainrotSpawner] Emitted VFX for " .. brainrot.Name .. " (Emitters: " .. emittersFound .. ")")
+					
+					-- Clean up VFX part after particles finish
+					-- If logging is enabled, keep the part for inspection
+					if not isLoggingEnabled() then
+						task.delay(3, function()
+							vfxPart:Destroy()
+						end)
+					else
+						-- Make visible if keeping for debug
+						vfxPart.Transparency = 0.5
+						vfxPart.Color = Color3.new(1, 0, 0) -- Red debug visualization
+						vfxPart.Material = Enum.Material.Neon
+						log("[BrainrotSpawner] Keeping dead VFX part for debug: " .. vfxPart:GetFullName())
+					end
+				end
 			end
-		end)
-	end)
-	
-	-- Clean up tracking when destroyed
-	brainrot.Destroying:Connect(function()
-		local index = table.find(zoneData.spawnedBrainrots, brainrot)
-		if index then
-			table.remove(zoneData.spawnedBrainrots, index)
+		end
+		
+		-- Destroy instantly
+		if brainrot and brainrot.Parent then
+			brainrot:Destroy()
 		end
 	end)
 	
-	log("[BrainrotSpawner] Spawned brainrot in zone: " .. zoneData.zoneName .. " (" .. #zoneData.spawnedBrainrots .. "/" .. maxPerZone .. ")")
+	-- Clean up tracking and AI when destroyed
+	brainrot.Destroying:Connect(function()
+		if mobAI then
+			mobAI:Destroy()
+		end
+		
+		if mobDisplay then
+			mobDisplay:Destroy()
+		end
+		
+		local index = table.find(group.spawnedBrainrots, brainrot)
+		if index then
+			table.remove(group.spawnedBrainrots, index)
+		end
+	end)
+	
+	log("[BrainrotSpawner] Spawned brainrot in zone: " .. group.zoneName .. " (" .. #group.spawnedBrainrots .. "/" .. maxPerZone .. ")")
 end
 
-local function createZone(part: BasePart, zoneName: string)
+local function addPartToZoneGroup(part: BasePart, zoneName: string)
+	local group = zoneGroups[zoneName]
+	
+	if not group then
+		group = {
+			zoneName = zoneName,
+			parts = {},
+			spawnedBrainrots = {},
+			zoneObjects = {},
+		}
+		zoneGroups[zoneName] = group
+	end
+	
+	table.insert(group.parts, part)
+	
+	-- Create ZonePlus object for this part (if we want to use Zone events later)
 	local zone = Zone.new(part)
+	table.insert(group.zoneObjects, zone)
 	
-	local zoneData: ZoneData = {
-		zone = zone,
-		zoneName = zoneName,
-		spawnedBrainrots = {},
-		part = part,
-	}
-	
-	table.insert(zones, zoneData)
-	
-	log("[BrainrotSpawner] Created zone: " .. zoneName .. " from part: " .. part.Name)
+	log("[BrainrotSpawner] Added part " .. part.Name .. " to zone group: " .. zoneName)
 end
 
 local function setupZonesForTag(tagName: string)
@@ -267,14 +360,14 @@ local function setupZonesForTag(tagName: string)
 	
 	for _, part in taggedParts do
 		if part:IsA("BasePart") then
-			createZone(part, tagName)
+			addPartToZoneGroup(part, tagName)
 		end
 	end
 	
 	-- Listen for new parts with this tag
 	CollectionService:GetInstanceAddedSignal(tagName):Connect(function(part)
 		if part:IsA("BasePart") then
-			createZone(part, tagName)
+			addPartToZoneGroup(part, tagName)
 		end
 	end)
 end
@@ -285,8 +378,8 @@ local function startSpawnLoop()
 			local spawnInterval = getSpawnInterval()
 			task.wait(spawnInterval)
 			
-			for _, zoneData in zones do
-				spawnBrainrot(zoneData)
+			for _, group in zoneGroups do
+				spawnBrainrot(group)
 			end
 		end
 	end)
@@ -318,28 +411,27 @@ function BrainrotSpawner.Init()
 end
 
 -- Public API for external control
-function BrainrotSpawner.GetZones(): { ZoneData }
-	return zones
+function BrainrotSpawner.GetZoneGroups(): { [string]: ZoneGroup }
+	return zoneGroups
 end
 
 function BrainrotSpawner.ClearZone(zoneName: string)
-	for _, zoneData in zones do
-		if zoneData.zoneName == zoneName then
-			for _, brainrot in zoneData.spawnedBrainrots do
-				brainrot:Destroy()
-			end
-			zoneData.spawnedBrainrots = {}
-			log("[BrainrotSpawner] Cleared zone: " .. zoneName)
+	local group = zoneGroups[zoneName]
+	if group then
+		for _, brainrot in group.spawnedBrainrots do
+			brainrot:Destroy()
 		end
+		group.spawnedBrainrots = {}
+		log("[BrainrotSpawner] Cleared zone group: " .. zoneName)
 	end
 end
 
 function BrainrotSpawner.ClearAll()
-	for _, zoneData in zones do
-		for _, brainrot in zoneData.spawnedBrainrots do
+	for _, group in zoneGroups do
+		for _, brainrot in group.spawnedBrainrots do
 			brainrot:Destroy()
 		end
-		zoneData.spawnedBrainrots = {}
+		group.spawnedBrainrots = {}
 	end
 	log("[BrainrotSpawner] Cleared all zones")
 end

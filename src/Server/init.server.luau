@@ -9,7 +9,7 @@ local _Shared = Rojo:WaitForChild("Shared")
 local PlayerManager = require(script.Player)
 local SafezoneManager = require(script.SafezoneManager)
 local CmdrSetup = require(script.CmdrSetup)
-local BrainrotSpawner = require(script.BrainrotSpawner)
+local BrainrotSpawner = require(script.Brainrot.BrainrotSpawner)
 
 print("[Server] Server initialized!")
 

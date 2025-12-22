@@ -29,5 +29,12 @@ return ByteNet.defineNamespace("game", function()
 			value = ByteNet.struct({}), -- No data needed, just a notification
 			reliabilityType = "reliable",
 		}),
+		
+		-- Player respawn request packet (Client -> Server)
+		-- Sent when player clicks respawn button on death screen
+		playerRespawn = ByteNet.definePacket({
+			value = ByteNet.struct({}), -- No data needed, just a notification
+			reliabilityType = "reliable",
+		}),
 	}
 end)
