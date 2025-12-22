@@ -111,8 +111,10 @@ function MovementController._update(self: MovementController, dt: number)
 	local horizontalVel = Vector3.new(velocity.X, 0, velocity.Z)
 	local currentSpeed = horizontalVel.Magnitude
 	
-	-- Print current velocity in logs as requested
-	if currentSpeed > 0.1 then
+	-- Print current velocity in logs when VelocityLogging is enabled in Config.Player
+	local playerConfig = game:GetService("ReplicatedStorage"):FindFirstChild("Config") and game.ReplicatedStorage.Config:FindFirstChild("Player")
+	local velocityLogging = playerConfig and playerConfig:GetAttribute("VelocityLogging") == true
+	if velocityLogging and currentSpeed > 0.1 then
 		print(string.format("Current Velocity: %.2f", currentSpeed))
 	end
 	

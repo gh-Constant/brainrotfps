@@ -7,6 +7,12 @@
     player data across sessions.
 ]]
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Signal = require(ReplicatedStorage.Rojo.Packages.signal)
+
+-- Signal type for type checking
+type Signal = typeof(Signal.new())
+
 -- Type definitions
 export type PlayerData = {
     Level: number,
@@ -25,8 +31,9 @@ export type Player = {
     TotalGoldEarned: number,
     
     -- Events
-    OnLevelUp: RBXScriptSignal?,
-    OnGoldChanged: RBXScriptSignal?,
+    OnLevelUp: Signal?,
+    OnGoldChanged: Signal?,
+    OnExperienceChanged: Signal?,
     
     -- Methods
     GetData: (self: Player) -> PlayerData,
@@ -36,6 +43,7 @@ export type Player = {
     SpendGold: (self: Player, amount: number) -> boolean,
     GetExperienceForLevel: (self: Player, level: number) -> number,
     GetExperienceProgress: (self: Player) -> (number, number),
+    GetMaxHealthForLevel: (self: Player, level: number) -> number,
     Destroy: (self: Player) -> (),
 }
 
@@ -48,9 +56,13 @@ local DEFAULT_DATA: PlayerData = {
 }
 
 -- Experience curve settings
+-- Linear progression: Level 1 = 100 XP, Level 2 = 200 XP, etc.
 local BASE_EXPERIENCE = 100
-local EXPERIENCE_MULTIPLIER = 1.5
 local MAX_LEVEL = 100
+
+-- Health settings
+-- Level 1 = 100 HP, Level 2 = 200 HP, etc.
+local BASE_HEALTH = 100
 
 -- Module
 local PlayerClass = {}
@@ -78,12 +90,10 @@ function PlayerClass.new(robloxPlayer: Player, initialData: PlayerData?): Player
     self.Gold = data.Gold
     self.TotalGoldEarned = data.TotalGoldEarned
     
-    -- Create bindable events for signaling changes
-    self._levelUpEvent = Instance.new("BindableEvent")
-    self._goldChangedEvent = Instance.new("BindableEvent")
-    
-    self.OnLevelUp = self._levelUpEvent.Event
-    self.OnGoldChanged = self._goldChangedEvent.Event
+    -- Create signals for changes (using Signal library)
+    self.OnLevelUp = Signal.new()
+    self.OnGoldChanged = Signal.new()
+    self.OnExperienceChanged = Signal.new()
     
     -- Track active state
     self._destroyed = false
@@ -128,17 +138,34 @@ end
 
 --[[
     Calculates the experience required to reach a specific level.
+    Each level requires level * 100 XP (level 1 = 100, level 2 = 200, level 4 = 400, etc.)
     
     @param level - The target level
-    @return number - Experience required
+    @return number - Total experience required to reach this level
 ]]
 function PlayerClass:GetExperienceForLevel(level: number): number
     if level <= 1 then
         return 0
     end
     
-    -- Exponential curve: baseExp * (multiplier ^ (level - 1))
-    return math.floor(BASE_EXPERIENCE * (EXPERIENCE_MULTIPLIER ^ (level - 1)))
+    -- Sum of all previous level requirements: 100 + 200 + 300 + ... + (level-1)*100
+    -- Formula: 100 * (1 + 2 + ... + (level-1)) = 100 * (level-1) * level / 2
+    return BASE_EXPERIENCE * (level - 1) * level / 2
+end
+
+--[[
+    Calculates the max health for a specific level.
+    
+    @param level - The target level
+    @return number - Max health for that level
+]]
+function PlayerClass:GetMaxHealthForLevel(level: number): number
+    if level < 1 then
+        level = 1
+    end
+    
+    -- Linear scaling: Level 1 = 100 HP, Level 2 = 200 HP, etc.
+    return BASE_HEALTH * level
 end
 
 --[[
@@ -167,7 +194,13 @@ function PlayerClass:AddExperience(amount: number): boolean
         return false
     end
     
+    local previousExperience = self.Experience
     self.Experience = self.Experience + amount
+    
+    -- Fire experience changed event
+    if self.OnExperienceChanged then
+        self.OnExperienceChanged:Fire(self.Experience, previousExperience, amount)
+    end
     
     local leveledUp = false
     
@@ -180,8 +213,8 @@ function PlayerClass:AddExperience(amount: number): boolean
             leveledUp = true
             
             -- Fire level up event
-            if self._levelUpEvent then
-                self._levelUpEvent:Fire(self.Level)
+            if self.OnLevelUp then
+                self.OnLevelUp:Fire(self.Level)
             end
             
             print(string.format("[Player] %s leveled up to %d!", self.Name, self.Level))
@@ -209,8 +242,8 @@ function PlayerClass:AddGold(amount: number): boolean
     self.TotalGoldEarned = self.TotalGoldEarned + amount
     
     -- Fire gold changed event
-    if self._goldChangedEvent then
-        self._goldChangedEvent:Fire(self.Gold, previousGold, amount)
+    if self.OnGoldChanged then
+        self.OnGoldChanged:Fire(self.Gold, previousGold, amount)
     end
     
     return true
@@ -235,8 +268,8 @@ function PlayerClass:SpendGold(amount: number): boolean
     self.Gold = self.Gold - amount
     
     -- Fire gold changed event
-    if self._goldChangedEvent then
-        self._goldChangedEvent:Fire(self.Gold, previousGold, -amount)
+    if self.OnGoldChanged then
+        self.OnGoldChanged:Fire(self.Gold, previousGold, -amount)
     end
     
     return true
@@ -290,20 +323,21 @@ function PlayerClass:Destroy()
     
     self._destroyed = true
     
-    local levelUpEvent = self._levelUpEvent
-    if levelUpEvent then
-        levelUpEvent:Destroy()
-        self._levelUpEvent = nil
+    -- Destroy signals (using Signal library)
+    if self.OnLevelUp then
+        self.OnLevelUp:Destroy()
+        self.OnLevelUp = nil
     end
     
-    local goldChangedEvent = self._goldChangedEvent
-    if goldChangedEvent then
-        goldChangedEvent:Destroy()
-        self._goldChangedEvent = nil
+    if self.OnGoldChanged then
+        self.OnGoldChanged:Destroy()
+        self.OnGoldChanged = nil
     end
     
-    self.OnLevelUp = nil
-    self.OnGoldChanged = nil
+    if self.OnExperienceChanged then
+        self.OnExperienceChanged:Destroy()
+        self.OnExperienceChanged = nil
+    end
 end
 
 return PlayerClass

@@ -48,7 +48,26 @@ local PlayerConnections: {[Player]: {RBXScriptConnection}} = {}
 --[[
     Sets up a character with all player systems.
 ]]
-local function setupCharacter(character: Model)
+local function setupCharacter(character: Model, playerData: PlayerClass.Player?)
+    -- Apply max health based on player level using Attributes
+    if playerData then
+        local maxHealth = playerData:GetMaxHealthForLevel(playerData.Level)
+        character:SetAttribute("MaxHealth", maxHealth)
+        character:SetAttribute("Health", maxHealth) -- Always reset to full health on spawn
+        
+        -- Also set legacy humanoid health for compatibility
+        local humanoid = character:FindFirstChild("Humanoid") :: Humanoid?
+        if humanoid then
+            humanoid.MaxHealth = maxHealth
+            humanoid.Health = maxHealth
+        end
+    else
+        -- Fallback for no player data
+        character:SetAttribute("MaxHealth", 100)
+        character:SetAttribute("Health", 100)
+    end
+    
+    -- Setup death handler AFTER setting attributes
     DeathHandler.SetupCharacter(character)
 end
 
@@ -61,6 +80,26 @@ local function onPlayerAdded(player: Player)
     
     -- Initialize connection tracking
     PlayerConnections[player] = {}
+    
+    -- Create leaderstats IMMEDIATELY (before profile loads)
+    local leaderstats = Instance.new("Folder")
+    leaderstats.Name = "leaderstats"
+    leaderstats.Parent = player
+    
+    local levelValue = Instance.new("IntValue")
+    levelValue.Name = "Level"
+    levelValue.Value = 1
+    levelValue.Parent = leaderstats
+    
+    local xpValue = Instance.new("IntValue")
+    xpValue.Name = "XP"
+    xpValue.Value = 0
+    xpValue.Parent = leaderstats
+    
+    local goldValue = Instance.new("IntValue")
+    goldValue.Name = "Gold"
+    goldValue.Value = 0
+    goldValue.Parent = leaderstats
     
     -- Start ProfileStore session
     local profile = PlayerProfileStore:StartSessionAsync(profileKey, {
@@ -106,13 +145,34 @@ local function onPlayerAdded(player: Player)
         TotalGoldEarned = profile.Data.TotalGoldEarned,
     })
     
-    -- Sync events to profile
+    -- Update leaderstats with loaded values
+    levelValue.Value = playerData.Level
+    xpValue.Value = playerData.Experience
+    goldValue.Value = playerData.Gold
+    
     local levelUpSignal = playerData.OnLevelUp
     if levelUpSignal then
         levelUpSignal:Connect(function(_newLevel)
             if profile:IsActive() then
                 profile.Data.Level = playerData.Level
                 profile.Data.Experience = playerData.Experience
+            end
+            -- Update leaderstats
+            levelValue.Value = playerData.Level
+            xpValue.Value = playerData.Experience
+            
+            -- Update max health based on new level using Attributes
+            if player.Character then
+                local newMaxHealth = playerData:GetMaxHealthForLevel(playerData.Level)
+                local oldMaxHealth = player.Character:GetAttribute("MaxHealth") or 100
+                local currentHealth = player.Character:GetAttribute("Health") or 100
+                
+                -- Calculate health ratio and scale to new max
+                local healthRatio = currentHealth / oldMaxHealth
+                local newHealth = newMaxHealth * healthRatio
+                
+                player.Character:SetAttribute("MaxHealth", newMaxHealth)
+                player.Character:SetAttribute("Health", newHealth)
             end
         end)
     end
@@ -124,6 +184,19 @@ local function onPlayerAdded(player: Player)
                 profile.Data.Gold = playerData.Gold
                 profile.Data.TotalGoldEarned = playerData.TotalGoldEarned
             end
+            -- Update leaderstats
+            goldValue.Value = playerData.Gold
+        end)
+    end
+    
+    local experienceChangedSignal = playerData.OnExperienceChanged
+    if experienceChangedSignal then
+        experienceChangedSignal:Connect(function(_newXP, _previousXP, _delta)
+            if profile:IsActive() then
+                profile.Data.Experience = playerData.Experience
+            end
+            -- Update leaderstats
+            xpValue.Value = playerData.Experience
         end)
     end
     
@@ -131,16 +204,18 @@ local function onPlayerAdded(player: Player)
     ActivePlayers[userId] = playerData
     ActiveProfiles[userId] = profile
     
-    -- Setup current character
-    if player.Character then
-        task.spawn(setupCharacter, player.Character)
-    end
-    
-    -- Setup future characters
+    -- Setup future characters (MUST be before LoadCharacter to avoid race condition)
     local characterConnection = player.CharacterAdded:Connect(function(character)
-        setupCharacter(character)
+        setupCharacter(character, playerData)
     end)
     table.insert(PlayerConnections[player], characterConnection)
+    
+    -- Setup current character or load new one
+    if player.Character then
+        task.spawn(setupCharacter, player.Character, playerData)
+    else
+        player:LoadCharacter()
+    end
     
     print(string.format(
         "[PlayerManager] Loaded %s - Level %d, %d Gold",
@@ -207,6 +282,9 @@ function PlayerManager.Init()
         task.spawn(onPlayerAdded, player)
     end
     
+    -- Disable auto-loading to prevent conflicts with custom respawn
+    Players.CharacterAutoLoads = false
+
     -- Handle new/leaving players
     Players.PlayerAdded:Connect(onPlayerAdded)
     Players.PlayerRemoving:Connect(onPlayerRemoving)
@@ -217,6 +295,16 @@ function PlayerManager.Init()
     end)
     
     print("[PlayerManager] Initialized!")
+    
+    -- TEST: Give 25 XP to all players every second
+    task.spawn(function()
+        while true do
+            task.wait(1)
+            for _, playerData in pairs(ActivePlayers) do
+                playerData:AddExperience(25)
+            end
+        end
+    end)
 end
 
 --[[

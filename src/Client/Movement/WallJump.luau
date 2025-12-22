@@ -70,7 +70,12 @@ function WallJump.CheckForWall(self: WallJump, velocity: Vector3): boolean
 	for _, direction in rayOffsets do
 		local ray = workspace:Raycast(position, direction * checkDistance, self._raycastParams)
 		
-		if ray then
+		if ray and ray.Instance then
+			-- Skip non-collidable walls
+			if not ray.Instance.CanCollide then
+				continue
+			end
+			
 			local angleFromUp = math.deg(math.acos(ray.Normal:Dot(Vector3.yAxis)))
 			
 			if angleFromUp >= MIN_WALL_ANGLE and angleFromUp <= MAX_WALL_ANGLE then

@@ -1,157 +1,186 @@
 --!strict
 --[[
     DeathHandler
-    Handles death-related effects (VFX).
-    
-    Part of the Player system.
+    Handles player death with ragdoll clone and respawn.
 ]]
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Debris = game:GetService("Debris")
 
--- VFX Configuration
-local VFX_LIFETIME = 3 -- How long the death VFX plays
+local Rojo = ReplicatedStorage.Rojo
+local Shared = Rojo.Shared
+local Packets = require(Shared.Packets)
+local Health = require(Shared.Health)
+local RagdollUtils = require(Shared.Player.RagdollUtils)
+
+-- Configuration
+local RESPAWN_DELAY = 1.5
 
 local DeathHandler = {}
 
 --[[
-    Gets the death VFX attachment template.
-    
-    @return Attachment? - The VFX template or nil if not found
+    Handles character death: creates ragdoll clone, hides player, respawns after delay.
 ]]
-local function getDeathVFXTemplate(): Attachment?
-    local playerFolder = ReplicatedStorage:FindFirstChild("Player")
-    if not playerFolder then
-        warn("[DeathHandler] ReplicatedStorage.Player folder not found")
-        return nil
+function DeathHandler.OnDeath(character: Model, player: Player?)
+    -- Send death screen to client
+    if player then
+        Packets.playerDeath.sendTo({}, player)
     end
     
-    local vfxFolder = playerFolder:FindFirstChild("VFX")
-    if not vfxFolder then
-        warn("[DeathHandler] ReplicatedStorage.Player.VFX folder not found")
-        return nil
-    end
-    
-    local deathVFX = vfxFolder:FindFirstChild("Death")
-    if not deathVFX or not deathVFX:IsA("Attachment") then
-        warn("[DeathHandler] ReplicatedStorage.Player.VFX.Death attachment not found")
-        return nil
-    end
-    
-    return deathVFX :: Attachment
-end
-
---[[
-    Spawns death VFX on a character.
-    
-    @param character - The character to spawn VFX on
-]]
-local function spawnDeathVFX(character: Model)
-    local template = getDeathVFXTemplate()
-    if not template then return end
-    
+    -- Freeze player movement completely
     local rootPart = character:FindFirstChild("HumanoidRootPart") :: BasePart?
-    if not rootPart then
-        -- Try torso as fallback
-        local torso = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
-        if torso and torso:IsA("BasePart") then
-            rootPart = torso
-        end
+    if rootPart then
+        rootPart.Anchored = true
     end
     
-    if not rootPart then
-        warn("[DeathHandler] No root part found for VFX")
-        return
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid.WalkSpeed = 0
+        humanoid.JumpPower = 0
+        humanoid.AutoRotate = false
     end
     
-    -- Clone and attach the VFX
-    local vfxClone = template:Clone()
-    vfxClone.Name = "DeathVFX"
-    vfxClone.Parent = rootPart
+    -- Ensure character is archivable (required for cloning)
+    local wasArchivable = character.Archivable
+    character.Archivable = true
     
-    -- Enable all particle emitters
-    for _, child in ipairs(vfxClone:GetDescendants()) do
-        if child:IsA("ParticleEmitter") then
-            child.Enabled = true
-            -- Emit burst if it's a burst-type emitter
-            local burstCount = child:GetAttribute("BurstCount")
-            if typeof(burstCount) == "number" then
-                child:Emit(burstCount)
+    -- Create ragdoll clone
+    local clone = character:Clone()
+    
+    -- Restore original archivable state
+    character.Archivable = wasArchivable
+    
+    if clone then
+        clone.Name = character.Name .. "_DeathClone"
+        clone.Archivable = true
+        
+        -- Clean up clone (remove scripts)
+        for _, descendant in clone:GetDescendants() do
+            if descendant:IsA("BaseScript") then
+                descendant:Destroy()
             end
-        elseif child:IsA("Beam") then
-            child.Enabled = true
-        elseif child:IsA("Trail") then
-            child.Enabled = true
+        end
+        
+        -- Remove clone humanoid
+        local cloneHumanoid = clone:FindFirstChildOfClass("Humanoid")
+        if cloneHumanoid then
+            cloneHumanoid:Destroy()
+        end
+        
+        -- Spawn and ragdoll the clone
+        clone.Parent = workspace
+        RagdollUtils.EnableRagdoll(clone, true)
+        Debris:AddItem(clone, RESPAWN_DELAY + 0.5) -- Clean up slightly after respawn
+    else
+        warn("[DeathHandler] Failed to clone character for ragdoll")
+    end
+    
+    -- Make original character invisible
+    for _, descendant in character:GetDescendants() do
+        if descendant:IsA("BasePart") then
+            descendant.Transparency = 1
+            descendant.CanCollide = false
+        elseif descendant:IsA("Decal") then
+            descendant.Transparency = 1
+        elseif descendant:IsA("Texture") then
+            descendant.Transparency = 1
         end
     end
     
-    -- Clean up VFX after lifetime
-    Debris:AddItem(vfxClone, VFX_LIFETIME)
-    
-    -- Disable emitters after a short time so particles can fade out
-    task.delay(0.5, function()
-        if vfxClone and vfxClone.Parent then
-            for _, child in ipairs(vfxClone:GetDescendants()) do
-                if child:IsA("ParticleEmitter") then
-                    child.Enabled = false
+    -- Respawn after delay
+    task.delay(RESPAWN_DELAY, function()
+        if not character or not character.Parent then return end
+        
+        local rootPart = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+        local spawnLocation = workspace:FindFirstChild("SpawnLocation") :: BasePart?
+        
+        if not rootPart or not spawnLocation then
+            warn("[DeathHandler] Missing HumanoidRootPart or SpawnLocation")
+            return
+        end
+        
+        -- Unanchor to allow movement
+        rootPart.Anchored = false
+        
+        -- Teleport to spawn
+        rootPart.CFrame = spawnLocation.CFrame + Vector3.new(0, 5, 0)
+        
+        -- Reset all velocities
+        for _, descendant in character:GetDescendants() do
+            if descendant:IsA("BasePart") then
+                descendant.AssemblyLinearVelocity = Vector3.zero
+                descendant.AssemblyAngularVelocity = Vector3.zero
+            end
+        end
+        
+        -- Restore visibility
+        for _, descendant in character:GetDescendants() do
+            if descendant:IsA("BasePart") then
+                descendant.Transparency = descendant.Name == "HumanoidRootPart" and 1 or 0
+                
+                -- Only enable CanCollide for non-accessory parts
+                local isAccessory = descendant:FindFirstAncestorOfClass("Accessory") ~= nil
+                if not isAccessory then
+                    descendant.CanCollide = true
                 end
+            elseif descendant:IsA("Decal") then
+                descendant.Transparency = 0
+            elseif descendant:IsA("Texture") then
+                descendant.Transparency = 0
             end
         end
+        
+        -- Restore health
+        local maxHealth = character:GetAttribute("MaxHealth") or 100
+        character:SetAttribute("Health", maxHealth)
+        character:SetAttribute("IsDead", false)
+        
+        if humanoid then
+            humanoid.Health = humanoid.MaxHealth
+            humanoid.WalkSpeed = 16
+            humanoid.JumpPower = 50
+            humanoid.AutoRotate = true
+        end
+        
+        -- Recreate Health object for death detection
+        local newHealth = Health.new(character)
+        newHealth.Died:Connect(function()
+            DeathHandler.OnDeath(character, player)
+            newHealth:Destroy()
+        end)
     end)
-end
-
---[[
-    Handles a character's death with VFX and ragdoll.
-    
-    @param character - The character that died
-    @param enableRagdoll - Whether to enable ragdoll (default: true)
-]]
-function DeathHandler.OnDeath(character: Model, _enableRagdoll: boolean?)
-    -- Spawn death VFX only (ragdoll disabled)
-    spawnDeathVFX(character)
 end
 
 --[[
     Sets up death handling for a character.
-    
-    @param character - The character to setup
 ]]
 function DeathHandler.SetupCharacter(character: Model)
-    local humanoid = character:WaitForChild("Humanoid", 10) :: Humanoid?
-    
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
     if not humanoid then
-        warn("[DeathHandler] No Humanoid found in character")
+        warn("[DeathHandler] No Humanoid found")
         return
     end
     
-    -- Disable Roblox's default ragdoll states (prevents ragdoll when hitting walls)
-    humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-    humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+    local player = Players:GetPlayerFromCharacter(character)
     
-    -- Also handle if ragdoll somehow gets triggered
-    humanoid.StateChanged:Connect(function(_, newState)
-        if newState == Enum.HumanoidStateType.Ragdoll or newState == Enum.HumanoidStateType.FallingDown then
-            humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-        end
-    end)
-    
-    -- Setup death handling
-    humanoid.Died:Connect(function()
-        DeathHandler.OnDeath(character)
+    -- Setup death detection via custom health system
+    local health = Health.new(character)
+    health.Died:Connect(function()
+        DeathHandler.OnDeath(character, player)
+        health:Destroy()
     end)
 end
 
 --[[
-    Cleans up death effects on a character.
-    
-    @param character - The character to cleanup
+    Cleanup for character removal.
 ]]
 function DeathHandler.Cleanup(character: Model)
-    -- Remove any lingering death VFX
-    for _, descendant in ipairs(character:GetDescendants()) do
-        if descendant.Name == "DeathVFX" then
-            descendant:Destroy()
-        end
+    -- Remove any lingering clones
+    local cloneName = character.Name .. "_DeathClone"
+    local clone = workspace:FindFirstChild(cloneName)
+    if clone then
+        clone:Destroy()
     end
 end
 

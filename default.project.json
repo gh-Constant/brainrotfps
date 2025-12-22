@@ -54,7 +54,14 @@
 
     "Workspace": {
       "$className": "Workspace",
-      "$ignoreUnknownInstances": true
+      "$ignoreUnknownInstances": true,
+      "$properties": {
+        "StreamingEnabled": true,
+        "UseFixedSimulation": true,
+        "PlayerScriptsUseInputActionSystem": true,
+        "NextGenerationReplication": true,
+        "AuthorityMode": "Server"
+      }
     },
 
     "Lighting": {
