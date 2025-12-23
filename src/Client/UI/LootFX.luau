@@ -22,9 +22,45 @@ local ContentProvider = game:GetService("ContentProvider")
 local Players = game:GetService("Players")
 local PhysicsService = game:GetService("PhysicsService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SoundService = game:GetService("SoundService")
 
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
 local Packets = require(Rojo:WaitForChild("Shared"):WaitForChild("Packets"))
+
+-- Get pickup sound reference
+local function getPickupSound(): Sound?
+	local config = ReplicatedStorage:FindFirstChild("Config")
+	if not config then return nil end
+	
+	local playerFolder = config:FindFirstChild("Player")
+	if not playerFolder then return nil end
+	
+	local audiosFolder = playerFolder:FindFirstChild("Audios")
+	if not audiosFolder then return nil end
+	
+	return audiosFolder:FindFirstChild("Pickup") :: Sound?
+end
+
+-- Play the pickup sound (non-blocking, with debounce)
+local lastPickupSoundTime = 0
+local PICKUP_SOUND_DEBOUNCE = 0.05 -- Small debounce to prevent sound spam
+
+local function playPickupSound()
+	local now = tick()
+	if now - lastPickupSoundTime < PICKUP_SOUND_DEBOUNCE then return end
+	lastPickupSoundTime = now
+	
+	local pickupSound = getPickupSound()
+	if not pickupSound then return end
+	
+	local soundClone = pickupSound:Clone()
+	soundClone.Parent = SoundService
+	soundClone:Play()
+	
+	soundClone.Ended:Connect(function()
+		soundClone:Destroy()
+	end)
+end
 
 local LootFX = {}
 
@@ -34,11 +70,11 @@ local LootFX = {}
 local FX_FOLDER_NAME = "Effects"
 
 -- Physics settings
-local HORIZONTAL_SPEED = 25
-local VERTICAL_SPEED = 50
-local BOUNCINESS = 0.5
+local HORIZONTAL_SPEED = 15
+local VERTICAL_SPEED = 35
+local BOUNCINESS = 0.3
 local COIN_SIZE = UDim2.new(1.5, 0, 1.5, 0)
-local WAIT_BEFORE_MAGNET = 0.8
+local WAIT_BEFORE_MAGNET = 1.25
 
 -- Magnet settings
 local START_SPEED = 40
@@ -107,13 +143,13 @@ local function createCoinTemplate(imageId: string, color: Color3, trailColor: Co
 	coinPart.Shape = Enum.PartType.Ball
 	coinPart.Size = Vector3.new(0.4, 0.4, 0.4)
 	coinPart.Transparency = 1
-	coinPart.Massless = true
+	coinPart.Massless = true	
 	coinPart.CastShadow = false
 	coinPart.CanTouch = false
 	coinPart.CanQuery = false
 	coinPart.CanCollide = true
 	coinPart.CollisionGroup = LOOT_FX_COLLISION_GROUP
-	coinPart.CustomPhysicalProperties = PhysicalProperties.new(1, 0.3, BOUNCINESS, 1, 1)
+	coinPart.CustomPhysicalProperties = PhysicalProperties.new(1, 2.0, BOUNCINESS, 10, 1)
 	
 	-- BillboardGui for the image
 	local bbGui = Instance.new("BillboardGui")
@@ -243,9 +279,9 @@ function LootFX.SpawnLoot(config: LootConfig)
 			end
 		end)
 		coinPart.AssemblyAngularVelocity = Vector3.new(
-			math.random(-10, 10),
-			math.random(-10, 10),
-			math.random(-10, 10)
+			math.random(-5, 5),
+			math.random(-5, 5),
+			math.random(-5, 5)
 		)
 		
 		-- Random delay before magnet effect
@@ -290,6 +326,7 @@ function LootFX.SpawnLoot(config: LootConfig)
 				local moveAmount = direction * currentSpeed * dt
 				
 				if distance < moveAmount.Magnitude or distance < 1.5 then
+					playPickupSound()
 					coinPart:Destroy()
 					if connection then connection:Disconnect() end
 				else

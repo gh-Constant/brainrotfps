@@ -68,5 +68,18 @@ return ByteNet.defineNamespace("game", function()
 			}),
 			reliabilityType = "reliable",
 		}),
+		
+		-- Damage indicator packet (Server -> Client)
+		-- Shows damage number at hit position for the shooter
+		damageIndicator = ByteNet.definePacket({
+			value = ByteNet.struct({
+				posX = ByteNet.float32,
+				posY = ByteNet.float32,
+				posZ = ByteNet.float32,
+				damage = ByteNet.uint16,
+				didDamage = ByteNet.bool,
+			}),
+			reliabilityType = "unreliable", -- Fast, non-critical
+		}),
 	}
 end)

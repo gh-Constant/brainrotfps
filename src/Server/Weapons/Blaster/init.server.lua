@@ -14,6 +14,7 @@ local castRays = require(ReplicatedStorage.Blaster.Utility.castRays)
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
 local Shared = Rojo:WaitForChild("Shared")
 local Health = require(Shared:WaitForChild("Health"))
+local Packets = require(Shared:WaitForChild("Packets"))
 
 local remotes = ReplicatedStorage.Blaster.Remotes
 local shootRemote = remotes.Shoot
@@ -22,6 +23,17 @@ local replicateShotRemote = remotes.ReplicateShot
 local events = ServerScriptService.Blaster.Events
 local taggedEvent = events.Tagged
 local eliminatedEvent = events.Eliminated
+
+-- Send damage indicator to the shooter client
+local function sendDamageIndicator(player: Player, position: Vector3, damage: number, didDamage: boolean)
+	Packets.damageIndicator.sendTo({
+		posX = position.X,
+		posY = position.Y,
+		posZ = position.Z,
+		damage = damage,
+		didDamage = didDamage,
+	}, player)
+end
 
 -- Helper function to get player's level
 local function getPlayerLevel(player: Player): number
@@ -118,9 +130,26 @@ local function onShootEvent(
 			local healthComponent = Health.Get(model)
 			healthComponent:TakeDamage(damage, player)
 
+			local newHP = model:GetAttribute("Health") or 0
+			local didDamage = newHP < currentHP
+			
+			-- Calculate position above the model (top of bounding box) with random offset
+			local indicatorPos = rayResult.position
+			local modelCFrame, modelSize = model:GetBoundingBox()
+			if modelCFrame and modelSize then
+				-- Random offset for visual variety
+				local randomOffsetX = (math.random() - 0.5) * 1.5 -- -0.75 to +0.75
+				local randomOffsetZ = (math.random() - 0.5) * 1.5 -- -0.75 to +0.75
+				
+				-- Position at top center of model with random offset
+				indicatorPos = modelCFrame.Position + Vector3.new(randomOffsetX, modelSize.Y / 2 + 0.5, randomOffsetZ)
+			end
+			
+			-- Send damage indicator to shooter client
+			sendDamageIndicator(player, indicatorPos, damage, didDamage)
+
 			taggedEvent:Fire(player, taggedHumanoid, damage)
 
-			local newHP = model:GetAttribute("Health") or 0
 			if newHP <= 0 and currentHP > 0 then
 				eliminatedEvent:Fire(player, taggedHumanoid, damage)
 			end

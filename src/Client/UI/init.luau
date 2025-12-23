@@ -17,6 +17,7 @@ local Toolbar = require(script.Toolbar)
 local BroadcastUI = require(script.BroadcastUI)
 local DeathScreen = require(script.DeathScreen)
 local LootFX = require(script.LootFX)
+local DamageIndicator = require(script.DamageIndicator)
 
 -- Component modules
 local Components = script.Components
@@ -82,6 +83,7 @@ function UI.Init(context: any)
     Toolbar.Init(context)
     BroadcastUI.Init()
     LootFX.Init()
+    DamageIndicator.Init()
     
     print("[UI] All systems initialized!")
 end

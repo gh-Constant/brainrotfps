@@ -354,6 +354,7 @@ local function spawnBrainrot(group: ZoneGroup)
 			end
 		end
 		
+--[[
 		-- Spawn death VFX
 		if primaryPart then
 			local vfxFolder = brainrot:FindFirstChild("VFX")
@@ -404,6 +405,7 @@ local function spawnBrainrot(group: ZoneGroup)
 				end
 			end
 		end
+		]]
 		
 		-- Destroy instantly
 		if brainrot and brainrot.Parent then

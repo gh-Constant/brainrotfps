@@ -68,11 +68,11 @@ function MobAI:_playAnim(anim: string)
 	self._currentAnim = anim
 	
 	if anim == "Walk" then
-		if self.IdleAnim then self.IdleAnim:Stop(0.1) end
-		if self.WalkAnim then self.WalkAnim:Play(0.1) end
+		if self.IdleAnim then self.IdleAnim:Stop() end
+		if self.WalkAnim then self.WalkAnim:Play() end
 	else
-		if self.WalkAnim then self.WalkAnim:Stop(0.1) end
-		if self.IdleAnim then self.IdleAnim:Play(0.1) end
+		if self.WalkAnim then self.WalkAnim:Stop() end
+		if self.IdleAnim then self.IdleAnim:Play() end
 	end
 end
 
