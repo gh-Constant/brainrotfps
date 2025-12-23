@@ -36,5 +36,37 @@ return ByteNet.defineNamespace("game", function()
 			value = ByteNet.struct({}), -- No data needed, just a notification
 			reliabilityType = "reliable",
 		}),
+		
+		-- PvP toggle packet (Client -> Server)
+		-- Sent when player toggles PvP mode via UI
+		pvpToggle = ByteNet.definePacket({
+			value = ByteNet.struct({
+				enabled = ByteNet.bool,
+			}),
+			reliabilityType = "reliable",
+		}),
+		
+		-- Loot drop FX packet (Server -> Client)
+		-- Triggers loot drop visual effect when mob dies
+		lootDropFX = ByteNet.definePacket({
+			value = ByteNet.struct({
+				posX = ByteNet.float32,
+				posY = ByteNet.float32,
+				posZ = ByteNet.float32,
+				config = ByteNet.struct({
+					image = ByteNet.optional(ByteNet.string),
+					color = ByteNet.optional(ByteNet.array(ByteNet.uint8)), -- RGB array
+					size = ByteNet.optional(ByteNet.array(ByteNet.float32)), -- {scaleX, offsetX, scaleY, offsetY}
+					trailEnabled = ByteNet.optional(ByteNet.bool),
+					trailColor = ByteNet.optional(ByteNet.array(ByteNet.uint8)), -- RGB array
+					floatDuration = ByteNet.optional(ByteNet.float32),
+					floatHeight = ByteNet.optional(ByteNet.float32),
+					text = ByteNet.optional(ByteNet.string),
+					textColor = ByteNet.optional(ByteNet.array(ByteNet.uint8)), -- RGB array
+					count = ByteNet.optional(ByteNet.uint8), -- Number of coins to spawn
+				}),
+			}),
+			reliabilityType = "reliable",
+		}),
 	}
 end)

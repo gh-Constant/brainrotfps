@@ -9,6 +9,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Signal = require(ReplicatedStorage.Rojo.Packages.signal)
+local MoneyLib = require(ReplicatedStorage.Rojo.Shared.MoneyLib)
 
 -- Signal type for type checking
 type Signal = typeof(Signal.new())
@@ -19,6 +20,8 @@ export type PlayerData = {
     Experience: number,
     Gold: number,
     TotalGoldEarned: number,
+    Credits: number,
+    TotalCreditsEarned: number,
 }
 
 export type Player = {
@@ -29,11 +32,14 @@ export type Player = {
     Experience: number,
     Gold: number,
     TotalGoldEarned: number,
+    Credits: number,
+    TotalCreditsEarned: number,
     
     -- Events
     OnLevelUp: Signal?,
     OnGoldChanged: Signal?,
     OnExperienceChanged: Signal?,
+    OnCreditsChanged: Signal?,
     
     -- Methods
     GetData: (self: Player) -> PlayerData,
@@ -41,6 +47,8 @@ export type Player = {
     AddExperience: (self: Player, amount: number) -> boolean,
     AddGold: (self: Player, amount: number) -> boolean,
     SpendGold: (self: Player, amount: number) -> boolean,
+    AddCredits: (self: Player, amount: number) -> boolean,
+    SpendCredits: (self: Player, amount: number) -> boolean,
     GetExperienceForLevel: (self: Player, level: number) -> number,
     GetExperienceProgress: (self: Player) -> (number, number),
     GetMaxHealthForLevel: (self: Player, level: number) -> number,
@@ -53,12 +61,14 @@ local DEFAULT_DATA: PlayerData = {
     Experience = 0,
     Gold = 0,
     TotalGoldEarned = 0,
+    Credits = 0,
+    TotalCreditsEarned = 0,
 }
 
 -- Experience curve settings
 -- Linear progression: Level 1 = 100 XP, Level 2 = 200 XP, etc.
 local BASE_EXPERIENCE = 100
-local MAX_LEVEL = 100
+
 
 -- Health settings
 -- Level 1 = 100 HP, Level 2 = 200 HP, etc.
@@ -89,11 +99,14 @@ function PlayerClass.new(robloxPlayer: Player, initialData: PlayerData?): Player
     self.Experience = data.Experience
     self.Gold = data.Gold
     self.TotalGoldEarned = data.TotalGoldEarned
+    self.Credits = data.Credits or 0
+    self.TotalCreditsEarned = data.TotalCreditsEarned or 0
     
     -- Create signals for changes (using Signal library)
     self.OnLevelUp = Signal.new()
     self.OnGoldChanged = Signal.new()
     self.OnExperienceChanged = Signal.new()
+    self.OnCreditsChanged = Signal.new()
     
     -- Track active state
     self._destroyed = false
@@ -121,6 +134,8 @@ function PlayerClass:GetData(): PlayerData
         Experience = self.Experience,
         Gold = self.Gold,
         TotalGoldEarned = self.TotalGoldEarned,
+        Credits = self.Credits,
+        TotalCreditsEarned = self.TotalCreditsEarned,
     }
 end
 
@@ -134,23 +149,25 @@ function PlayerClass:SetData(data: PlayerData)
     self.Experience = data.Experience or DEFAULT_DATA.Experience
     self.Gold = data.Gold or DEFAULT_DATA.Gold
     self.TotalGoldEarned = data.TotalGoldEarned or DEFAULT_DATA.TotalGoldEarned
+    self.Credits = data.Credits or DEFAULT_DATA.Credits
+    self.TotalCreditsEarned = data.TotalCreditsEarned or DEFAULT_DATA.TotalCreditsEarned
 end
 
 --[[
-    Calculates the experience required to reach a specific level.
-    Each level requires level * 100 XP (level 1 = 100, level 2 = 200, level 4 = 400, etc.)
+    Calculates the experience required to level up FROM a specific level.
+    Each level requires level * 100 XP to level up.
+    Level 1 = 100 XP, Level 2 = 200 XP, Level 3 = 300 XP, etc.
     
-    @param level - The target level
-    @return number - Total experience required to reach this level
+    @param level - The current level
+    @return number - XP needed to reach the next level
 ]]
 function PlayerClass:GetExperienceForLevel(level: number): number
-    if level <= 1 then
-        return 0
+    if level < 1 then
+        level = 1
     end
     
-    -- Sum of all previous level requirements: 100 + 200 + 300 + ... + (level-1)*100
-    -- Formula: 100 * (1 + 2 + ... + (level-1)) = 100 * (level-1) * level / 2
-    return BASE_EXPERIENCE * (level - 1) * level / 2
+    -- Simple linear formula: level * 100 XP to level up
+    return BASE_EXPERIENCE * level
 end
 
 --[[
@@ -174,13 +191,9 @@ end
     @return (current: number, required: number) - Current XP and XP needed for next level
 ]]
 function PlayerClass:GetExperienceProgress(): (number, number)
-    local currentLevelXP = self:GetExperienceForLevel(self.Level)
-    local nextLevelXP = self:GetExperienceForLevel(self.Level + 1)
-    
-    local progressXP = self.Experience - currentLevelXP
-    local requiredXP = nextLevelXP - currentLevelXP
-    
-    return progressXP, requiredXP
+    -- XP is now per-level, not cumulative
+    local requiredXP = self:GetExperienceForLevel(self.Level)
+    return self.Experience, requiredXP
 end
 
 --[[
@@ -204,11 +217,13 @@ function PlayerClass:AddExperience(amount: number): boolean
     
     local leveledUp = false
     
-    -- Check for level ups
-    while self.Level < MAX_LEVEL do
-        local requiredXP = self:GetExperienceForLevel(self.Level + 1)
+    -- Check for level ups (XP is per-level, resets on level up)
+    while true do
+        local requiredXP = self:GetExperienceForLevel(self.Level)
         
         if self.Experience >= requiredXP then
+            -- Level up! Carry over excess XP to next level
+            self.Experience = self.Experience - requiredXP
             self.Level = self.Level + 1
             leveledUp = true
             
@@ -224,6 +239,28 @@ function PlayerClass:AddExperience(amount: number): boolean
     end
     
     return leveledUp
+end
+
+--[[
+    Resets the player's progress to Level 1 and 0 Experience.
+]]
+function PlayerClass:ResetProgress()
+	local oldLevel = self.Level
+	local oldXP = self.Experience
+	
+    self.Level = 1
+    self.Experience = 0
+    
+    -- Fire events
+    if self.OnLevelUp then
+        self.OnLevelUp:Fire(self.Level)
+    end
+    
+    if self.OnExperienceChanged then
+        self.OnExperienceChanged:Fire(self.Experience, oldXP, -oldXP)
+    end
+    
+    print(string.format("[Player] %s progress reset (Was Level %d)", self.Name, oldLevel))
 end
 
 --[[
@@ -276,6 +313,55 @@ function PlayerClass:SpendGold(amount: number): boolean
 end
 
 --[[
+    Adds credits to the player's balance.
+    
+    @param amount - The amount of credits to add
+    @return boolean - True if successful
+]]
+function PlayerClass:AddCredits(amount: number): boolean
+    if self._destroyed or amount <= 0 then
+        return false
+    end
+    
+    local previousCredits = self.Credits
+    self.Credits = self.Credits + amount
+    self.TotalCreditsEarned = self.TotalCreditsEarned + amount
+    
+    -- Fire credits changed event
+    if self.OnCreditsChanged then
+        self.OnCreditsChanged:Fire(self.Credits, previousCredits, amount)
+    end
+    
+    return true
+end
+
+--[[
+    Attempts to spend credits from the player's balance.
+    
+    @param amount - The amount of credits to spend
+    @return boolean - True if successful, false if insufficient funds
+]]
+function PlayerClass:SpendCredits(amount: number): boolean
+    if self._destroyed or amount <= 0 then
+        return false
+    end
+    
+    if self.Credits < amount then
+        return false
+    end
+    
+    local previousCredits = self.Credits
+    self.Credits = self.Credits - amount
+    
+    -- Fire credits changed event
+    if self.OnCreditsChanged then
+        self.OnCreditsChanged:Fire(self.Credits, previousCredits, -amount)
+    end
+    
+    return true
+end
+
+--[[
     Checks if the player can afford a certain amount.
     
     @param amount - The amount to check
@@ -283,6 +369,16 @@ end
 ]]
 function PlayerClass:CanAfford(amount: number): boolean
     return self.Gold >= amount
+end
+
+--[[
+    Checks if the player can afford a certain amount of credits.
+    
+    @param amount - The amount to check
+    @return boolean - True if affordable
+]]
+function PlayerClass:CanAffordCredits(amount: number): boolean
+    return self.Credits >= amount
 end
 
 --[[
@@ -300,17 +396,7 @@ end
     @return string - Formatted gold string with abbreviations for large values
 ]]
 function PlayerClass:GetGoldDisplay(): string
-    local gold = self.Gold
-    
-    if gold >= 1000000000 then
-        return string.format("%.1fB", gold / 1000000000)
-    elseif gold >= 1000000 then
-        return string.format("%.1fM", gold / 1000000)
-    elseif gold >= 1000 then
-        return string.format("%.1fK", gold / 1000)
-    else
-        return tostring(gold)
-    end
+    return MoneyLib.HandleMoney(self.Gold)
 end
 
 --[[
@@ -332,6 +418,11 @@ function PlayerClass:Destroy()
     if self.OnGoldChanged then
         self.OnGoldChanged:Destroy()
         self.OnGoldChanged = nil
+    end
+    
+    if self.OnCreditsChanged then
+        self.OnCreditsChanged:Destroy()
+        self.OnCreditsChanged = nil
     end
     
     if self.OnExperienceChanged then

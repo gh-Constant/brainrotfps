@@ -13,16 +13,32 @@ local Shared = Rojo.Shared
 local Packets = require(Shared.Packets)
 local Health = require(Shared.Health)
 local RagdollUtils = require(Shared.Player.RagdollUtils)
+local CombatManager = require(Shared.Health.CombatManager)
 
 local DeathHandler = {}
 
 --[[
     Handles character death: creates ragdoll clone, hides player, respawns after delay.
+    @param character - The dying character
+    @param player - The player who died (optional)
+    @param instigator - The player who killed them (optional, for directional ragdoll)
 ]]
-function DeathHandler.OnDeath(character: Model, player: Player?)
+function DeathHandler.OnDeath(character: Model, player: Player?, instigator: Player?)
+    -- Exit combat state when dying
+    CombatManager.ExitCombat(character)
+    
     -- Send death screen to client
     if player then
         Packets.playerDeath.sendTo({}, player)
+    end
+    
+    -- Get the attacker's position for directional ragdoll
+    local attackerPosition: Vector3? = nil
+    if instigator and instigator.Character then
+        local attackerRoot = instigator.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+        if attackerRoot then
+            attackerPosition = attackerRoot.Position
+        end
     end
     
     -- Freeze player movement completely
@@ -77,18 +93,32 @@ function DeathHandler.OnDeath(character: Model, player: Player?)
         clone.Parent = workspace
         RagdollUtils.EnableRagdoll(clone, true)
         
-        -- Apply small impulse to make ragdoll collapse naturally
+        -- Apply impulse in the direction of the shot (push body away from shooter)
         local cloneRootPart = clone:FindFirstChild("HumanoidRootPart") :: BasePart?
         if cloneRootPart then
-            -- Small random horizontal nudge for natural collapse
-            local randomAngle = math.random() * math.pi * 2
-            local nudgeForce = Vector3.new(
-                math.cos(randomAngle) * 300,
-                100, -- Small upward to prevent clipping
-                math.sin(randomAngle) * 300
-            )
+            local pushForce: Vector3
             
-            cloneRootPart:ApplyImpulse(nudgeForce)
+            if attackerPosition and rootPart then
+                -- Calculate push direction (from attacker toward victim)
+                local victimPos: Vector3 = rootPart.Position
+                local pushDirection = (victimPos - attackerPosition).Unit
+                -- Stronger horizontal push + upward lift
+                pushForce = Vector3.new(
+                    pushDirection.X * 800,
+                    250, -- Upward to create a flying effect
+                    pushDirection.Z * 800
+                )
+            else
+                -- Fallback: random horizontal nudge
+                local randomAngle = math.random() * math.pi * 2
+                pushForce = Vector3.new(
+                    math.cos(randomAngle) * 300,
+                    100,
+                    math.sin(randomAngle) * 300
+                )
+            end
+            
+            cloneRootPart:ApplyImpulse(pushForce)
         end
         
         Debris:AddItem(clone, 10) -- Clean up after 10 seconds
@@ -108,19 +138,6 @@ function DeathHandler.OnDeath(character: Model, player: Player?)
         end
     end
     
-    -- Make original character invisible
-    for _, descendant in character:GetDescendants() do
-        if descendant:IsA("BasePart") then
-            descendant.Transparency = 1
-            descendant.CanCollide = false
-        elseif descendant:IsA("Decal") then
-            descendant.Transparency = 1
-        elseif descendant:IsA("Texture") then
-            descendant.Transparency = 1
-        end
-    end
-    
-    -- Note: Respawn is now manual via HandleRespawn function
 end
 
 --[[
@@ -191,18 +208,20 @@ function DeathHandler.HandleRespawn(player: Player)
         humanoid.AutoRotate = true
     end
     
-    -- Recreate Health object for death detection
-    local newHealth = Health.new(character)
-    newHealth.Died:Connect(function()
-        DeathHandler.OnDeath(character, player)
-        newHealth:Destroy()
-    end)
+    -- Health object persists - no need to recreate, the original Died connection remains active
+    -- Reset damage tracking for the new life
+    local health = Health.Get(character)
+    if health then
+        health:ResetDamageTracking()
+    end
 end
 
 --[[
     Sets up death handling for a character.
+    @param character - The model
+    @param onDeath - (Optional) Callback(character, player, instigator)
 ]]
-function DeathHandler.SetupCharacter(character: Model)
+function DeathHandler.SetupCharacter(character: Model, onDeath: ((Model, Player?, Player?) -> ())?)
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     if not humanoid then
         warn("[DeathHandler] No Humanoid found")
@@ -212,10 +231,15 @@ function DeathHandler.SetupCharacter(character: Model)
     local player = Players:GetPlayerFromCharacter(character)
     
     -- Setup death detection via custom health system
+    -- NOTE: We do NOT destroy the health object on death - it persists through respawns
+    -- so the same Died connection (with onDeath callback) stays active for all deaths
     local health = Health.new(character)
-    health.Died:Connect(function()
-        DeathHandler.OnDeath(character, player)
-        health:Destroy()
+    health.Died:Connect(function(instigator)
+        if onDeath then
+            task.spawn(onDeath, character, player, instigator)
+        end
+        DeathHandler.OnDeath(character, player, instigator)
+        -- Don't destroy health - let it persist for next death cycle
     end)
     
     -- Setup respawn packet listener
@@ -237,6 +261,12 @@ function DeathHandler.Cleanup(character: Model)
     local clone = workspace:FindFirstChild(cloneName)
     if clone then
         clone:Destroy()
+    end
+    
+    -- Destroy the Health object for this character
+    local health = Health.Get(character)
+    if health then
+        health:Destroy()
     end
 end
 

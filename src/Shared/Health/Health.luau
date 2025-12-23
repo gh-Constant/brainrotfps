@@ -10,7 +10,14 @@ local RunService = game:GetService("RunService")
 
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
 local Packages = Rojo:WaitForChild("Packages")
+local Shared = Rojo:WaitForChild("Shared")
+local HealthFolder = Shared:WaitForChild("Health")
 local Signal = require(Packages:WaitForChild("signal"))
+
+-- Require sibling modules
+local PVPManager = require(HealthFolder:WaitForChild("PVPManager"))
+local CombatManager = require(HealthFolder:WaitForChild("CombatManager"))
+
 
 local Health = {}
 Health.__index = Health
@@ -36,6 +43,8 @@ export type HealthObject = typeof(setmetatable({}, Health)) & {
     _connections: {RBXScriptConnection},
     _lastDamageTime: number?,
     _regenThread: any,
+    _damageHistory: {[number]: number}, -- UserId -> Amount
+    _lastInstigator: Player?, -- The last player to deal damage
 }
 
 --[[
@@ -58,6 +67,8 @@ function Health.new(instance: Instance, maxHealth: number?): HealthObject
     self._connections = {}
     self._lastDamageTime = nil
     self._regenThread = nil
+    self._damageHistory = {}
+    self._lastInstigator = nil
     
     -- Store in cache
     healthCache[instance] = self
@@ -103,26 +114,29 @@ function Health.new(instance: Instance, maxHealth: number?): HealthObject
                 end
                 
                 local currentHealth = self.Instance:GetAttribute(ATTR_HEALTH) or 0
-                local maxHealth = self.Instance:GetAttribute(ATTR_MAX_HEALTH) or 100
+                local currentMaxHealth = self.Instance:GetAttribute(ATTR_MAX_HEALTH) or 100
                 
                 -- Skip if already at max health
-                if currentHealth >= maxHealth then
+                if currentHealth >= currentMaxHealth then
                     continue
                 end
                 
                 -- Check if enough time has passed since last damage
+                local regenDelay = self.Instance:GetAttribute("RegenDelay") or REGEN_DELAY
                 if self._lastDamageTime then
                     local timeSinceDamage = os.clock() - self._lastDamageTime
-                    if timeSinceDamage >= REGEN_DELAY then
+                    if timeSinceDamage >= regenDelay then
                         -- Regenerate percentage of max health
-                        local regenAmount = maxHealth * REGEN_RATE * 0.1 -- 0.1 sec intervals
-                        local newHealth = math.min(maxHealth, currentHealth + regenAmount)
+                        local regenRate = self.Instance:GetAttribute("RegenRate") or REGEN_RATE
+                        local regenAmount = currentMaxHealth * regenRate * 0.1 -- 0.1 sec intervals
+                        local newHealth = math.min(currentMaxHealth, currentHealth + regenAmount)
                         self.Instance:SetAttribute(ATTR_HEALTH, newHealth)
                     end
                 else
                     -- No damage taken yet, start regen immediately
-                    local regenAmount = maxHealth * REGEN_RATE * 0.1
-                    local newHealth = math.min(maxHealth, currentHealth + regenAmount)
+                    local regenRate = self.Instance:GetAttribute("RegenRate") or REGEN_RATE
+                    local regenAmount = currentMaxHealth * regenRate * 0.1
+                    local newHealth = math.min(currentMaxHealth, currentHealth + regenAmount)
                     self.Instance:SetAttribute(ATTR_HEALTH, newHealth)
                 end
             end
@@ -150,7 +164,7 @@ function Health.new(instance: Instance, maxHealth: number?): HealthObject
                 end
                 
                 print("[Health] Firing Died event for", instance.Name)
-                self.Died:Fire()
+                self.Died:Fire(self._lastInstigator) -- Pass killer if available
                 print("[Health] Died event fired for", instance.Name)
             end
         end
@@ -170,13 +184,42 @@ end
 
 --[[
     Damage the entity. Server only.
+    @param amount - Damage amount
+    @param instigator - (Optional) Player who dealt the damage
 ]]
-function Health:TakeDamage(amount: number)
+function Health:TakeDamage(amount: number, instigator: Player?)
     if not RunService:IsServer() then return end
     if self.Instance:GetAttribute(ATTR_IS_DEAD) then return end
     
+    -- PvP protection check using PVPManager
+    if not PVPManager.CanDamage(instigator, self.Instance) then
+        return
+    end
+    
+    -- Get target player for combat state
+    local targetPlayer = PVPManager.GetPlayerFromInstance(self.Instance)
+    
+    -- If this is PvP damage (player attacking player), enter combat for both
+    if instigator and targetPlayer then
+        -- Enter combat for target
+        CombatManager.EnterCombat(self.Instance :: Model)
+        
+        -- Enter combat for attacker
+        local attackerChar = instigator.Character
+        if attackerChar then
+            CombatManager.EnterCombat(attackerChar)
+        end
+    end
+    
     -- Update last damage time to reset regen delay
     self._lastDamageTime = os.clock()
+    
+    -- Track damage attribution
+    if instigator then
+        local userId = instigator.UserId
+        self._damageHistory[userId] = (self._damageHistory[userId] or 0) + amount
+        self._lastInstigator = instigator
+    end
     
     local current = self.Instance:GetAttribute(ATTR_HEALTH) or 100
     local newHealth = math.max(0, current - amount)
@@ -223,6 +266,32 @@ function Health:GetHealth(): (number, number)
 end
 
 --[[
+    Get the player who dealt the last instance of damage.
+    @return Player?
+]]
+function Health:GetLastInstigator(): Player?
+    return self._lastInstigator
+end
+
+--[[
+    Get the damage history table.
+    @return {[number]: number} - UserId -> Total Damage
+]]
+function Health:GetDamageHistory(): {[number]: number}
+    return self._damageHistory
+end
+
+--[[
+    Resets damage tracking state (for respawns).
+    Clears damage history and last instigator to prevent incorrect kill attribution.
+]]
+function Health:ResetDamageTracking()
+    self._damageHistory = {}
+    self._lastInstigator = nil
+    self._lastDamageTime = nil
+end
+
+--[[
     Destroy the Health object (cleanup connections).
     Does NOT destroy the Instance.
 ]]
@@ -243,6 +312,10 @@ function Health:Destroy()
     end
     self.Died:Destroy()
     self.HealthChanged:Destroy()
+    
+    -- Clear state
+    self._damageHistory = {}
+    self._lastInstigator = nil
 end
 
 return Health

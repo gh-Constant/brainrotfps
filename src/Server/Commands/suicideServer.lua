@@ -13,7 +13,7 @@ return function(context)
 	-- Use custom Health system to kill
 	local health = Health.Get(player.Character)
 	if health then
-		health:TakeDamage(math.huge)
+		health:TakeDamage(math.huge, player)
 		return "Committing suicide..."
 	else
 		return "Failed to access health system!"

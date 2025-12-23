@@ -18,6 +18,16 @@ local playersInSafezone: { [Player]: boolean } = {}
 local function onPlayerEntered(player: Player)
 	if playersInSafezone[player] then return end
 	
+	-- Block safezone entry if player is in combat
+	local character = player.Character
+	if character then
+		local inCombat = character:GetAttribute("InCombat")
+		if inCombat then
+			-- Cannot enter safezone while in combat
+			return
+		end
+	end
+	
 	playersInSafezone[player] = true
 	player:SetAttribute("InSafezone", true)
 	

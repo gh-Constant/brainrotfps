@@ -54,14 +54,7 @@
 
     "Workspace": {
       "$className": "Workspace",
-      "$ignoreUnknownInstances": true,
-      "$properties": {
-        "StreamingEnabled": true,
-        "UseFixedSimulation": true,
-        "PlayerScriptsUseInputActionSystem": true,
-        "NextGenerationReplication": true,
-        "AuthorityMode": "Server"
-      }
+      "$ignoreUnknownInstances": true
     },
 
     "Lighting": {
@@ -76,7 +69,13 @@
 
     "ReplicatedFirst": {
       "$className": "ReplicatedFirst",
-      "$ignoreUnknownInstances": true
+      "$ignoreUnknownInstances": true,
+      "Rojo": {
+        "$className": "Folder",
+        "ReplicatedFirst": {
+          "$path": "src/ReplicatedFirst"
+        }
+      }
     }
   }
 }

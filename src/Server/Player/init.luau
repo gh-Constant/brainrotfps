@@ -11,6 +11,7 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 -- Get modules
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
@@ -19,15 +20,18 @@ local Shared = Rojo:WaitForChild("Shared")
 
 local ProfileStore = require(Packages:WaitForChild("profilestore"))
 local PlayerClass = require(Shared:WaitForChild("Player"))
+local Health = require(Shared:WaitForChild("Health"))
 local DeathHandler = require(script.DeathHandler)
 
 -- ProfileStore configuration
-local STORE_NAME = "PlayerData_v1"
+local STORE_NAME = "PlayerData_v2"
 local DATA_TEMPLATE = {
     Level = 1,
     Experience = 0,
     Gold = 0,
     TotalGoldEarned = 0,
+    Credits = 0,
+    TotalCreditsEarned = 0,
 }
 
 -- Create ProfileStore
@@ -49,6 +53,11 @@ local PlayerConnections: {[Player]: {RBXScriptConnection}} = {}
     Sets up a character with all player systems.
 ]]
 local function setupCharacter(character: Model, playerData: PlayerClass.Player?)
+    -- Initialize PvP attribute (default: disabled)
+    character:SetAttribute("IsPvPEnabled", false)
+    -- Initialize combat state (default: not in combat)
+    character:SetAttribute("InCombat", false)
+    
     -- Apply max health based on player level using Attributes
     if playerData then
         local maxHealth = playerData:GetMaxHealthForLevel(playerData.Level)
@@ -68,7 +77,33 @@ local function setupCharacter(character: Model, playerData: PlayerClass.Player?)
     end
     
     -- Setup death handler AFTER setting attributes
-    DeathHandler.SetupCharacter(character)
+    DeathHandler.SetupCharacter(character, function(char, victim, instigator)
+        if not victim or not instigator then return end
+        if victim == instigator then return end -- Suicide doesn't count
+        
+        local victimData = ActivePlayers[victim.UserId]
+        local instigatorData = ActivePlayers[instigator.UserId]
+        
+        if victimData and instigatorData then
+            -- Killer gets victim's TOTAL XP (all levels + current)
+            -- Total XP = sum of XP for all levels up to current level + current experience
+            -- Formula: XP for level N = N * 100, so total = (1*100) + (2*100) + ... + ((level-1)*100) + currentXP
+            -- Sum of 1 to (level-1) = (level-1) * level / 2, then multiply by 100
+            local victimLevel = victimData.Level
+            local totalLevelXP = 0
+            if victimLevel > 1 then
+                -- Sum of XP from all completed levels: sum(i * 100 for i = 1 to level-1)
+                -- = 100 * sum(1 to level-1) = 100 * (level-1) * level / 2
+                totalLevelXP = 100 * ((victimLevel - 1) * victimLevel / 2)
+            end
+            local xpToSteal = totalLevelXP + victimData.Experience
+            instigatorData:AddExperience(xpToSteal)
+            print(string.format("[Player] %s stole %d XP (Level %d + %d current) from %s", instigator.Name, xpToSteal, victimLevel, victimData.Experience, victim.Name))
+            
+            -- Victim resets to Level 1, 0 XP
+            victimData:ResetProgress()
+        end
+    end)
 end
 
 --[[
@@ -100,6 +135,11 @@ local function onPlayerAdded(player: Player)
     goldValue.Name = "Gold"
     goldValue.Value = 0
     goldValue.Parent = leaderstats
+    
+    local creditsValue = Instance.new("IntValue")
+    creditsValue.Name = "Credits"
+    creditsValue.Value = 0
+    creditsValue.Parent = leaderstats
     
     -- Start ProfileStore session
     local profile = PlayerProfileStore:StartSessionAsync(profileKey, {
@@ -143,12 +183,15 @@ local function onPlayerAdded(player: Player)
         Experience = profile.Data.Experience,
         Gold = profile.Data.Gold,
         TotalGoldEarned = profile.Data.TotalGoldEarned,
+        Credits = profile.Data.Credits,
+        TotalCreditsEarned = profile.Data.TotalCreditsEarned,
     })
     
     -- Update leaderstats with loaded values
     levelValue.Value = playerData.Level
     xpValue.Value = playerData.Experience
     goldValue.Value = playerData.Gold
+    creditsValue.Value = playerData.Credits
     
     local levelUpSignal = playerData.OnLevelUp
     if levelUpSignal then
@@ -186,6 +229,18 @@ local function onPlayerAdded(player: Player)
             end
             -- Update leaderstats
             goldValue.Value = playerData.Gold
+        end)
+    end
+    
+    local creditsChangedSignal = playerData.OnCreditsChanged
+    if creditsChangedSignal then
+        creditsChangedSignal:Connect(function(_newCredits, _previousCredits, _delta)
+            if profile:IsActive() then
+                profile.Data.Credits = playerData.Credits
+                profile.Data.TotalCreditsEarned = playerData.TotalCreditsEarned
+            end
+            -- Update leaderstats
+            creditsValue.Value = playerData.Credits
         end)
     end
     
@@ -294,17 +349,46 @@ function PlayerManager.Init()
         PlayerManager.SaveAllAndClose()
     end)
     
-    print("[PlayerManager] Initialized!")
+    local VOID_THRESHOLD = -500
     
-    -- TEST: Give 25 XP to all players every second
-    task.spawn(function()
-        while true do
-            task.wait(1)
-            for _, playerData in pairs(ActivePlayers) do
-                playerData:AddExperience(25)
+    RunService.Heartbeat:Connect(function()
+        for _, player in ipairs(Players:GetPlayers()) do
+            local character = player.Character
+            if character and character.Parent then
+                local rootPart = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+                if rootPart and rootPart.Position.Y < VOID_THRESHOLD then
+                    -- Check if already dead to avoid spam
+                    if not character:GetAttribute("IsDead") then
+                        local health = Health.Get(character)
+                        if health then
+                            print(string.format("[PlayerManager] %s fell into the void", player.Name))
+                            health:TakeDamage(math.huge)
+                        end
+                    end
+                end
             end
         end
     end)
+    
+    -- Listen for PvP toggle packets from clients
+    local Packets = require(Shared:WaitForChild("Packets"))
+    Packets.pvpToggle.listen(function(data, player)
+        local character = player.Character
+        if character then
+            -- Prevent disabling PvP while in combat
+            local inCombat = character:GetAttribute("InCombat")
+            if inCombat and not data.enabled then
+                -- Cannot disable PvP while in combat
+                print(string.format("[PlayerManager] %s cannot disable PvP while in combat!", player.Name))
+                return
+            end
+            
+            character:SetAttribute("IsPvPEnabled", data.enabled)
+            print(string.format("[PlayerManager] %s set PvP to %s", player.Name, tostring(data.enabled)))
+        end
+    end)
+    
+    print("[PlayerManager] Initialized!")
 end
 
 --[[

@@ -3,6 +3,7 @@
 -- Zones are tagged parts (e.g., "Forest"), config is in ReplicatedStorage.Config.Brainrots
 
 local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
@@ -10,8 +11,14 @@ local Rojo = ReplicatedStorage:WaitForChild("Rojo")
 local Packages = Rojo:WaitForChild("Packages")
 local Shared = Rojo:WaitForChild("Shared")
 local Server = ServerScriptService:WaitForChild("Rojo"):WaitForChild("Server")
+
 local Zone = require(Packages:WaitForChild("zoneplus"))
 local Health = require(Shared:WaitForChild("Health"))
+local Packets = require(Shared:WaitForChild("Packets"))
+local PlayerManager = require(Server:WaitForChild("Player"))
+local config = ReplicatedStorage:WaitForChild("Config")
+local brainrotConfig = config:WaitForChild("Brainrots")
+local zonesConfig = brainrotConfig:WaitForChild("Zones")
 local MobAI = require(Server:WaitForChild("Brainrot"):WaitForChild("MobAI"))
 local MobDisplay = require(Server:WaitForChild("Brainrot"):WaitForChild("MobDisplay"))
 
@@ -27,19 +34,13 @@ type ZoneGroup = {
 
 -- State
 local zoneGroups: { [string]: ZoneGroup } = {}
-local config: Folder? = nil
-local zonesConfig: Folder? = nil
 
 -- Default values (overridden by attributes)
 local DEFAULT_SPAWN_INTERVAL = 5
 local DEFAULT_MAX_PER_ZONE = 10
 
 local function isLoggingEnabled(): boolean
-	local cfg = config or ReplicatedStorage:FindFirstChild("Config") and ReplicatedStorage.Config:FindFirstChild("Brainrots")
-	if cfg then
-		return cfg:GetAttribute("Logging") == true
-	end
-	return false
+	return brainrotConfig:GetAttribute("Logging") == true
 end
 
 local function log(message: string)
@@ -48,53 +49,33 @@ local function log(message: string)
 	end
 end
 
-local function getConfig(): Folder?
-	if config then return config end
-	
-	local configFolder = ReplicatedStorage:FindFirstChild("Config")
-	if not configFolder then
-		warn("[BrainrotSpawner] Config folder not found in ReplicatedStorage")
-		return nil
+local function getEffectsFolder(): Folder
+	local folder = workspace:FindFirstChild("Effects")
+	if not folder then
+		folder = Instance.new("Folder")
+		folder.Name = "Effects"
+		folder.Parent = workspace
 	end
-	
-	config = configFolder:FindFirstChild("Brainrots") :: Folder?
-	if not config then
-		warn("[BrainrotSpawner] Brainrots config not found in Config folder")
-		return nil
-	end
-	
-	zonesConfig = config:FindFirstChild("Zones") :: Folder?
-	if not zonesConfig then
-		warn("[BrainrotSpawner] Zones folder not found in Brainrots config")
-	end
-	
-	return config
+	return folder :: Folder
 end
 
 local function getSpawnInterval(): number
-	local cfg = getConfig()
-	if cfg then
-		local interval = cfg:GetAttribute("SpawnInterval")
-		if typeof(interval) == "number" then
-			return interval
-		end
+	local interval = brainrotConfig:GetAttribute("SpawnInterval")
+	if typeof(interval) == "number" then
+		return interval
 	end
 	return DEFAULT_SPAWN_INTERVAL
 end
 
 local function getMaxPerZone(): number
-	local cfg = getConfig()
-	if cfg then
-		local max = cfg:GetAttribute("MaxPerZone")
-		if typeof(max) == "number" then
-			return max
-		end
+	local max = brainrotConfig:GetAttribute("MaxPerZone")
+	if typeof(max) == "number" then
+		return max
 	end
 	return DEFAULT_MAX_PER_ZONE
 end
 
 local function getZoneModels(zoneName: string): { Model }
-	if not zonesConfig then return {} end
 	
 	local zoneFolder = zonesConfig:FindFirstChild(zoneName)
 	if not zoneFolder then
@@ -178,6 +159,42 @@ local function getRandomSpawnPosition(part: BasePart): Vector3?
 	return nil
 end
 
+local function getWeightedRandomModel(models: { Model }): Model
+	-- Weight system: Luck attribute = "1 in X chance"
+	-- Luck=1 means 1/1 (100% relative chance), Luck=1000 means 1/1000 (very rare)
+	-- We invert the luck values to get weights: weight = 1/luck
+	local totalWeight = 0
+	local items = {}
+	
+	for _, model in models do
+		local luckAttr = model:GetAttribute("Luck")
+		local luck: number = if typeof(luckAttr) == "number" and luckAttr > 0 then luckAttr else 1
+		
+		-- Invert luck to get weight: lower luck value = higher weight (more common)
+		local weight = 1 / luck
+		
+		table.insert(items, { model = model, weight = weight })
+		totalWeight += weight
+	end
+	
+	-- Fallback if no weights
+	if totalWeight <= 0 then
+		return models[math.random(1, #models)]
+	end
+	
+	local rng = math.random() * totalWeight
+	local currentWeight = 0
+	
+	for _, item in items do
+		currentWeight += item.weight
+		if rng <= currentWeight then
+			return item.model
+		end
+	end
+	
+	return models[1] -- Should rarely happen
+end
+
 local function spawnBrainrot(group: ZoneGroup)
 	local models = getZoneModels(group.zoneName)
 	if #models == 0 then
@@ -190,8 +207,8 @@ local function spawnBrainrot(group: ZoneGroup)
 		return
 	end
 	
-	-- Pick random model
-	local template = models[math.random(1, #models)]
+	-- Pick weighted random model based on "Luck" attribute
+	local template = getWeightedRandomModel(models)
 	local brainrot = template:Clone()
 	
 	-- Pick a random part from the group
@@ -245,14 +262,99 @@ local function spawnBrainrot(group: ZoneGroup)
 	-- Setup Mob Display (UI)
 	local mobDisplay = MobDisplay.new(brainrot)
 
-	health.Died:Connect(function()
+	health.Died:Connect(function(instigator)
+		-- Log kill info if enabled
+		local healthConfig = config:FindFirstChild("Health")
+		local loggingEnabled = healthConfig and healthConfig:GetAttribute("Logging") == true
+		
+		if loggingEnabled then
+			local killerName = instigator and instigator.Name or "Unknown"
+			print(string.format("💀 %s died! Last Hit: %s", brainrot.Name, killerName))
+		end
+		
+		-- Award XP to killer
+		if instigator then
+			local playerData = PlayerManager.GetPlayerData(instigator)
+			if playerData then
+				local xpRewardAttr = brainrot:GetAttribute("BaseXPReward")
+				local xpReward: number = if typeof(xpRewardAttr) == "number" then xpRewardAttr else 10
+				playerData:AddExperience(xpReward)
+				
+				local goldRewardAttr = brainrot:GetAttribute("BaseGoldReward")
+				local goldReward: number = if typeof(goldRewardAttr) == "number" then goldRewardAttr else 5
+				playerData:AddGold(goldReward)
+				
+				-- Send Loot FX to killer client
+				if primaryPart then
+					local fxPos = primaryPart.Position
+					
+					local xpImage = config.Effects.FX.XP.Image
+					local goldImage = config.Effects.FX.Coin.Image
+					
+					-- XP FX (blue color) - slightly offset left
+					Packets.lootDropFX.sendTo({
+						posX = fxPos.X - 0.5,
+						posY = fxPos.Y + 1,
+						posZ = fxPos.Z,
+						config = {
+							image = xpImage,
+							color = { 66, 135, 245 }, -- Blue for XP
+							trailEnabled = true,
+							trailColor = { 100, 160, 255 }, -- Light blue trail
+							count = math.clamp(math.floor(xpReward / 5), 3, 15), -- Scale coins with reward
+						},
+					}, instigator)
+					
+					-- Gold FX (yellow/gold color) - slightly offset right
+					Packets.lootDropFX.sendTo({
+						posX = fxPos.X + 0.5,
+						posY = fxPos.Y + 1,
+						posZ = fxPos.Z,
+						config = {
+							image = goldImage,
+							color = { 255, 215, 0 }, -- Gold color
+							trailEnabled = true,
+							trailColor = { 255, 200, 50 }, -- Gold trail
+							count = math.clamp(math.floor(goldReward / 2), 3, 20), -- Scale coins with reward
+						},
+					}, instigator)
+				end
+			end
+		end
+		
+		if loggingEnabled then
+			local damageHistory = health:GetDamageHistory()
+			local totalDamage = 0
+			for _, dmg in damageHistory do
+				totalDamage += dmg
+			end
+			
+			print("⚔️ Damage Report:")
+			for userId, damage in damageHistory do
+				local p = Players:GetPlayerByUserId(userId)
+				local pName = p and p.Name or tostring(userId)
+				local percentage = if totalDamage > 0 then (damage / totalDamage) * 100 else 0
+				print(string.format("   - %s: %d dmg (%.1f%%)", pName, damage, percentage))
+			end
+		end
 		-- Stop AI when mob dies
 		if mobAI then
 			mobAI:Stop()
 		end
 		
-		-- Use VfxInstance for positioning if it exists, otherwise PrimaryPart
-		-- Sourced from mob.VFX.Death
+		-- IMMEDIATELY hide the mob to prevent T-pose from being visible
+		for _, descendant in brainrot:GetDescendants() do
+			if descendant:IsA("BasePart") then
+				descendant.Transparency = 1
+				descendant.CanCollide = false
+			elseif descendant:IsA("Decal") then
+				descendant.Transparency = 1
+			elseif descendant:IsA("Texture") then
+				descendant.Transparency = 1
+			end
+		end
+		
+		-- Spawn death VFX
 		if primaryPart then
 			local vfxFolder = brainrot:FindFirstChild("VFX")
 			if vfxFolder then
@@ -273,26 +375,21 @@ local function spawnBrainrot(group: ZoneGroup)
 						vfxPart.CFrame = primaryPart.CFrame
 					end
 					
-					vfxPart.Parent = workspace
+					vfxPart.Parent = getEffectsFolder()
 					
 					-- Clone and attach death VFX to the separate part
 					local vfxClone = deathVFX:Clone()
 					vfxClone.Parent = vfxPart
 					
-					-- Emit all particle emitters
+					-- Wait briefly for particles to load, then emit
 					task.wait(0.1)
-					local emittersFound = 0
 					for _, Particles in vfxClone:GetDescendants() do
 						if Particles:IsA("ParticleEmitter") then
-							emittersFound += 1
 							Particles:Emit(Particles:GetAttribute("EmitCount") :: number or 1)
 						end
 					end
 					
-					-- log("[BrainrotSpawner] Emitted VFX for " .. brainrot.Name .. " (Emitters: " .. emittersFound .. ")")
-					
 					-- Clean up VFX part after particles finish
-					-- If logging is enabled, keep the part for inspection
 					if not isLoggingEnabled() then
 						task.delay(3, function()
 							vfxPart:Destroy()
@@ -300,9 +397,9 @@ local function spawnBrainrot(group: ZoneGroup)
 					else
 						-- Make visible if keeping for debug
 						vfxPart.Transparency = 0.5
-						vfxPart.Color = Color3.new(1, 0, 0) -- Red debug visualization
+						vfxPart.Color = Color3.new(1, 0, 0)
 						vfxPart.Material = Enum.Material.Neon
-						log("[BrainrotSpawner] Keeping dead VFX part for debug: " .. vfxPart:GetFullName())
+						log("[BrainrotSpawner] Keeping dead VFX part for debug")
 					end
 				end
 			end
@@ -386,23 +483,16 @@ local function startSpawnLoop()
 end
 
 function BrainrotSpawner.Init()
-	-- Initialize config
-	local cfg = getConfig()
-	if not cfg then
-		warn("[BrainrotSpawner] Failed to initialize - config not found")
-		return
-	end
 	
 	-- Get all zone folder names and set up tags for each
-	if zonesConfig then
-		for _, zoneFolder in zonesConfig:GetChildren() do
-			if zoneFolder:IsA("Folder") then
-				local zoneName = zoneFolder.Name
-				setupZonesForTag(zoneName)
-				log("[BrainrotSpawner] Registered zone type: " .. zoneName)
-			end
+	for _, zoneFolder in zonesConfig:GetChildren() do
+		if zoneFolder:IsA("Folder") then
+			local zoneName = zoneFolder.Name
+			setupZonesForTag(zoneName)
+			log("[BrainrotSpawner] Registered zone type: " .. zoneName)
 		end
 	end
+
 	
 	-- Start the spawn loop
 	startSpawnLoop()

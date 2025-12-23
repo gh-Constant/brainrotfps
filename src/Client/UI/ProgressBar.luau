@@ -27,6 +27,7 @@ export type ProgressBarConfig = {
     TweenDuration: number?,
     TweenStyle: Enum.EasingStyle?,
     ValueFormat: string?,
+    Formatter: ((number) -> string)?,
 }
 
 export type ProgressBar = {
@@ -62,6 +63,7 @@ function ProgressBarModule.new(config: ProgressBarConfig): ProgressBar
     local tweenDuration = config.TweenDuration or DEFAULT_TWEEN_DURATION
     local tweenStyle = config.TweenStyle or DEFAULT_TWEEN_STYLE
     local valueFormat = config.ValueFormat or "%d / %d"
+    local formatter = config.Formatter
     
     -- State
     local currentProgress = 0
@@ -124,7 +126,22 @@ function ProgressBarModule.new(config: ProgressBarConfig): ProgressBar
         
         -- Update value label if present
         if valueLabel then
-            valueLabel.Text = string.format(valueFormat, math.floor(current), math.floor(max))
+            if formatter then
+                -- Single value or dual value support depends on formatter
+                -- Here we assume formatter handles single numbers, so we format current/max individually if needed
+                -- But wait, valueFormat might be "%d / %d".
+                -- Let's stick to simple logic: if formatter exists, use it on current and max
+                -- But custom formats like "%s / %s" might be needed.
+                -- User requested "format" for health/xp.
+                -- Let's try to detect if format string has 2 placeholders
+                if valueFormat:match("%%.+%%") then
+                     valueLabel.Text = string.format(valueFormat, formatter(current), formatter(max))
+                else
+                     valueLabel.Text = formatter(current)
+                end
+            else
+                valueLabel.Text = string.format(valueFormat, math.floor(current), math.floor(max))
+            end
         end
     end
     

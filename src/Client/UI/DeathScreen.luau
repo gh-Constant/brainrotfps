@@ -11,6 +11,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -21,6 +22,9 @@ local FADE_OUT_TIME = 0.5
 
 -- Module
 local DeathScreen = {}
+
+-- State
+local canRespawn = false
 
 -- UI References
 local screenGui: ScreenGui? = nil
@@ -220,6 +224,9 @@ function DeathScreen.Show()
                 {Transparency = 0}
             ):Play()
         end
+        
+        -- Enable respawn input
+        canRespawn = true
     end
 end
 
@@ -228,6 +235,9 @@ end
 ]]
 function DeathScreen.Hide()
     if not screenGui or not overlay or not wastedLabel then return end
+    
+    -- Disable respawn input
+    canRespawn = false
     
     local stroke = wastedLabel:FindFirstChild("Outline") :: UIStroke?
     local shadow = wastedLabel:FindFirstChild("Shadow") :: TextLabel?
@@ -353,6 +363,20 @@ function DeathScreen.Init()
             end
         end)
     end
+    
+    -- Setup spacebar respawn listener
+    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if not canRespawn then return end
+        
+        if input.KeyCode == Enum.KeyCode.Space then
+            -- Send respawn request to server
+            packets.playerRespawn.send({})
+            
+            -- Hide death screen
+            DeathScreen.Hide()
+        end
+    end)
     
     print("[DeathScreen] Initialized with ByteNet!")
 end
