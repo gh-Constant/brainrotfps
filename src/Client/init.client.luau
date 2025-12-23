@@ -6,10 +6,10 @@
 ]]
 
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
 local CollectionService = game:GetService("CollectionService")
 
 local MovementController = require(script.Movement.MovementController)
+local InputController = require(script.Movement.InputController)
 local UI = require(script.UI)
 local CmdrClientSetup = require(script.CmdrClientSetup)
 local SystemLoader = require(script.SystemLoader)
@@ -153,25 +153,22 @@ local function onCharacterAdded(character: Model)
 end
 
 --[[
-    Handle slide input (LeftShift key).
+    Handle slide input using cross-platform InputController.
+    Supports: PC (C key), Mobile (touch button), Console (ButtonB/R1)
 ]]
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    
-    if input.KeyCode == Enum.KeyCode.LeftShift then
-        local controller = currentController
-        if controller and not controller:IsSliding() then
-            controller:TrySlide()
-        end
+local inputController = InputController.new()
+
+inputController.SlidePressed.Event:Connect(function()
+    local controller = currentController
+    if controller and not controller:IsSliding() then
+        controller:TrySlide()
     end
 end)
 
-UserInputService.InputEnded:Connect(function(input, _gameProcessed)
-    if input.KeyCode == Enum.KeyCode.LeftShift then
-        local controller = currentController
-        if controller then
-            controller:EndSlide()
-        end
+inputController.SlideReleased.Event:Connect(function()
+    local controller = currentController
+    if controller then
+        controller:EndSlide()
     end
 end)
 

@@ -142,7 +142,7 @@ local function onShootEvent(
 				local randomOffsetZ = (math.random() - 0.5) * 1.5 -- -0.75 to +0.75
 				
 				-- Position at top center of model with random offset
-				indicatorPos = modelCFrame.Position + Vector3.new(randomOffsetX, modelSize.Y / 2 + 0.5, randomOffsetZ)
+				indicatorPos = modelCFrame.Position + Vector3.new(randomOffsetX, modelSize.Y / 3, randomOffsetZ)
 			end
 			
 			-- Send damage indicator to shooter client

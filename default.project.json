@@ -30,6 +30,9 @@
 
     "StarterPlayer": {
       "$className": "StarterPlayer",
+      "$properties": {
+        "DevEnableMouseLock": false
+      },
       "$ignoreUnknownInstances": true,
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
@@ -65,17 +68,6 @@
     "SoundService": {
       "$className": "SoundService",
       "$ignoreUnknownInstances": true
-    },
-
-    "ReplicatedFirst": {
-      "$className": "ReplicatedFirst",
-      "$ignoreUnknownInstances": true,
-      "Rojo": {
-        "$className": "Folder",
-        "ReplicatedFirst": {
-          "$path": "src/ReplicatedFirst"
-        }
-      }
     }
   }
 }

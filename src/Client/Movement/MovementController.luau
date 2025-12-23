@@ -54,6 +54,11 @@ function MovementController.new(character: Model): MovementController
 	self._humanoid.JumpPower = 0
 	self._humanoid.JumpHeight = 0
 	
+	-- Disable automatic ragdoll/falling states that interfere with custom movement
+	-- These trigger when the physics engine detects high velocity or loss of footing
+	self._humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+	self._humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+	
 	return self :: MovementController
 end
 
