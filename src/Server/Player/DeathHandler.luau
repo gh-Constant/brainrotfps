@@ -55,6 +55,15 @@ function DeathHandler.OnDeath(character: Model, player: Player?, instigator: Pla
         humanoid:UnequipTools()
     end
     
+    -- Hide player billboard before cloning
+    local billboardAnchor = character:FindFirstChild("BillboardAnchor")
+    if billboardAnchor then
+        local billboard = billboardAnchor:FindFirstChildOfClass("BillboardGui")
+        if billboard then
+            billboard.Enabled = false
+        end
+    end
+    
     -- Ensure character is archivable (required for cloning)
     local wasArchivable = character.Archivable
     character.Archivable = true
@@ -69,11 +78,17 @@ function DeathHandler.OnDeath(character: Model, player: Player?, instigator: Pla
         clone.Name = character.Name .. "_DeathClone"
         clone.Archivable = true
         
-        -- Clean up clone (remove scripts)
+        -- Clean up clone (remove scripts and billboard)
         for _, descendant in clone:GetDescendants() do
             if descendant:IsA("BaseScript") then
                 descendant:Destroy()
             end
+        end
+        
+        -- Remove billboard from clone so ragdoll doesn't have it
+        local cloneBillboardAnchor = clone:FindFirstChild("BillboardAnchor")
+        if cloneBillboardAnchor then
+            cloneBillboardAnchor:Destroy()
         end
         
         -- Remove clone humanoid
@@ -213,6 +228,15 @@ function DeathHandler.HandleRespawn(player: Player)
     local health = Health.Get(character)
     if health then
         health:ResetDamageTracking()
+    end
+    
+    -- Restore player billboard visibility
+    local billboardAnchor = character:FindFirstChild("BillboardAnchor")
+    if billboardAnchor then
+        local billboard = billboardAnchor:FindFirstChildOfClass("BillboardGui")
+        if billboard then
+            billboard.Enabled = true
+        end
     end
 end
 

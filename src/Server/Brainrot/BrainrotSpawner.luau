@@ -168,7 +168,9 @@ local function getWeightedRandomModel(models: { Model }): Model
 	
 	for _, model in models do
 		local luckAttr = model:GetAttribute("Luck")
-		local luck: number = if typeof(luckAttr) == "number" and luckAttr > 0 then luckAttr else 1
+		-- Handle both number and string attributes (tonumber handles both)
+		local luckParsed = tonumber(luckAttr)
+		local luck: number = if luckParsed and luckParsed > 0 then luckParsed else 1
 		
 		-- Invert luck to get weight: lower luck value = higher weight (more common)
 		local weight = 1 / luck
