@@ -22,6 +22,7 @@ local ProfileStore = require(Packages:WaitForChild("profilestore"))
 local PlayerClass = require(Shared:WaitForChild("Player"))
 local Health = require(Shared:WaitForChild("Health"))
 local DeathHandler = require(script.DeathHandler)
+local Packets = require(Shared:WaitForChild("Packets"))
 
 -- ProfileStore configuration
 local STORE_NAME = "PlayerData_v2"
@@ -99,6 +100,27 @@ local function setupCharacter(character: Model, playerData: PlayerClass.Player?)
             local xpToSteal = totalLevelXP + victimData.Experience
             instigatorData:AddExperience(xpToSteal)
             print(string.format("[Player] %s stole %d XP (Level %d + %d current) from %s", instigator.Name, xpToSteal, victimLevel, victimData.Experience, victim.Name))
+            
+            -- Send LootFX to the killer showing stolen XP
+            local victimRootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+            if victimRootPart then
+                local pos = victimRootPart.Position
+                local effectsConfig = ReplicatedStorage:FindFirstChild("Config")
+                local xpImage = effectsConfig and effectsConfig.Effects and effectsConfig.Effects.FX and effectsConfig.Effects.FX.XP and effectsConfig.Effects.FX.XP.Image or ""
+                
+                Packets.lootDropFX.sendTo({
+                    posX = pos.X,
+                    posY = pos.Y,
+                    posZ = pos.Z,
+                    config = {
+                        image = xpImage,
+                        color = {100, 200, 255}, -- Blue for XP
+                        trailColor = {150, 220, 255},
+                        trailEnabled = true,
+                        count = math.floor(xpToSteal / 10), -- 1 part per 10 XP, no limits
+                    },
+                }, instigator)
+            end
             
             -- Victim resets to Level 1, 0 XP
             victimData:ResetProgress()

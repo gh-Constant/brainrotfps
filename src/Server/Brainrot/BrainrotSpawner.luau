@@ -301,7 +301,7 @@ local function spawnBrainrot(group: ZoneGroup)
 							color = { 66, 135, 245 }, -- Blue for XP
 							trailEnabled = true,
 							trailColor = { 100, 160, 255 }, -- Light blue trail
-							count = math.clamp(math.floor(xpReward / 5), 3, 15), -- Scale coins with reward
+							count = math.floor(xpReward / 10), -- 1 part per 10 XP, no limits
 						},
 					}, instigator)
 					
@@ -315,7 +315,7 @@ local function spawnBrainrot(group: ZoneGroup)
 							color = { 255, 215, 0 }, -- Gold color
 							trailEnabled = true,
 							trailColor = { 255, 200, 50 }, -- Gold trail
-							count = math.clamp(math.floor(goldReward / 2), 3, 20), -- Scale coins with reward
+							count = math.floor(goldReward / 100), -- 1 part per 100 gold, no limits
 						},
 					}, instigator)
 				end
