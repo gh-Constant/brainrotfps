@@ -22,6 +22,7 @@ local ProfileStore = require(Packages:WaitForChild("profilestore"))
 local PlayerClass = require(Shared:WaitForChild("Player"))
 local Health = require(Shared:WaitForChild("Health"))
 local DeathHandler = require(script.DeathHandler)
+local PlayerBillboard = require(script.PlayerBillboard)
 local Packets = require(Shared:WaitForChild("Packets"))
 
 -- ProfileStore configuration
@@ -76,6 +77,9 @@ local function setupCharacter(character: Model, playerData: PlayerClass.Player?)
         character:SetAttribute("MaxHealth", 100)
         character:SetAttribute("Health", 100)
     end
+    
+    -- Setup player billboard (name, level, health, PVP status)
+    PlayerBillboard.new(character, playerData)
     
     -- Setup death handler AFTER setting attributes
     DeathHandler.SetupCharacter(character, function(char, victim, instigator)

@@ -60,6 +60,9 @@ function UI.Init(context: any)
     end
     
     -- Create extended context with UI frame references
+    -- Bottom/Left frames are inside HID container
+    local hidFrame = baseGui:FindFirstChild("HID")
+    
     local uiContext = {
         Player = context.Player,
         PlayerGui = context.PlayerGui,
@@ -67,9 +70,10 @@ function UI.Init(context: any)
         Humanoid = context.Humanoid,
         RootPart = context.RootPart,
         BaseFrame = baseGui,
-        BottomFrame = baseGui:FindFirstChild("Bottom"),
-        LeftFrame = baseGui:FindFirstChild("Left"),
-        TopFrame = baseGui:FindFirstChild("Top"),
+        HIDFrame = hidFrame,
+        BottomFrame = hidFrame and hidFrame:FindFirstChild("Bottom"),
+        LeftFrame = hidFrame and hidFrame:FindFirstChild("Left"),
+        TopFrame = hidFrame and hidFrame:FindFirstChild("Top"),
     }
     
     -- Initialize components

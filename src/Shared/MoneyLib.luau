@@ -47,4 +47,26 @@ function MoneyLib.Format(val: number)
     return MoneyLib.HandleMoney(val)
 end
 
+-- Format number with comma separators (e.g., 1,234,567)
+function MoneyLib.FormatWithCommas(val: number): string
+    local num = math.floor(val)
+    if num < 1000 then
+        return tostring(num)
+    end
+    
+    local str = tostring(num)
+    local result = ""
+    local len = #str
+    
+    for i = 1, len do
+        result = result .. str:sub(i, i)
+        local remaining = len - i
+        if remaining > 0 and remaining % 3 == 0 then
+            result = result .. ","
+        end
+    end
+    
+    return result
+end
+
 return MoneyLib

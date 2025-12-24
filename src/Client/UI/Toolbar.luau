@@ -128,9 +128,10 @@ end
 local function getToolbarContainer(): Frame
     local playerGui = LocalPlayer:WaitForChild("PlayerGui") :: PlayerGui
     
-    -- Navigate to the existing UI: playerui.Base.Bottom.Weapons
+    -- Navigate to the existing UI: playerui.Base.HID.Bottom.Weapons
     local base = playerGui:WaitForChild("Base")
-    local bottom = base:WaitForChild("Bottom")
+    local hid = base:WaitForChild("HID")
+    local bottom = hid:WaitForChild("Bottom")
     local weapons = bottom:WaitForChild("Weapons") :: Frame
     
     -- Clear any existing weapon slots (but keep UI layout components)
