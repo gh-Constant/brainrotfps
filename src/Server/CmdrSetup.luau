@@ -55,7 +55,14 @@ function CmdrSetup.Init()
 	-- Admin commands: announce, kick, kill, teleport, respawn, etc.
 	Cmdr:RegisterDefaultCommands()
 	
-	-- Register custom commands from our Commands folder (sibling to this script)
+	-- Register custom types for autocomplete (must be before commands!)
+	local typesFolder = script.Parent:FindFirstChild("CmdrTypes")
+	if typesFolder then
+		Cmdr.Registry:RegisterTypesIn(typesFolder)
+		print("[Cmdr] Custom types registered from CmdrTypes folder")
+	end
+	
+	-- Register custom commands from Commands folder
 	local commandsFolder = script.Parent:FindFirstChild("Commands")
 	if commandsFolder then
 		Cmdr:RegisterCommandsIn(commandsFolder)
@@ -65,12 +72,6 @@ function CmdrSetup.Init()
 		local replicatedCommands = Cmdr.ReplicatedRoot:FindFirstChild("Commands")
 		if replicatedCommands then
 			print("[Cmdr] Commands replicated to:", replicatedCommands:GetFullName())
-			print("[Cmdr] Replicated command scripts:")
-			for _, child in ipairs(replicatedCommands:GetChildren()) do
-				if child.Name == "broadcast" or child.Name == "suicide" then
-					print("  ✓ " .. child.Name)
-				end
-			end
 		else
 			warn("[Cmdr] Commands folder not found in ReplicatedRoot!")
 		end

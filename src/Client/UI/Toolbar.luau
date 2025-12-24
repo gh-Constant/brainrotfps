@@ -15,6 +15,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
 
+local Rojo = ReplicatedStorage:WaitForChild("Rojo")
+local Packages = Rojo:WaitForChild("Packages")
+local Janitor = require(Packages:WaitForChild("janitor"))
+
 local LocalPlayer = Players.LocalPlayer
 
 -- Types
@@ -44,7 +48,7 @@ local toolSlots: {[Tool]: ToolSlot} = {}
 local slotOrder: {Tool?} = {}
 local equippedTool: Tool? = nil
 local toolbarFrame: Frame? = nil
-local connections: {RBXScriptConnection} = {}
+local janitor = Janitor.new()
 
 --------------------------------------------------------------------------------
 -- Private Functions
@@ -284,7 +288,7 @@ local function setupCharacter(character: Model)
             addTool(child)
         end
     end)
-    table.insert(connections, backpackConnection)
+    janitor:Add(backpackConnection)
     
     -- Listen for tools removed from backpack
     local backpackRemoveConnection = backpack.ChildRemoved:Connect(function(child)
@@ -297,7 +301,7 @@ local function setupCharacter(character: Model)
             end)
         end
     end)
-    table.insert(connections, backpackRemoveConnection)
+    janitor:Add(backpackRemoveConnection)
     
     -- Listen for tools equipped (moved to character)
     local characterAddConnection = character.ChildAdded:Connect(function(child)
@@ -309,7 +313,7 @@ local function setupCharacter(character: Model)
             onToolEquipped(child)
         end
     end)
-    table.insert(connections, characterAddConnection)
+    janitor:Add(characterAddConnection)
     
     -- Listen for tools unequipped (moved from character)
     local characterRemoveConnection = character.ChildRemoved:Connect(function(child)
@@ -323,7 +327,7 @@ local function setupCharacter(character: Model)
             end)
         end
     end)
-    table.insert(connections, characterRemoveConnection)
+    janitor:Add(characterRemoveConnection)
 end
 
 --[[
@@ -374,7 +378,7 @@ local function setupHotkeyInput()
             end
         end
     end)
-    table.insert(connections, inputConnection)
+    janitor:Add(inputConnection)
 end
 
 --[[
@@ -421,11 +425,8 @@ function Toolbar.Init(context: any)
     
     -- Handle future characters
     LocalPlayer.CharacterAdded:Connect(function(character)
-        -- Clean up old connections
-        for _, conn in ipairs(connections) do
-            conn:Disconnect()
-        end
-        table.clear(connections)
+        -- Clean up old connections with Janitor
+        janitor:Cleanup()
         
         setupCharacter(character)
         setupHotkeyInput()
@@ -446,6 +447,54 @@ end
 ]]
 function Toolbar.GetToolAtSlot(index: number): Tool?
     return slotOrder[index]
+end
+
+--[[
+    Gets all toolbar slot data for display in inventory UI.
+    Returns array of {slotIndex, tool, isFromInventory}
+]]
+function Toolbar.GetToolbarData(): {{SlotIndex: number, Tool: Tool?, InventoryItemId: string?}}
+    local data = {}
+    for i = 1, CONFIG.MaxSlots do
+        local tool = slotOrder[i]
+        local inventoryItemId = nil
+        
+        -- Check if tool has inventory item ID attribute
+        if tool then
+            inventoryItemId = tool:GetAttribute("InventoryItemId") :: string?
+        end
+        
+        table.insert(data, {
+            SlotIndex = i,
+            Tool = tool,
+            InventoryItemId = inventoryItemId,
+        })
+    end
+    return data
+end
+
+--[[
+    Checks if a tool is from the inventory system (has InventoryItemId attribute).
+]]
+function Toolbar.IsInventoryItem(tool: Tool): boolean
+    return tool:GetAttribute("InventoryItemId") ~= nil
+end
+
+--[[
+    Sets the visibility of the toolbar.
+    @param visible - Whether to show or hide the toolbar
+]]
+function Toolbar.SetVisible(visible: boolean)
+    if toolbarFrame then
+        toolbarFrame.Visible = visible
+    end
+end
+
+--[[
+    Gets the toolbar frame reference.
+]]
+function Toolbar.GetFrame(): Frame?
+    return toolbarFrame
 end
 
 return Toolbar

@@ -2,6 +2,11 @@
 
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Rojo = ReplicatedStorage:WaitForChild("Rojo")
+local Packages = Rojo:WaitForChild("Packages")
+local Janitor = require(Packages:WaitForChild("janitor"))
 
 local MovementSettings = require(script.Parent.MovementSettings)
 local GroundCheck = require(script.Parent.GroundCheck)
@@ -19,7 +24,7 @@ export type MovementController = typeof(setmetatable({} :: {
 	_groundCheck: GroundCheck.GroundCheck,
 	_slideController: SlideController.SlideController,
 	_wallJump: WallJump.WallJump,
-	_connection: RBXScriptConnection?,
+	_janitor: typeof(Janitor.new()),
 	_wasGrounded: boolean,
 	_lastLandTime: number,
 	_wishJump: boolean,
@@ -42,6 +47,7 @@ function MovementController.new(character: Model): MovementController
 	self._groundCheck = GroundCheck.new(character)
 	self._slideController = SlideController.new(character)
 	self._wallJump = WallJump.new(character, self._settings)
+	self._janitor = Janitor.new()
 	
 	self._wasGrounded = true
 	self._lastLandTime = 0
@@ -63,20 +69,20 @@ function MovementController.new(character: Model): MovementController
 end
 
 function MovementController.Start(self: MovementController)
-	if self._connection then return end
-	
-	self._connection = RunService.RenderStepped:Connect(function(dt)
+	-- RenderStepped connection for movement updates
+	self._janitor:Add(RunService.RenderStepped:Connect(function(dt)
 		if self.Enabled then
 			self:_update(dt)
 		end
-	end)
+	end))
 	
-	UserInputService.JumpRequest:Connect(function()
+	-- JumpRequest connection (now properly cleaned up)
+	self._janitor:Add(UserInputService.JumpRequest:Connect(function()
 		self._wishJump = true
 		task.delay(0.1, function()
 			self._wishJump = false
 		end)
-	end)
+	end))
 end
 
 function MovementController._update(self: MovementController, dt: number)
@@ -436,11 +442,7 @@ function MovementController.EndSlide(self: MovementController)
 end
 
 function MovementController.Destroy(self: MovementController)
-	if self._connection then
-		self._connection:Disconnect()
-		self._connection = nil
-	end
-	
+	self._janitor:Cleanup()
 	self._slideController:Destroy()
 	self._humanoid.WalkSpeed = 16
 	self._humanoid.JumpPower = 50

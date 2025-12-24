@@ -8,6 +8,12 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local GuiService = game:GetService("GuiService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Rojo = ReplicatedStorage:WaitForChild("Rojo")
+local Packages = Rojo:WaitForChild("Packages")
+local Janitor = require(Packages:WaitForChild("janitor"))
+local Signal = require(Packages:WaitForChild("signal"))
 
 local InputController = {}
 InputController.__index = InputController
@@ -16,10 +22,10 @@ export type InputController = typeof(setmetatable({} :: {
     _platform: string, -- "PC" | "Mobile" | "Console"
     _slideButton: ImageButton?,
     _slideButtonFrame: Frame?,
-    _connections: { RBXScriptConnection },
+    _janitor: typeof(Janitor.new()),
     _isSlideHeld: boolean,
-    SlidePressed: BindableEvent,
-    SlideReleased: BindableEvent,
+    SlidePressed: typeof(Signal.new()),
+    SlideReleased: typeof(Signal.new()),
 }, InputController))
 
 -- Input mappings
@@ -60,14 +66,14 @@ function InputController.new(): InputController
     local self = setmetatable({}, InputController)
     
     self._platform = detectPlatform()
-    self._connections = {}
+    self._janitor = Janitor.new()
     self._isSlideHeld = false
     self._slideButton = nil
     self._slideButtonFrame = nil
     
-    -- Create bindable events for slide actions
-    self.SlidePressed = Instance.new("BindableEvent")
-    self.SlideReleased = Instance.new("BindableEvent")
+    -- Create Signal events for slide actions (added to janitor for cleanup)
+    self.SlidePressed = self._janitor:Add(Signal.new(), "Destroy")
+    self.SlideReleased = self._janitor:Add(Signal.new(), "Destroy")
     
     -- Setup input based on platform
     self:_setupInput()
@@ -99,7 +105,7 @@ function InputController._setupInput(self: InputController)
             self._platform = "PC"
         end
     end)
-    table.insert(self._connections, lastInputConnection)
+    self._janitor:Add(lastInputConnection)
 end
 
 function InputController._setupKeyboardInput(self: InputController)
@@ -110,14 +116,14 @@ function InputController._setupKeyboardInput(self: InputController)
             self:_onSlidePressed()
         end
     end)
-    table.insert(self._connections, inputBeganConnection)
+    self._janitor:Add(inputBeganConnection)
     
     local inputEndedConnection = UserInputService.InputEnded:Connect(function(input, _gameProcessed)
         if input.KeyCode == SLIDE_KEY then
             self:_onSlideReleased()
         end
     end)
-    table.insert(self._connections, inputEndedConnection)
+    self._janitor:Add(inputEndedConnection)
 end
 
 function InputController._setupGamepadInput(self: InputController)
@@ -128,14 +134,14 @@ function InputController._setupGamepadInput(self: InputController)
             self:_onSlidePressed()
         end
     end)
-    table.insert(self._connections, inputBeganConnection)
+    self._janitor:Add(inputBeganConnection)
     
     local inputEndedConnection = UserInputService.InputEnded:Connect(function(input, _gameProcessed)
         if input.KeyCode == SLIDE_GAMEPAD_BUTTON or input.KeyCode == SLIDE_GAMEPAD_ALT then
             self:_onSlideReleased()
         end
     end)
-    table.insert(self._connections, inputEndedConnection)
+    self._janitor:Add(inputEndedConnection)
 end
 
 function InputController._setupMobileInput(self: InputController)
@@ -198,27 +204,27 @@ function InputController._setupMobileInput(self: InputController)
     label.Font = Enum.Font.GothamBold
     label.Parent = frame
     
-    -- Connect touch events
-    local touchStartConnection = button.MouseButton1Down:Connect(function()
+    -- Connect touch events (managed by janitor)
+    self._janitor:Add(button.MouseButton1Down:Connect(function()
         self:_onSlidePressed()
         frame.BackgroundTransparency = 0.1 -- Visual feedback
-    end)
-    table.insert(self._connections, touchStartConnection)
+    end))
     
-    local touchEndConnection = button.MouseButton1Up:Connect(function()
+    self._janitor:Add(button.MouseButton1Up:Connect(function()
         self:_onSlideReleased()
         frame.BackgroundTransparency = BUTTON_BG_TRANSPARENCY
-    end)
-    table.insert(self._connections, touchEndConnection)
+    end))
     
     -- Also handle when touch leaves the button
-    local leaveConnection = button.MouseLeave:Connect(function()
+    self._janitor:Add(button.MouseLeave:Connect(function()
         if self._isSlideHeld then
             self:_onSlideReleased()
             frame.BackgroundTransparency = BUTTON_BG_TRANSPARENCY
         end
-    end)
-    table.insert(self._connections, leaveConnection)
+    end))
+    
+    -- Add the ScreenGui to janitor for automatic cleanup
+    self._janitor:Add(screenGui)
     
     self._slideButton = button
     self._slideButtonFrame = frame
@@ -247,22 +253,11 @@ function InputController.GetPlatform(self: InputController): string
 end
 
 function InputController.Destroy(self: InputController)
-    for _, connection in self._connections do
-        connection:Disconnect()
-    end
-    self._connections = {}
+    -- Janitor cleans up all connections, the ScreenGui, and Signals
+    self._janitor:Cleanup()
     
-    if self._slideButtonFrame then
-        local parent = self._slideButtonFrame.Parent
-        if parent then
-            parent:Destroy()
-        end
-        self._slideButtonFrame = nil
-        self._slideButton = nil
-    end
-    
-    self.SlidePressed:Destroy()
-    self.SlideReleased:Destroy()
+    self._slideButtonFrame = nil
+    self._slideButton = nil
 end
 
 return InputController

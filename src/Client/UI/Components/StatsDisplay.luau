@@ -13,6 +13,9 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
+local Packages = Rojo:WaitForChild("Packages")
+local Janitor = require(Packages:WaitForChild("janitor"))
+local Promise = require(Packages:WaitForChild("promise"))
 local MoneyLib = require(Rojo:WaitForChild("Shared"):WaitForChild("MoneyLib"))
 
 local player = Players.LocalPlayer
@@ -22,6 +25,7 @@ local StatsDisplay = {}
 local coinsLabel: TextLabel? = nil
 local creditsLabel: TextLabel? = nil
 local damageLabel: TextLabel? = nil
+local valueJanitor = Janitor.new()
 
 local function formatNumber(value: number): string
     return MoneyLib.HandleMoney(value)
@@ -73,26 +77,33 @@ function StatsDisplay.Init(context: any)
     creditsLabel = creditsFrame and creditsFrame:FindFirstChild("TextLabel") :: TextLabel?
     damageLabel = damageFrame and damageFrame:FindFirstChild("TextLabel") :: TextLabel?
     
-    -- Setup stats tracking
-    task.spawn(function()
+    -- Setup stats tracking with Promise
+    Promise.try(function()
         local leaderstats = player:WaitForChild("leaderstats", 10)
         if not leaderstats then
-            warn("[StatsDisplay] leaderstats not found!")
-            return
+            error("leaderstats not found")
         end
-        
+        return leaderstats
+    end):andThen(function(leaderstats)
         local levelValue = leaderstats:WaitForChild("Level", 5)
         local goldValue = leaderstats:WaitForChild("Gold", 5)
         local creditsValue = leaderstats:WaitForChild("Credits", 5)
         
         updateStats()
         
-        if levelValue then levelValue.Changed:Connect(updateStats) end
-        if goldValue then goldValue.Changed:Connect(updateStats) end
-        if creditsValue then creditsValue.Changed:Connect(updateStats) end
+        -- Use Janitor for value connections
+        if levelValue then valueJanitor:Add(levelValue.Changed:Connect(updateStats)) end
+        if goldValue then valueJanitor:Add(goldValue.Changed:Connect(updateStats)) end
+        if creditsValue then valueJanitor:Add(creditsValue.Changed:Connect(updateStats)) end
+        
+        -- Link to leaderstats for automatic cleanup
+        valueJanitor:LinkToInstance(leaderstats)
+    end):catch(function(err)
+        warn("[StatsDisplay] Failed to setup tracking:", err)
     end)
     
-    print("[StatsDisplay] Initialized!")
-end
+    print("[StatsDisplay] Initialized with Janitor and Promise!")
+end 
 
 return StatsDisplay
+

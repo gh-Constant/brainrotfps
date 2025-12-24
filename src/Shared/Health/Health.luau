@@ -12,6 +12,7 @@ local Rojo = ReplicatedStorage:WaitForChild("Rojo")
 local Packages = Rojo:WaitForChild("Packages")
 local Shared = Rojo:WaitForChild("Shared")
 local HealthFolder = Shared:WaitForChild("Health")
+local Janitor = require(Packages:WaitForChild("janitor"))
 local Signal = require(Packages:WaitForChild("signal"))
 
 -- Require sibling modules
@@ -40,9 +41,8 @@ export type HealthObject = typeof(setmetatable({}, Health)) & {
     Instance: Instance,
     Died: typeof(Signal.new()),
     HealthChanged: typeof(Signal.new()), -- (newHealth, maxHealth)
-    _connections: {RBXScriptConnection},
+    _janitor: typeof(Janitor.new()),
     _lastDamageTime: number?,
-    _regenThread: any,
     _damageHistory: {[number]: number}, -- UserId -> Amount
     _lastInstigator: Player?, -- The last player to deal damage
 }
@@ -64,11 +64,14 @@ function Health.new(instance: Instance, maxHealth: number?): HealthObject
     self.Instance = instance
     self.Died = Signal.new()
     self.HealthChanged = Signal.new()
-    self._connections = {}
+    self._janitor = Janitor.new()
     self._lastDamageTime = nil
-    self._regenThread = nil
     self._damageHistory = {}
     self._lastInstigator = nil
+    
+    -- Add Signals to janitor for cleanup
+    self._janitor:Add(self.Died, "Destroy")
+    self._janitor:Add(self.HealthChanged, "Destroy")
     
     -- Store in cache
     healthCache[instance] = self
@@ -104,7 +107,7 @@ function Health.new(instance: Instance, maxHealth: number?): HealthObject
     
     -- Start regeneration loop only on server
     if RunService:IsServer() then
-        self._regenThread = task.spawn(function()
+        local regenThread = task.spawn(function()
             while self.Instance and self.Instance.Parent do
                 task.wait(0.1) -- Check every 0.1 seconds
                 
@@ -141,6 +144,8 @@ function Health.new(instance: Instance, maxHealth: number?): HealthObject
                 end
             end
         end)
+        -- Add thread to janitor for cancellation on cleanup
+        self._janitor:Add(regenThread, true)
     end
     
     -- Listen for Attribute changes (Replication & Local updates)
@@ -169,7 +174,10 @@ function Health.new(instance: Instance, maxHealth: number?): HealthObject
             end
         end
     end)
-    table.insert(self._connections, attrConnection)
+    self._janitor:Add(attrConnection)
+    
+    -- Link janitor to instance for automatic cleanup
+    self._janitor:LinkToInstance(instance)
     
     return self :: HealthObject
 end
@@ -296,22 +304,13 @@ end
     Does NOT destroy the Instance.
 ]]
 function Health:Destroy()
-    -- Cancel regeneration thread
-    if self._regenThread then
-        task.cancel(self._regenThread)
-        self._regenThread = nil
-    end
-    
-    -- Remove from cache
+    -- Remove from cache first
     if healthCache[self.Instance] == self then
         healthCache[self.Instance] = nil
     end
     
-    for _, conn in ipairs(self._connections) do
-        conn:Disconnect()
-    end
-    self.Died:Destroy()
-    self.HealthChanged:Destroy()
+    -- Janitor cleans up connections, regen thread, and Signals
+    self._janitor:Cleanup()
     
     -- Clear state
     self._damageHistory = {}

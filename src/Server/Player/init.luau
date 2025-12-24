@@ -25,6 +25,15 @@ local DeathHandler = require(script.DeathHandler)
 local PlayerBillboard = require(script.PlayerBillboard)
 local Packets = require(Shared:WaitForChild("Packets"))
 
+-- Use lazy require for InventoryManager to avoid circular dependency
+local InventoryManager = nil
+local function getInventoryManager()
+    if not InventoryManager then
+        InventoryManager = require(script.Parent.Inventory)
+    end
+    return InventoryManager
+end
+
 -- ProfileStore configuration
 local STORE_NAME = "PlayerData_v2"
 local DATA_TEMPLATE = {
@@ -304,6 +313,14 @@ local function onPlayerAdded(player: Player)
         playerData.Level,
         playerData.Gold
     ))
+    
+    -- Load inventory (async, doesn't block player join)
+    task.spawn(function()
+        local invManager = getInventoryManager()
+        invManager.LoadInventory(player):catch(function(err)
+            warn("[PlayerManager] Failed to load inventory:", err)
+        end)
+    end)
 end
 
 --[[
@@ -346,6 +363,10 @@ local function onPlayerRemoving(player: Player)
     -- Clear caches
     ActivePlayers[userId] = nil
     ActiveProfiles[userId] = nil
+    
+    -- Unload inventory
+    local invManager = getInventoryManager()
+    invManager.UnloadInventory(player)
     
     print(string.format("[PlayerManager] Unloaded %s", player.Name))
 end

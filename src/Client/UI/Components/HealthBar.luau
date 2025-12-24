@@ -12,6 +12,8 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
+local Packages = Rojo:WaitForChild("Packages")
+local Janitor = require(Packages:WaitForChild("janitor"))
 local MoneyLib = require(Rojo:WaitForChild("Shared"):WaitForChild("MoneyLib"))
 
 local ProgressBar = require(script.Parent.Parent.ProgressBar)
@@ -21,6 +23,7 @@ local player = Players.LocalPlayer
 local HealthBar = {}
 
 local healthBar: any = nil
+local characterJanitor = Janitor.new()
 
 local function formatNumber(value: number): string
     return MoneyLib.HandleMoney(value)
@@ -39,9 +42,17 @@ local function updateHealth()
 end
 
 local function onCharacterAdded(character: Model)
+    -- Cleanup previous character connections
+    characterJanitor:Cleanup()
+    
     updateHealth()
-    character:GetAttributeChangedSignal("Health"):Connect(updateHealth)
-    character:GetAttributeChangedSignal("MaxHealth"):Connect(updateHealth)
+    
+    -- Add connections to janitor - they'll be cleaned up on next character spawn
+    characterJanitor:Add(character:GetAttributeChangedSignal("Health"):Connect(updateHealth))
+    characterJanitor:Add(character:GetAttributeChangedSignal("MaxHealth"):Connect(updateHealth))
+    
+    -- Link janitor to character for automatic cleanup if character is destroyed
+    characterJanitor:LinkToInstance(character)
 end
 
 function HealthBar.Init(context: any)
@@ -77,7 +88,8 @@ function HealthBar.Init(context: any)
     end
     player.CharacterAdded:Connect(onCharacterAdded)
     
-    print("[HealthBar] Initialized!")
+    print("[HealthBar] Initialized with Janitor!")
 end
 
 return HealthBar
+

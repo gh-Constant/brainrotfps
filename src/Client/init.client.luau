@@ -158,14 +158,14 @@ end
 ]]
 local inputController = InputController.new()
 
-inputController.SlidePressed.Event:Connect(function()
+inputController.SlidePressed:Connect(function()
     local controller = currentController
     if controller and not controller:IsSliding() then
         controller:TrySlide()
     end
 end)
 
-inputController.SlideReleased.Event:Connect(function()
+inputController.SlideReleased:Connect(function()
     local controller = currentController
     if controller then
         controller:EndSlide()

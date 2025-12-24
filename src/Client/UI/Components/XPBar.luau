@@ -1,4 +1,4 @@
---!strict
+    --!strict
 --[[
     XPBar
     Handles the XP bar and level display.
@@ -13,6 +13,9 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
+local Packages = Rojo:WaitForChild("Packages")
+local Janitor = require(Packages:WaitForChild("janitor"))
+local Promise = require(Packages:WaitForChild("promise"))
 local MoneyLib = require(Rojo:WaitForChild("Shared"):WaitForChild("MoneyLib"))
 
 local ProgressBar = require(script.Parent.Parent.ProgressBar)
@@ -22,6 +25,7 @@ local player = Players.LocalPlayer
 local XPBar = {}
 
 local xpBar: any = nil
+local valueJanitor = Janitor.new()
 
 local function formatNumber(value: number): string
     return MoneyLib.HandleMoney(value)
@@ -79,24 +83,31 @@ function XPBar.Init(context: any)
         warn("[XPBar] XP bar UI elements not found!")
     end
     
-    -- Setup XP tracking
-    task.spawn(function()
+    -- Setup XP tracking with Promise
+    Promise.try(function()
         local leaderstats = player:WaitForChild("leaderstats", 10)
         if not leaderstats then
-            warn("[XPBar] leaderstats not found!")
-            return
+            error("leaderstats not found")
         end
-        
+        return leaderstats
+    end):andThen(function(leaderstats)
         local levelValue = leaderstats:WaitForChild("Level", 5)
         local xpValueObj = leaderstats:WaitForChild("XP", 5)
         
         updateXP()
         
-        if levelValue then levelValue.Changed:Connect(updateXP) end
-        if xpValueObj then xpValueObj.Changed:Connect(updateXP) end
+        -- Use Janitor for value connections
+        if levelValue then valueJanitor:Add(levelValue.Changed:Connect(updateXP)) end
+        if xpValueObj then valueJanitor:Add(xpValueObj.Changed:Connect(updateXP)) end
+        
+        -- Link to leaderstats for automatic cleanup
+        valueJanitor:LinkToInstance(leaderstats)
+    end):catch(function(err)
+        warn("[XPBar] Failed to setup tracking:", err)
     end)
     
-    print("[XPBar] Initialized!")
+    print("[XPBar] Initialized with Janitor and Promise!")
 end
 
 return XPBar
+

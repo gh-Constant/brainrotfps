@@ -18,6 +18,7 @@ local BroadcastUI = require(script.BroadcastUI)
 local DeathScreen = require(script.DeathScreen)
 local LootFX = require(script.LootFX)
 local DamageIndicator = require(script.DamageIndicator)
+local InventoryUI = require(script.Inventory)
 
 -- Component modules
 local Components = script.Components
@@ -36,6 +37,7 @@ local UI = {
     Toolbar = Toolbar,
     BroadcastUI = BroadcastUI,
     DeathScreen = DeathScreen,
+    InventoryUI = InventoryUI,
     
     -- Components
     HealthBar = HealthBar,
@@ -74,6 +76,7 @@ function UI.Init(context: any)
         BottomFrame = hidFrame and hidFrame:FindFirstChild("Bottom"),
         LeftFrame = hidFrame and hidFrame:FindFirstChild("Left"),
         TopFrame = hidFrame and hidFrame:FindFirstChild("Top"),
+        Toolbar = Toolbar, -- Pass Toolbar module reference
     }
     
     -- Initialize components
@@ -88,6 +91,7 @@ function UI.Init(context: any)
     BroadcastUI.Init()
     LootFX.Init()
     DamageIndicator.Init()
+    InventoryUI.Init(uiContext)
     
     print("[UI] All systems initialized!")
 end

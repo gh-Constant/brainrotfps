@@ -4,7 +4,12 @@
     Tracks initialization state of each system and provides signals for loading screen integration.
 ]]
 
-local Signal = require(game:GetService("ReplicatedStorage").Rojo.Packages.signal)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Rojo = ReplicatedStorage:WaitForChild("Rojo")
+local Packages = Rojo:WaitForChild("Packages")
+local Signal = require(Packages:WaitForChild("signal"))
+local Promise = require(Packages:WaitForChild("promise"))
 
 export type System = {
     Name: string,
@@ -65,8 +70,8 @@ function SystemLoader:RegisterSystem(system: System)
 end
 
 --[[
-    Sorts systems by priority and initializes them all.
-    Each system runs in its own task.spawn for independent loading.
+    Sorts systems by priority and initializes them all using Promise.
+    Each system runs in parallel with Promise.allSettled for independent loading.
     @param context - ClientContext to pass to each system's Init function
 ]]
 function SystemLoader:InitializeAll(context: any)
@@ -87,35 +92,38 @@ function SystemLoader:InitializeAll(context: any)
         return priorityA < priorityB
     end)
     
-    print("[SystemLoader] Initializing", self._totalCount, "systems...")
+    print("[SystemLoader] Initializing", self._totalCount, "systems with Promise...")
     
-    -- Initialize each system independently
+    -- Create a Promise for each system
+    local promises = {}
     for _, system in self._systems do
-        task.spawn(function()
+        local promise = Promise.new(function(resolve, reject)
             local success, err = pcall(function()
                 system.Init(context)
             end)
             
             if success then
                 print("[SystemLoader] ✓", system.Name, "initialized")
+                resolve(system.Name)
             else
                 warn("[SystemLoader] ✗", system.Name, "failed:", err)
+                reject(err)
             end
-            
-            -- Mark as complete regardless of success
+        end):finally(function()
+            -- Mark as complete regardless of success/failure
             self._completed[system.Name] = true
             self._completedCount += 1
-            
-            -- Fire signal for this system
-            self.OnSystemLoaded:Fire(system.Name, success)
-            
-            -- Check if all complete
-            if self._completedCount >= self._totalCount then
-                print("[SystemLoader] All systems initialized!")
-                self.OnAllComplete:Fire()
-            end
+            self.OnSystemLoaded:Fire(system.Name, self._completed[system.Name])
         end)
+        
+        table.insert(promises, promise)
     end
+    
+    -- Wait for all systems using allSettled (doesn't fail if one rejects)
+    Promise.allSettled(promises):andThen(function()
+        print("[SystemLoader] All systems initialized!")
+        self.OnAllComplete:Fire()
+    end)
 end
 
 --[[

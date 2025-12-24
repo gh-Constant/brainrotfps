@@ -1,7 +1,7 @@
 return {
 	Name = "give";
 	Aliases = {"giveplayer"};
-	Description = "Give a player levels, gold, or XP.";
+	Description = "Give a player levels, gold, xp, or credits.";
 	Group = "Admin";
 	Args = {
 		{
@@ -10,9 +10,9 @@ return {
 			Description = "The player to give resources to.";
 		},
 		{
-			Type = "string";
+			Type = "resourceType";
 			Name = "Type";
-			Description = "What to give: level, gold, xp";
+			Description = "What to give";
 		},
 		{
 			Type = "integer";

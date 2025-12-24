@@ -9,10 +9,17 @@
 ]]
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Rojo = ReplicatedStorage:WaitForChild("Rojo")
+local Packages = Rojo:WaitForChild("Packages")
+local Janitor = require(Packages:WaitForChild("janitor"))
 
 local player = Players.LocalPlayer
 
 local CombatIndicator = {}
+
+local characterJanitor = Janitor.new()
 
 function CombatIndicator.Init(context: any)
     local topFrame = context.TopFrame
@@ -44,13 +51,21 @@ function CombatIndicator.Init(context: any)
     end
     
     local function setupCombatListener(character: Model)
+        -- Cleanup previous character connections
+        characterJanitor:Cleanup()
+        
         updateCombatUI(character)
-        character:GetAttributeChangedSignal("InCombat"):Connect(function()
+        
+        -- Add connections to janitor
+        characterJanitor:Add(character:GetAttributeChangedSignal("InCombat"):Connect(function()
             updateCombatUI(character)
-        end)
-        character:GetAttributeChangedSignal("CombatCountdown"):Connect(function()
+        end))
+        characterJanitor:Add(character:GetAttributeChangedSignal("CombatCountdown"):Connect(function()
             updateCombatUI(character)
-        end)
+        end))
+        
+        -- Link janitor to character for automatic cleanup
+        characterJanitor:LinkToInstance(character)
     end
     
     if context.Character then
@@ -59,7 +74,8 @@ function CombatIndicator.Init(context: any)
     
     player.CharacterAdded:Connect(setupCombatListener)
     
-    print("[CombatIndicator] Initialized!")
+    print("[CombatIndicator] Initialized with Janitor!")
 end
 
 return CombatIndicator
+

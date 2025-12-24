@@ -10,6 +10,8 @@ local TweenService = game:GetService("TweenService")
 local Players = game:GetService("Players")
 
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
+local Packages = Rojo:WaitForChild("Packages")
+local Janitor = require(Packages:WaitForChild("janitor"))
 local MoneyLib = require(Rojo:WaitForChild("Shared"):WaitForChild("MoneyLib"))
 
 local PlayerBillboard = {}
@@ -64,7 +66,7 @@ export type PlayerBillboardObject = typeof(setmetatable({}, PlayerBillboard)) & 
     PeacefulImage: ImageLabel?,
     HostileLabel: TextLabel?,
     PeacefulLabel: TextLabel?,
-    _connections: { RBXScriptConnection },
+    _janitor: typeof(Janitor.new()),
 }
 
 --[[
@@ -143,7 +145,7 @@ function PlayerBillboard.new(character: Model, playerData: any): PlayerBillboard
     local self = setmetatable({}, PlayerBillboard)
     self.Character = character
     self.Billboard = billboard
-    self._connections = {}
+    self._janitor = Janitor.new()
     self._playerData = playerData
     
     -- Find UI components
@@ -265,7 +267,7 @@ end
 
 function PlayerBillboard:SetupListeners()
     -- Listen for attribute changes
-    local attrConn = self.Character.AttributeChanged:Connect(function(attribute)
+    self._janitor:Add(self.Character.AttributeChanged:Connect(function(attribute)
         if attribute == "Health" or attribute == "MaxHealth" then
             self:UpdateHealth()
         elseif attribute == "IsPvPEnabled" then
@@ -273,23 +275,21 @@ function PlayerBillboard:SetupListeners()
         elseif attribute == "Level" then
             self:UpdateLevel()
         end
-    end)
-    table.insert(self._connections, attrConn)
+    end))
     
     -- Listen for level up from playerData if available
     if self._playerData and self._playerData.OnLevelUp then
-        local levelConn = self._playerData.OnLevelUp:Connect(function()
+        self._janitor:Add(self._playerData.OnLevelUp:Connect(function()
             self:UpdateLevel()
-        end)
-        table.insert(self._connections, levelConn)
+        end))
     end
+    
+    -- Link janitor to character for automatic cleanup
+    self._janitor:LinkToInstance(self.Character)
 end
 
 function PlayerBillboard:Destroy()
-    for _, conn in self._connections do
-        conn:Disconnect()
-    end
-    self._connections = {}
+    self._janitor:Cleanup()
     
     if self.Billboard then
         self.Billboard:Destroy()

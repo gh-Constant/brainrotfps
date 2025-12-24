@@ -81,5 +81,46 @@ return ByteNet.defineNamespace("game", function()
 			}),
 			reliabilityType = "unreliable", -- Fast, non-critical
 		}),
+		
+		-- Inventory sync packet (Server -> Client)
+		-- Full inventory sync when player joins or major changes
+		inventorySync = ByteNet.definePacket({
+			value = ByteNet.struct({
+				items = ByteNet.array(ByteNet.struct({
+					id = ByteNet.string,
+					templateId = ByteNet.string,
+					itemType = ByteNet.string,
+					rarity = ByteNet.string, -- Empty string if no rarity
+				})),
+				toolbarSlots = ByteNet.map(ByteNet.uint8, ByteNet.string), -- Slot -> ItemId
+			}),
+			reliabilityType = "reliable",
+		}),
+		
+		-- Inventory update packet (Server -> Client)
+		-- Partial update for adding/removing single items
+		inventoryUpdate = ByteNet.definePacket({
+			value = ByteNet.struct({
+				action = ByteNet.string, -- "Add" | "Remove"
+				item = ByteNet.struct({
+					id = ByteNet.string,
+					templateId = ByteNet.string,
+					itemType = ByteNet.string,
+					rarity = ByteNet.string,
+				}),
+			}),
+			reliabilityType = "reliable",
+		}),
+		
+		-- Inventory action packet (Client -> Server)
+		-- Player actions like assigning toolbar slots
+		inventoryAction = ByteNet.definePacket({
+			value = ByteNet.struct({
+				action = ByteNet.string, -- "AssignToolbar" | "RemoveToolbar"
+				itemId = ByteNet.optional(ByteNet.string),
+				slot = ByteNet.optional(ByteNet.uint8),
+			}),
+			reliabilityType = "reliable",
+		}),
 	}
 end)
