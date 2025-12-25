@@ -33,7 +33,7 @@ type RarityType = Inventory.RarityType
 type Signal = typeof(Signal.new())
 
 -- ProfileStore configuration (separate from player data for modularity)
-local STORE_NAME = "InventoryData_v2"
+local STORE_NAME = "InventoryData_v3"
 local DATA_TEMPLATE: InventoryData = {
     Items = {},
     ToolbarSlots = {},
@@ -337,7 +337,7 @@ function InventoryManager.AssignToToolbar(player: Player, itemId: string, slot: 
         return false
     end
     
-    -- Remove from current slot if exists
+    -- Remove from current slot if exists (moving from another slot)
     for s, id in pairs(inventory.ToolbarSlots) do
         if id == itemId then
             inventory.ToolbarSlots[s] = nil
@@ -352,6 +352,31 @@ function InventoryManager.AssignToToolbar(player: Player, itemId: string, slot: 
                 end
             end
             break
+        end
+    end
+    
+    -- Remove existing item from target slot if occupied (swap scenario)
+    local existingItemId = inventory.ToolbarSlots[slot]
+    if existingItemId and existingItemId ~= "" then
+        -- Remove the old tool from backpack
+        local backpack = player:FindFirstChild("Backpack")
+        if backpack then
+            for _, tool in backpack:GetChildren() do
+                if tool:IsA("Tool") and tool:GetAttribute("InventoryItemId") == existingItemId then
+                    tool:Destroy()
+                    break
+                end
+            end
+        end
+        -- Also check character for equipped tool
+        local character = player.Character
+        if character then
+            for _, tool in character:GetChildren() do
+                if tool:IsA("Tool") and tool:GetAttribute("InventoryItemId") == existingItemId then
+                    tool:Destroy()
+                    break
+                end
+            end
         end
     end
     
@@ -385,6 +410,93 @@ function InventoryManager.AssignToToolbar(player: Player, itemId: string, slot: 
     -- Sync to client
     syncInventoryToClient(player)
     
+    return true
+end
+
+--[[
+    Swaps items between two toolbar slots.
+    If one slot is empty, this acts as a move operation.
+    
+    @param player - The Roblox Player
+    @param slot1 - First slot number (1-9)
+    @param slot2 - Second slot number (1-9)
+    @return boolean - True if successful
+]]
+function InventoryManager.SwapToolbarSlots(player: Player, slot1: number, slot2: number): boolean
+    if slot1 < 1 or slot1 > 9 or slot2 < 1 or slot2 > 9 then return false end
+    if slot1 == slot2 then return false end
+    
+    local inventory = ActiveInventories[player.UserId]
+    if not inventory then return false end
+    
+    local itemId1 = inventory.ToolbarSlots[slot1]
+    local itemId2 = inventory.ToolbarSlots[slot2]
+    
+    -- At least one slot must have an item
+    if not itemId1 and not itemId2 then return false end
+    
+    -- Helper to destroy tool in backpack/character
+    local function destroyToolForItem(itemId: string)
+        local backpack = player:FindFirstChild("Backpack")
+        if backpack then
+            for _, tool in backpack:GetChildren() do
+                if tool:IsA("Tool") and tool:GetAttribute("InventoryItemId") == itemId then
+                    tool:Destroy()
+                    break
+                end
+            end
+        end
+        local character = player.Character
+        if character then
+            for _, tool in character:GetChildren() do
+                if tool:IsA("Tool") and tool:GetAttribute("InventoryItemId") == itemId then
+                    tool:Destroy()
+                    break
+                end
+            end
+        end
+    end
+    
+    -- Helper to spawn tool in slot
+    local function spawnToolInSlot(itemId: string, slot: number)
+        local item = Inventory.FindById(inventory.Items, itemId)
+        if not item or item.Type ~= "Tool" then return end
+        
+        local backpack = player:FindFirstChild("Backpack")
+        if not backpack then return end
+        
+        local config = ReplicatedStorage:FindFirstChild("Config")
+        if not config then return end
+        local items = config:FindFirstChild("Items")
+        if not items then return end
+        
+        local itemConfig = items:FindFirstChild(item.TemplateId)
+        if not itemConfig then return end
+        
+        local toolTemplate = itemConfig:FindFirstChildWhichIsA("Tool")
+        if not toolTemplate then return end
+        
+        local toolClone = toolTemplate:Clone()
+        toolClone:SetAttribute("InventoryItemId", itemId)
+        toolClone:SetAttribute("ToolbarSlot", slot)
+        toolClone.Parent = backpack
+    end
+    
+    -- Destroy existing tools
+    if itemId1 then destroyToolForItem(itemId1) end
+    if itemId2 then destroyToolForItem(itemId2) end
+    
+    -- Swap slot assignments
+    inventory.ToolbarSlots[slot1] = itemId2
+    inventory.ToolbarSlots[slot2] = itemId1
+    
+    -- Respawn tools in new slots
+    if itemId1 then spawnToolInSlot(itemId1, slot2) end
+    if itemId2 then spawnToolInSlot(itemId2, slot1) end
+    
+    print(string.format("[InventoryManager] Swapped toolbar slots %d <-> %d for %s", slot1, slot2, player.Name))
+    
+    syncInventoryToClient(player)
     return true
 end
 
@@ -484,11 +596,14 @@ function InventoryManager.Init()
         local action = data.action
         local itemId = data.itemId
         local slot = data.slot
+        local slot2 = data.slot2
         
         if action == "AssignToolbar" and itemId and slot then
             InventoryManager.AssignToToolbar(p, itemId, slot)
         elseif action == "RemoveToolbar" and slot then
             InventoryManager.RemoveFromToolbar(p, slot)
+        elseif action == "SwapToolbar" and slot and slot2 then
+            InventoryManager.SwapToolbarSlots(p, slot, slot2)
         end
     end)
     

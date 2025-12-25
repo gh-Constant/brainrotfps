@@ -156,7 +156,29 @@ local function addTool(tool: Tool)
         return -- Already added
     end
     
-    local slotIndex = findAvailableSlotIndex()
+    -- First check if the tool has a ToolbarSlot attribute (assigned by inventory system)
+    local assignedSlot = tool:GetAttribute("ToolbarSlot") :: number?
+    local slotIndex: number?
+    
+    if assignedSlot and assignedSlot >= 1 and assignedSlot <= CONFIG.MaxSlots then
+        -- Server-assigned slot is authoritative - forcefully use it
+        local existingTool = slotOrder[assignedSlot]
+        if existingTool and existingTool ~= tool then
+            -- Another tool is in our assigned slot - it will be removed by server
+            -- Clear it from our tracking to make room (server is source of truth)
+            local existingSlot = toolSlots[existingTool]
+            if existingSlot then
+                existingSlot.Frame:Destroy()
+                toolSlots[existingTool] = nil
+            end
+            slotOrder[assignedSlot] = nil
+        end
+        slotIndex = assignedSlot
+    else
+        -- No assignment, find first available
+        slotIndex = findAvailableSlotIndex()
+    end
+    
     if not slotIndex then
         warn("[Toolbar] No available slots for tool:", tool.Name)
         return

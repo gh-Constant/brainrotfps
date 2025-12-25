@@ -103,13 +103,17 @@ systemLoader:RegisterSystem({
 
 --[[
     Creates a context object with common client references.
+    Uses WaitForChild to properly wait for character parts to exist.
 ]]
 local function createClientContext(character: Model): ClientContext?
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    local WAIT_TIMEOUT = 10 -- seconds to wait for parts
+    
+    -- Use WaitForChild to properly wait for Humanoid and HumanoidRootPart
+    local humanoid = character:WaitForChild("Humanoid", WAIT_TIMEOUT) :: Humanoid?
+    local rootPart = character:WaitForChild("HumanoidRootPart", WAIT_TIMEOUT) :: BasePart?
     
     if not humanoid or not rootPart then
-        warn("[Client] Failed to find Humanoid or HumanoidRootPart")
+        warn("[Client] Failed to find Humanoid or HumanoidRootPart after", WAIT_TIMEOUT, "seconds")
         return nil
     end
     
@@ -119,8 +123,8 @@ local function createClientContext(character: Model): ClientContext?
         Player = player,
         PlayerGui = playerGui,
         Character = character,
-        Humanoid = humanoid :: Humanoid,
-        RootPart = rootPart :: BasePart,
+        Humanoid = humanoid,
+        RootPart = rootPart,
     }
 end
 

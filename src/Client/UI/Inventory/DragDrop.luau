@@ -1,18 +1,16 @@
 --!strict
 --[[
     DragDropHandler Module
-    Handles drag and drop functionality for inventory items to toolbar slots.
+    Handles drag and drop functionality for inventory items and toolbar slots.
     Uses Roblox's native UIDragDetector for smooth dragging.
     
     Features:
-    - Drag items from inventory grid to toolbar
-    - Visual feedback during drag
+    - Unified drag handling for both inventory and toolbar slots
+    - Visual feedback during drag (ghost element, slot highlighting)
     - Drop detection on toolbar slots
+    - Swap support when dropping on occupied slots
     - Snap-back if dropped outside valid area
 ]]
-
-local _Players = game:GetService("Players")
-local _RunService = game:GetService("RunService")
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
@@ -27,12 +25,15 @@ export type DragData = {
     Type: string,
     Rarity: string?,
     SourceSlot: Frame,
+    SourceToolbarSlot: number?, -- If dragged from toolbar, this is the slot index
 }
 
 export type DropResult = {
     Success: boolean,
     ToolbarSlotIndex: number?,
     ItemData: DragData,
+    DisplacedItemId: string?, -- Item that was in the target slot (for swaps)
+    SourceToolbarSlot: number?, -- Source slot if dragged from toolbar
 }
 
 -- Module
@@ -49,7 +50,9 @@ local CONFIG = {
 }
 
 -- Signals
-DragDropHandler.OnItemDropped = Signal.new() -- Fires when item dropped on toolbar
+DragDropHandler.OnItemDropped = Signal.new() -- Fires when item dropped on toolbar slot
+DragDropHandler.OnToolbarItemRemoved = Signal.new() -- Fires when item dragged from toolbar to empty area
+DragDropHandler.OnToolbarSwap = Signal.new() -- Fires when two toolbar items should swap
 DragDropHandler.OnDragStart = Signal.new()
 DragDropHandler.OnDragEnd = Signal.new()
 
@@ -57,6 +60,7 @@ DragDropHandler.OnDragEnd = Signal.new()
 local currentDragData: DragData? = nil
 local dragGhost: Frame? = nil
 local toolbarSlots: {Frame} = {}
+local toolbarContents: {[number]: string?} = {} -- slot index -> itemId (for swap detection)
 local hoveredSlot: Frame? = nil
 local janitor = Janitor.new()
 
@@ -79,6 +83,10 @@ local function createDragGhost(sourceFrame: Frame, screenGui: ScreenGui): Frame
     for _, child in ghost:GetDescendants() do
         if child:IsA("GuiButton") then
             child.Active = false
+        end
+        -- Also remove drag detectors from ghost
+        if child:IsA("UIDragDetector") then
+            child:Destroy()
         end
     end
     
@@ -133,6 +141,145 @@ local function highlightSlot(slot: Frame, highlight: boolean, valid: boolean?)
     end
 end
 
+--[[
+    Cleans up current drag state.
+]]
+local function cleanupDrag()
+    if dragGhost then
+        dragGhost:Destroy()
+        dragGhost = nil
+    end
+    if hoveredSlot then
+        highlightSlot(hoveredSlot, false)
+        hoveredSlot = nil
+    end
+    currentDragData = nil
+    DragDropHandler.OnDragEnd:Fire()
+end
+
+--[[
+    Handles drag start (unified for inventory and toolbar slots).
+]]
+local function onDragStart(slotFrame: Frame, itemData: DragData, screenGui: ScreenGui, inputPosition: Vector2)
+    currentDragData = itemData
+    
+    -- Create ghost
+    dragGhost = createDragGhost(slotFrame, screenGui)
+    updateGhostPosition(dragGhost :: Frame, inputPosition)
+    
+    -- Dim original
+    slotFrame.BackgroundTransparency = 0.7
+    
+    DragDropHandler.OnDragStart:Fire(currentDragData)
+end
+
+--[[
+    Handles drag continue (unified for inventory and toolbar slots).
+]]
+local function onDragContinue(inputPosition: Vector2)
+    if dragGhost then
+        updateGhostPosition(dragGhost, inputPosition)
+    end
+    
+    -- Check hover over toolbar slots
+    local newHoveredSlot, _slotIdx = findHoveredToolbarSlot(inputPosition)
+    
+    if newHoveredSlot ~= hoveredSlot then
+        -- Unhighlight old
+        if hoveredSlot then
+            highlightSlot(hoveredSlot, false)
+        end
+        
+        -- Highlight new
+        if newHoveredSlot and currentDragData then
+            -- Only Tools can go in toolbar
+            local isValid = currentDragData.Type == "Tool"
+            highlightSlot(newHoveredSlot :: Frame, true, isValid)
+        end
+        
+        hoveredSlot = newHoveredSlot
+    end
+end
+
+--[[
+    Handles drag end for INVENTORY slot drop.
+]]
+local function onInventoryDragEnd(slotFrame: Frame, inputPosition: Vector2)
+    slotFrame.BackgroundTransparency = 0
+    
+    local droppedSlot, slotIndex = findHoveredToolbarSlot(inputPosition)
+    
+    if droppedSlot and currentDragData and currentDragData.Type == "Tool" and slotIndex then
+        -- Get the item currently in the target slot (if any)
+        local displacedItemId = toolbarContents[slotIndex]
+        
+        local result: DropResult = {
+            Success = true,
+            ToolbarSlotIndex = slotIndex,
+            ItemData = currentDragData,
+            DisplacedItemId = displacedItemId,
+            SourceToolbarSlot = currentDragData.SourceToolbarSlot,
+        }
+        DragDropHandler.OnItemDropped:Fire(result)
+        highlightSlot(droppedSlot, false)
+    else
+        -- Invalid drop - snap back
+        if currentDragData then
+            local result: DropResult = {
+                Success = false,
+                ToolbarSlotIndex = nil,
+                ItemData = currentDragData,
+            }
+            DragDropHandler.OnItemDropped:Fire(result)
+        end
+    end
+    
+    cleanupDrag()
+end
+
+--[[
+    Handles drag end for TOOLBAR slot drop.
+]]
+local function onToolbarDragEnd(slotFrame: Frame, sourceSlotIndex: number, inputPosition: Vector2)
+    slotFrame.BackgroundTransparency = 0
+    
+    local droppedSlot, targetSlotIndex = findHoveredToolbarSlot(inputPosition)
+    
+    if droppedSlot and currentDragData and targetSlotIndex then
+        if targetSlotIndex == sourceSlotIndex then
+            -- Dropped on same slot - no-op
+            cleanupDrag()
+            return
+        end
+        
+        -- Check if target slot has an item (swap scenario)
+        local targetItemId = toolbarContents[targetSlotIndex]
+        
+        if targetItemId and targetItemId ~= "" then
+            -- Both slots have items - swap!
+            DragDropHandler.OnToolbarSwap:Fire(sourceSlotIndex, targetSlotIndex)
+        else
+            -- Target is empty - move operation
+            local result: DropResult = {
+                Success = true,
+                ToolbarSlotIndex = targetSlotIndex,
+                ItemData = currentDragData,
+                SourceToolbarSlot = sourceSlotIndex,
+            }
+            DragDropHandler.OnItemDropped:Fire(result)
+        end
+        
+        highlightSlot(droppedSlot, false)
+    else
+        -- Dropped outside toolbar - remove from toolbar
+        if currentDragData then
+            DragDropHandler.OnToolbarItemRemoved:Fire(sourceSlotIndex, currentDragData.ItemId)
+        end
+    end
+    
+    cleanupDrag()
+end
+
 --------------------------------------------------------------------------------
 -- Public Methods
 --------------------------------------------------------------------------------
@@ -146,13 +293,26 @@ function DragDropHandler.RegisterToolbarSlots(slots: {Frame})
 end
 
 --[[
+    Updates the known contents of toolbar slots (for swap detection).
+    @param contents - Map of slot index -> item ID (nil/empty string for empty slots)
+]]
+function DragDropHandler.RegisterToolbarContents(contents: {[number]: string?})
+    toolbarContents = contents
+end
+
+--[[
     Makes an inventory slot draggable using UIDragDetector.
     @param slotFrame - The frame containing the inventory item
     @param itemData - Data about the item (id, templateId, type, rarity)
     @param screenGui - The ScreenGui for the drag ghost
 ]]
 function DragDropHandler.MakeDraggable(slotFrame: Frame, itemData: DragData, screenGui: ScreenGui)
-    -- Create UIDragDetector for native drag support
+    -- Remove existing detector if any
+    local existingDetector = slotFrame:FindFirstChild("ItemDragDetector")
+    if existingDetector then
+        existingDetector:Destroy()
+    end
+    
     local dragDetector = Instance.new("UIDragDetector")
     dragDetector.Name = "ItemDragDetector"
     dragDetector.DragStyle = Enum.UIDragDetectorDragStyle.TranslatePlane
@@ -161,102 +321,84 @@ function DragDropHandler.MakeDraggable(slotFrame: Frame, itemData: DragData, scr
     
     local slotJanitor = Janitor.new()
     
-    -- Store original position for snap-back
-    local _originalPosition = slotFrame.Position
-    
-    -- Drag Start
     slotJanitor:Add(dragDetector.DragStart:Connect(function(inputPosition: Vector2)
-        currentDragData = {
+        local data: DragData = {
             ItemId = itemData.ItemId,
             TemplateId = itemData.TemplateId,
             Type = itemData.Type,
             Rarity = itemData.Rarity,
             SourceSlot = slotFrame,
+            SourceToolbarSlot = itemData.SourceToolbarSlot,
         }
-        
-        -- Create ghost
-        dragGhost = createDragGhost(slotFrame, screenGui)
-        updateGhostPosition(dragGhost :: Frame, inputPosition)
-        
-        -- Dim original
-        slotFrame.BackgroundTransparency = 0.7
-        
-        DragDropHandler.OnDragStart:Fire(currentDragData)
+        onDragStart(slotFrame, data, screenGui, inputPosition)
     end))
     
-    -- Drag Continue (update ghost and check hover)
     slotJanitor:Add(dragDetector.DragContinue:Connect(function(inputPosition: Vector2)
-        if dragGhost then
-            updateGhostPosition(dragGhost, inputPosition)
-        end
-        
-        -- Check hover over toolbar slots
-        local newHoveredSlot, _slotIdx = findHoveredToolbarSlot(inputPosition)
-        
-        if newHoveredSlot ~= hoveredSlot then
-            -- Unhighlight old
-            if hoveredSlot then
-                highlightSlot(hoveredSlot, false)
-            end
-            
-            -- Highlight new
-            if newHoveredSlot and currentDragData then
-                -- Only Tools can go in toolbar
-                local isValid = currentDragData.Type == "Tool"
-                highlightSlot(newHoveredSlot :: Frame, true, isValid)
-            end
-            
-            hoveredSlot = newHoveredSlot
-        end
+        onDragContinue(inputPosition)
     end))
     
-    -- Drag End
     slotJanitor:Add(dragDetector.DragEnd:Connect(function(inputPosition: Vector2)
-        -- Clean up ghost
-        if dragGhost then
-            dragGhost:Destroy()
-            dragGhost = nil
-        end
-        
-        -- Restore original
-        slotFrame.BackgroundTransparency = 0
-        
-        -- Check if dropped on valid toolbar slot
-        local droppedSlot, slotIndex = findHoveredToolbarSlot(inputPosition)
-        
-        if droppedSlot and currentDragData and currentDragData.Type == "Tool" and slotIndex then
-            -- Valid drop!
-            local result: DropResult = {
-                Success = true,
-                ToolbarSlotIndex = slotIndex,
-                ItemData = currentDragData,
-            }
-            DragDropHandler.OnItemDropped:Fire(result)
-            highlightSlot(droppedSlot, false)
-        else
-            -- Invalid drop - snap back
-            if currentDragData then
-                local result: DropResult = {
-                    Success = false,
-                    ToolbarSlotIndex = nil,
-                    ItemData = currentDragData,
-                }
-                DragDropHandler.OnItemDropped:Fire(result)
-            end
-        end
-        
-        -- Clear hover
-        if hoveredSlot then
-            highlightSlot(hoveredSlot, false)
-            hoveredSlot = nil
-        end
-        
-        -- Clear drag data
-        currentDragData = nil
-        DragDropHandler.OnDragEnd:Fire()
+        onInventoryDragEnd(slotFrame, inputPosition)
     end))
     
-    -- Cleanup on slot removal
+    slotJanitor:Add(slotFrame.Destroying:Connect(function()
+        slotJanitor:Cleanup()
+    end))
+    
+    janitor:Add(slotJanitor)
+    
+    return dragDetector
+end
+
+--[[
+    Makes a toolbar slot draggable (for moving/swapping/removing items).
+    @param slotFrame - The toolbar slot frame
+    @param slotIndex - The toolbar slot index (1-9)
+    @param itemId - The inventory item ID in this slot
+    @param templateId - The template ID of the item
+    @param screenGui - The ScreenGui for the drag ghost
+]]
+function DragDropHandler.MakeToolbarSlotDraggable(
+    slotFrame: Frame, 
+    slotIndex: number, 
+    itemId: string, 
+    templateId: string,
+    screenGui: ScreenGui
+)
+    -- Remove existing detector if any
+    local oldDetector = slotFrame:FindFirstChild("ToolbarDragDetector")
+    if oldDetector then
+        oldDetector:Destroy()
+    end
+    
+    local dragDetector = Instance.new("UIDragDetector")
+    dragDetector.Name = "ToolbarDragDetector"
+    dragDetector.DragStyle = Enum.UIDragDetectorDragStyle.TranslatePlane
+    dragDetector.ResponseStyle = Enum.UIDragDetectorResponseStyle.CustomOffset
+    dragDetector.Parent = slotFrame
+    
+    local slotJanitor = Janitor.new()
+    
+    slotJanitor:Add(dragDetector.DragStart:Connect(function(inputPosition: Vector2)
+        local data: DragData = {
+            ItemId = itemId,
+            TemplateId = templateId,
+            Type = "Tool",
+            Rarity = nil,
+            SourceSlot = slotFrame,
+            SourceToolbarSlot = slotIndex,
+        }
+        onDragStart(slotFrame, data, screenGui, inputPosition)
+    end))
+    
+    slotJanitor:Add(dragDetector.DragContinue:Connect(function(inputPosition: Vector2)
+        onDragContinue(inputPosition)
+    end))
+    
+    slotJanitor:Add(dragDetector.DragEnd:Connect(function(inputPosition: Vector2)
+        onToolbarDragEnd(slotFrame, slotIndex, inputPosition)
+    end))
+    
     slotJanitor:Add(slotFrame.Destroying:Connect(function()
         slotJanitor:Cleanup()
     end))
@@ -272,6 +414,7 @@ end
 function DragDropHandler.Cleanup()
     janitor:Cleanup()
     toolbarSlots = {}
+    toolbarContents = {}
     currentDragData = nil
     hoveredSlot = nil
     if dragGhost then

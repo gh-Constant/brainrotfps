@@ -27,6 +27,8 @@ export type ItemSlotData = {
     Rarity: string?,
     Count: number,
     ItemIds: {string}, -- All item IDs in this stack
+    IsEquipped: boolean?, -- Whether this item is in a toolbar slot
+    EquippedSlot: number?, -- Which toolbar slot (1-9) if equipped
 }
 
 export type ItemSlot = {
@@ -38,8 +40,8 @@ export type ItemSlot = {
 }
 
 -- Constants
-local SLOT_SIZE = UDim2.fromOffset(80, 80)
-local ROTATION_SPEED = 0.5 -- Rotations per second
+local SLOT_SIZE = UDim2.fromOffset(110, 110)
+local ROTATION_SPEED = 10 -- Rotations per second
 local _TOOLS_PATH = "Config.Weapons.Tools" -- Path in ReplicatedStorage (for reference)
 
 local ItemSlotModule = {}
@@ -136,6 +138,9 @@ local function findItemModel(templateId: string): Instance?
                 end
             end
         end
+    elseif toolModelSource == "ToolIcon" then
+        -- Force use of Tool's TextureId (skip 3D model)
+        return nil
     end
     
     -- No ToolModel attribute: use the Tool child inside Configuration
@@ -290,6 +295,25 @@ local function createSlotFrame(): Frame
     selection.Transparency = 1
     selection.Parent = frame
     
+    -- Info button (shows item ID on click)
+    local infoButton = Instance.new("TextButton")
+    infoButton.Name = "InfoButton"
+    infoButton.Size = UDim2.fromOffset(16, 16)
+    infoButton.Position = UDim2.new(0, 4, 0, 4)
+    infoButton.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+    infoButton.BorderSizePixel = 0
+    infoButton.Text = "i"
+    infoButton.TextColor3 = Color3.fromRGB(200, 200, 220)
+    infoButton.TextSize = 11
+    infoButton.Font = Enum.Font.GothamBold
+    infoButton.ZIndex = 15
+    infoButton.Visible = false -- Hidden by default, shown when data is set
+    infoButton.Parent = frame
+    
+    local infoBtnCorner = Instance.new("UICorner")
+    infoBtnCorner.CornerRadius = UDim.new(0, 4)
+    infoBtnCorner.Parent = infoButton
+    
     return frame
 end
 
@@ -351,13 +375,38 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
         self._highlight = nil
     end
     
+    -- Get info button reference
+    local infoButton = self.Frame:FindFirstChild("InfoButton") :: TextButton?
+    
     if not data then
         -- Empty slot
         viewport.Visible = false
         imageLabel.Visible = false
         quantityLabel.Visible = false
+        if infoButton then
+            infoButton.Visible = false
+        end
         Rarity.ApplyToFrame(self.Frame, nil)
         return
+    end
+    
+    -- Show info button and connect click handler
+    if infoButton then
+        infoButton.Visible = true
+        -- Store item ID for the click handler
+        local itemId = data.ItemIds[1] or "unknown"
+        local templateId = data.TemplateId
+        
+        -- Disconnect old connection if exists
+        local oldConn = infoButton:GetAttribute("_clickConnection")
+        if oldConn then
+            infoButton:SetAttribute("_clickConnection", nil)
+        end
+        
+        local clickConn = infoButton.MouseButton1Click:Connect(function()
+            print(string.format("[ItemSlot] Item Info:\n  TemplateId: %s\n  ItemId: %s", templateId, itemId))
+        end)
+        self._janitor:Add(clickConn)
     end
     
     print("[ItemSlot] SetData for:", data.TemplateId, "Type:", data.Type, "Count:", data.Count)
@@ -387,9 +436,9 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
             -- Setup camera to view the model
             local cf, size = modelClone:GetBoundingBox()
             local maxSize = math.max(size.X, size.Y, size.Z)
-            local distance = maxSize * 1.5
+            local distance = maxSize * 0.5 -- Closer camera for better visibility
             
-            camera.CFrame = CFrame.new(cf.Position + Vector3.new(distance, distance * 0.5, distance), cf.Position)
+            camera.CFrame = CFrame.new(cf.Position + Vector3.new(distance, distance * 0.3, distance), cf.Position)
             
             -- Add highlight
             local highlight = Rarity.CreateHighlight(data.Rarity)
@@ -400,11 +449,11 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
             -- Setup rotation
             local startTime = os.clock()
             local rotationConn = RunService.RenderStepped:Connect(function()
-                if modelClone and modelClone.PrimaryPart then
+                if modelClone then
                     local elapsed = os.clock() - startTime
                     local angle = elapsed * ROTATION_SPEED * math.pi * 2
                     local rotatedCF = cf * CFrame.Angles(0, angle, 0)
-                    camera.CFrame = CFrame.new(rotatedCF.Position + Vector3.new(distance, distance * 0.5, distance), rotatedCF.Position)
+                    camera.CFrame = CFrame.new(rotatedCF.Position + Vector3.new(distance, distance * 0.3, distance), rotatedCF.Position)
                 end
             end)
             self._rotationConnection = rotationConn
@@ -427,6 +476,46 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
         local img = getItemImage(data.TemplateId)
         imageLabel.Image = img
         imageLabel.Visible = img ~= ""
+    end
+    
+    -- Show equipped indicator if item is in toolbar
+    local existingBadge = self.Frame:FindFirstChild("EquippedBadge")
+    if existingBadge then
+        existingBadge:Destroy()
+    end
+    
+    if data.IsEquipped and data.EquippedSlot then
+        local badge = Instance.new("Frame")
+        badge.Name = "EquippedBadge"
+        badge.Size = UDim2.fromOffset(22, 22)
+        badge.Position = UDim2.new(1, -4, 0, 4)
+        badge.AnchorPoint = Vector2.new(1, 0)
+        badge.BackgroundColor3 = Color3.fromRGB(90, 170, 255) -- Cyan accent
+        badge.BorderSizePixel = 0
+        badge.ZIndex = 10
+        badge.Parent = self.Frame
+        
+        local badgeCorner = Instance.new("UICorner")
+        badgeCorner.CornerRadius = UDim.new(0, 6)
+        badgeCorner.Parent = badge
+        
+        local badgeStroke = Instance.new("UIStroke")
+        badgeStroke.Color = Color3.fromRGB(50, 100, 150)
+        badgeStroke.Thickness = 2
+        badgeStroke.Parent = badge
+        
+        local slotLabel = Instance.new("TextLabel")
+        slotLabel.Name = "SlotNumber"
+        slotLabel.Size = UDim2.fromScale(1, 1)
+        slotLabel.BackgroundTransparency = 1
+        slotLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        slotLabel.TextSize = 14
+        slotLabel.Font = Enum.Font.FredokaOne
+        slotLabel.Text = tostring(data.EquippedSlot)
+        slotLabel.ZIndex = 11
+        slotLabel.Parent = badge
+        
+        self._janitor:Add(badge)
     end
 end
 

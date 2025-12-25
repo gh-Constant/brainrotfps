@@ -76,9 +76,9 @@ local UI_CONFIG = {
     SlotBorder = Color3.fromRGB(50, 55, 75),
     
     -- Layout
-    Columns = 5,
+    Columns = 4,
     HeaderHeight = 52,
-    ToolbarHeight = 90,
+    ToolbarHeight = 100,
     Padding = 12,
     ToolbarSlots = 9,
 }
@@ -88,23 +88,23 @@ local UI_CONFIG = {
 --------------------------------------------------------------------------------
 
 --[[
-    Creates the inventory panel UI with gamish cartoon styling.
+    Creates the inventory panel UI with clean modern styling.
 ]]
 local function createInventoryUI(playerGui: PlayerGui): Frame
-    -- Main container - cartoon style with bold borders
+    -- Main container - responsive scaling
     local container = Instance.new("Frame")
     container.Name = "InventoryPanel"
-    container.Size = UDim2.fromScale(0.38, 0.7)
+    container.Size = UDim2.fromScale(0.32, 0.55) -- Smaller, more compact
     container.Position = UDim2.fromScale(0.5, 0.5)
     container.AnchorPoint = Vector2.new(0.5, 0.5)
     container.BackgroundColor3 = UI_CONFIG.BackgroundTop
     container.BorderSizePixel = 0
     container.Visible = false
     
-    -- Size constraint
+    -- Size constraint - smaller max size
     local sizeConstraint = Instance.new("UISizeConstraint")
-    sizeConstraint.MinSize = Vector2.new(420, 520)
-    sizeConstraint.MaxSize = Vector2.new(700, 900)
+    sizeConstraint.MinSize = Vector2.new(340, 380)
+    sizeConstraint.MaxSize = Vector2.new(480, 550)
     sizeConstraint.Parent = container
     
     -- Cartoon rounded corners
@@ -283,7 +283,7 @@ local function createInventoryUI(playerGui: PlayerGui): Frame
     for i = 1, UI_CONFIG.ToolbarSlots do
         local slot = Instance.new("Frame")
         slot.Name = "ToolbarSlot" .. i
-        slot.Size = UDim2.fromOffset(58, 58)
+        slot.Size = UDim2.fromOffset(72, 72)
         slot.BackgroundColor3 = UI_CONFIG.SlotColor
         slot.BorderSizePixel = 0
         slot.ZIndex = 103
@@ -334,12 +334,12 @@ local function createInventoryUI(playerGui: PlayerGui): Frame
     scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
     scrollFrame.Parent = container
     
-    -- Grid layout for inventory slots
+    -- Grid layout for inventory slots (fixed square size)
     local gridLayout = Instance.new("UIGridLayout")
-    local cellWidth = 1 / UI_CONFIG.Columns - 0.02
-    gridLayout.CellSize = UDim2.new(cellWidth, 0, cellWidth, 0)
-    gridLayout.CellPadding = UDim2.fromScale(0.015, 0.015)
+    gridLayout.CellSize = UDim2.fromOffset(100, 100) -- Fixed square size
+    gridLayout.CellPadding = UDim2.fromOffset(8, 8)
     gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    gridLayout.FillDirectionMaxCells = UI_CONFIG.Columns
     gridLayout.Parent = scrollFrame
     
     -- Auto-size canvas
@@ -366,24 +366,31 @@ local function createInventoryUI(playerGui: PlayerGui): Frame
 end
 
 --[[
-    Converts inventory items to stack display data.
+    Converts inventory items to individual slot display data.
+    Shows all items individually (no stacking) with equipped indicator.
 ]]
-local function getStacksFromInventory(): {ItemSlotData}
-    local stacks = Inventory.GroupIntoStacks(inventoryData)
+local function getItemsForDisplay(): {ItemSlotData}
+    -- Create a set of item IDs that are in toolbar slots
+    local equippedItemIds: {[string]: number} = {} -- itemId -> slot number
+    for slot, itemId in pairs(toolbarSlots) do
+        if itemId and itemId ~= "" then
+            equippedItemIds[itemId] = slot
+        end
+    end
+    
     local slotDataList: {ItemSlotData} = {}
     
-    for _, stack in stacks do
-        local itemIds = {}
-        for _, item in stack.Items do
-            table.insert(itemIds, item.Id)
-        end
-        
+    -- Add each item individually (no stacking)
+    for _, item in inventoryData do
+        local equippedSlot = equippedItemIds[item.Id]
         table.insert(slotDataList, {
-            TemplateId = stack.TemplateId,
-            Type = stack.Type,
-            Rarity = stack.Rarity,
-            Count = stack.Count,
-            ItemIds = itemIds,
+            TemplateId = item.TemplateId,
+            Type = item.Type :: string,
+            Rarity = if item.Rarity then item.Rarity :: string else nil,
+            Count = 1, -- Always 1 since no stacking
+            ItemIds = {item.Id},
+            IsEquipped = equippedSlot ~= nil,
+            EquippedSlot = equippedSlot,
         })
     end
     
@@ -399,12 +406,12 @@ local function refreshDisplay()
         return 
     end
     
-    -- Get stacked data
-    local stackData = getStacksFromInventory()
-    print("[InventoryUI] refreshDisplay: inventoryData count:", #inventoryData, "stackData count:", #stackData)
+    -- Get individual items for display (no stacking)
+    local itemData = getItemsForDisplay()
+    print("[InventoryUI] refreshDisplay: inventoryData count:", #inventoryData, "displayItems count:", #itemData)
     
     -- Reuse or create slots
-    local requiredSlots = #stackData
+    local requiredSlots = #itemData
     
     -- Create more slots if needed
     while #itemSlots < requiredSlots do
@@ -430,7 +437,7 @@ local function refreshDisplay()
     -- Update slot data and make draggable
     for i, slot in itemSlots do
         if i <= requiredSlots then
-            local data = stackData[i]
+            local data = itemData[i]
             slot:SetData(data)
             slot.Frame.Visible = true
             
@@ -442,12 +449,16 @@ local function refreshDisplay()
             
             -- Add drag capability if we have a screenGui
             if screenGui and data then
+                -- Each slot now has exactly one item (no stacking)
+                local itemId = data.ItemIds[1] or ""
+                
                 local dragData: DragDrop.DragData = {
-                    ItemId = data.ItemIds[1] or "",
+                    ItemId = itemId,
                     TemplateId = data.TemplateId,
                     Type = data.Type,
                     Rarity = data.Rarity,
                     SourceSlot = slot.Frame,
+                    SourceToolbarSlot = data.EquippedSlot, -- Pass equipped slot for move operations
                 }
                 DragDrop.MakeDraggable(slot.Frame, dragData, screenGui)
             end
@@ -536,37 +547,56 @@ local function updateIntegratedToolbar()
         local backpack = player:FindFirstChild("Backpack")
         local character = player.Character
         
+        -- Initialize all 9 slots as empty
         toolbarData = {}
-        local slotIndex = 1
+        for i = 1, 9 do
+            table.insert(toolbarData, {
+                SlotIndex = i,
+                Tool = nil,
+                InventoryItemId = nil,
+            })
+        end
         
-        -- Get tools from backpack
+        -- Get tools from backpack and place them in their assigned slots
         if backpack then
             for _, tool in backpack:GetChildren() do
-                if tool:IsA("Tool") and slotIndex <= 9 then
-                    table.insert(toolbarData, {
-                        SlotIndex = slotIndex,
-                        Tool = tool,
-                        InventoryItemId = tool:GetAttribute("InventoryItemId"),
-                    })
-                    slotIndex = slotIndex + 1
+                if tool:IsA("Tool") then
+                    local assignedSlot = tool:GetAttribute("ToolbarSlot")
+                    if assignedSlot and assignedSlot >= 1 and assignedSlot <= 9 then
+                        toolbarData[assignedSlot] = {
+                            SlotIndex = assignedSlot,
+                            Tool = tool,
+                            InventoryItemId = tool:GetAttribute("InventoryItemId"),
+                        }
+                    end
                 end
             end
         end
         
-        -- Get equipped tool from character
+    -- Get equipped tool from character and place in assigned slot
         if character then
             for _, tool in character:GetChildren() do
-                if tool:IsA("Tool") and slotIndex <= 9 then
-                    table.insert(toolbarData, {
-                        SlotIndex = slotIndex,
-                        Tool = tool,
-                        InventoryItemId = tool:GetAttribute("InventoryItemId"),
-                    })
-                    slotIndex = slotIndex + 1
+                if tool:IsA("Tool") then
+                    local assignedSlot = tool:GetAttribute("ToolbarSlot")
+                    if assignedSlot and assignedSlot >= 1 and assignedSlot <= 9 then
+                        toolbarData[assignedSlot] = {
+                            SlotIndex = assignedSlot,
+                            Tool = tool,
+                            InventoryItemId = tool:GetAttribute("InventoryItemId"),
+                        }
+                    end
                 end
             end
         end
     end
+    
+    -- Register toolbar contents with DragDrop for swap detection
+    local slotContents: {[number]: string?} = {}
+    for i = 1, 9 do
+        local data = toolbarData[i]
+        slotContents[i] = if data and data.InventoryItemId then data.InventoryItemId else nil
+    end
+    DragDrop.RegisterToolbarContents(slotContents)
     
     for i, slotFrame in ipairs(toolbarSlotFrames) do
         local data = toolbarData[i]
@@ -617,6 +647,17 @@ local function updateIntegratedToolbar()
                 local badgeCorner = Instance.new("UICorner")
                 badgeCorner.CornerRadius = UDim.new(1, 0)
                 badgeCorner.Parent = inventoryBadge
+                
+                -- Make this toolbar slot draggable (to remove from toolbar)
+                if screenGui then
+                    DragDrop.MakeToolbarSlotDraggable(
+                        slotFrame,
+                        i,
+                        data.InventoryItemId,
+                        tool.Name,
+                        screenGui
+                    )
+                end
             else
                 -- Red badge = cannot be moved (not from inventory)
                 local lockedBadge = Instance.new("Frame")
@@ -700,6 +741,29 @@ function InventoryUI.AssignToToolbar(itemId: string, slot: number)
 end
 
 --[[
+    Sends a toolbar removal action to server.
+]]
+function InventoryUI.RemoveFromToolbar(slot: number)
+    Packets.inventoryAction.send({
+        action = "RemoveToolbar",
+        itemId = "",
+        slot = slot,
+    })
+end
+
+--[[
+    Sends a toolbar swap action to server.
+]]
+function InventoryUI.SwapToolbarSlots(slot1: number, slot2: number)
+    Packets.inventoryAction.send({
+        action = "SwapToolbar",
+        itemId = "",
+        slot = slot1,
+        slot2 = slot2,
+    })
+end
+
+--[[
     Initializes the inventory UI.
     
     @param context - ClientContext with PlayerGui
@@ -728,10 +792,44 @@ function InventoryUI.Init(context: any)
     -- Handle drag & drop to toolbar
     janitor:Add(DragDrop.OnItemDropped:Connect(function(result: DragDrop.DropResult)
         if result.Success and result.ToolbarSlotIndex then
+            -- Skip if dropping on the same slot (no-op)
+            if result.ItemData.SourceToolbarSlot == result.ToolbarSlotIndex then
+                print("[InventoryUI] Dropped on same slot, ignoring")
+                return
+            end
+            
+            -- If coming from another toolbar slot, remove it first
+            if result.ItemData.SourceToolbarSlot then
+                InventoryUI.RemoveFromToolbar(result.ItemData.SourceToolbarSlot)
+            end
             -- Send assignment to server
             InventoryUI.AssignToToolbar(result.ItemData.ItemId, result.ToolbarSlotIndex)
             print("[InventoryUI] Assigned", result.ItemData.TemplateId, "to toolbar slot", result.ToolbarSlotIndex)
+            -- Refresh integrated toolbar display after a short delay (wait for server to process)
+            task.delay(0.2, function()
+                updateIntegratedToolbar()
+            end)
         end
+    end))
+    
+    -- Handle removing items from toolbar (dragged to inventory)
+    janitor:Add(DragDrop.OnToolbarItemRemoved:Connect(function(slotIndex: number, _itemId: string)
+        InventoryUI.RemoveFromToolbar(slotIndex)
+        print("[InventoryUI] Removed tool from toolbar slot", slotIndex)
+        -- Refresh display after removal
+        task.delay(0.2, function()
+            updateIntegratedToolbar()
+        end)
+    end))
+    
+    -- Handle swapping toolbar items
+    janitor:Add(DragDrop.OnToolbarSwap:Connect(function(slot1: number, slot2: number)
+        InventoryUI.SwapToolbarSlots(slot1, slot2)
+        print("[InventoryUI] Swapped toolbar slots", slot1, "<->", slot2)
+        -- Refresh display after swap
+        task.delay(0.2, function()
+            updateIntegratedToolbar()
+        end)
     end))
     
     -- Connect to inventory button

@@ -116,9 +116,10 @@ return ByteNet.defineNamespace("game", function()
 		-- Player actions like assigning toolbar slots
 		inventoryAction = ByteNet.definePacket({
 			value = ByteNet.struct({
-				action = ByteNet.string, -- "AssignToolbar" | "RemoveToolbar"
+				action = ByteNet.string, -- "AssignToolbar" | "RemoveToolbar" | "SwapToolbar"
 				itemId = ByteNet.optional(ByteNet.string),
 				slot = ByteNet.optional(ByteNet.uint8),
+				slot2 = ByteNet.optional(ByteNet.uint8), -- For swap operations
 			}),
 			reliabilityType = "reliable",
 		}),
