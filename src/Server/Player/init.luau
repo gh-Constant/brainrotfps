@@ -25,6 +25,10 @@ local DeathHandler = require(script.DeathHandler)
 local PlayerBillboard = require(script.PlayerBillboard)
 local Packets = require(Shared:WaitForChild("Packets"))
 
+-- Monetization
+local MonetizationService = require(script.Parent.Monetization.MonetizationService)
+local ProductConfig = require(Shared:WaitForChild("Monetization"):WaitForChild("ProductConfig"))
+
 -- Use lazy require for InventoryManager to avoid circular dependency
 local InventoryManager = nil
 local function getInventoryManager()
@@ -321,6 +325,27 @@ local function onPlayerAdded(player: Player)
             warn("[PlayerManager] Failed to load inventory:", err)
         end)
     end)
+    
+    -- Check GamePasses (async)
+    task.spawn(function()
+        -- Double Gold
+        if MonetizationService.PerformPassCheck(player, ProductConfig.GamePasses.DoubleGold.Id) then
+            playerData.GoldMultiplier = 2
+            print(string.format("[PlayerManager] %s owns 2x Gold!", player.Name))
+        end
+        
+        -- Double XP
+        if MonetizationService.PerformPassCheck(player, ProductConfig.GamePasses.DoubleExperience.Id) then
+            playerData.ExperienceMultiplier = 2
+            print(string.format("[PlayerManager] %s owns 2x Experience!", player.Name))
+        end
+        
+        -- Double Damage
+        if MonetizationService.PerformPassCheck(player, ProductConfig.GamePasses.DoubleDamage.Id) then
+            playerData.DamageMultiplier = 2
+            print(string.format("[PlayerManager] %s owns 2x Damage!", player.Name))
+        end
+    end)
 end
 
 --[[
@@ -432,6 +457,26 @@ function PlayerManager.Init()
             
             character:SetAttribute("IsPvPEnabled", data.enabled)
             print(string.format("[PlayerManager] %s set PvP to %s", player.Name, tostring(data.enabled)))
+        end
+    end)
+    
+    -- Initialize Monetization
+    MonetizationService.Init()
+    
+    -- Listen for purchases
+    MonetizationService.OnGamePassPurchased:Connect(function(player, passId)
+        local playerData = ActivePlayers[player.UserId]
+        if not playerData then return end
+        
+        if passId == ProductConfig.GamePasses.DoubleGold.Id then
+            playerData.GoldMultiplier = 2
+            print(string.format("[PlayerManager] Updated %s Gold Multiplier to 2", player.Name))
+        elseif passId == ProductConfig.GamePasses.DoubleExperience.Id then
+            playerData.ExperienceMultiplier = 2
+            print(string.format("[PlayerManager] Updated %s XP Multiplier to 2", player.Name))
+        elseif passId == ProductConfig.GamePasses.DoubleDamage.Id then
+            playerData.DamageMultiplier = 2
+            print(string.format("[PlayerManager] Updated %s Damage Multiplier to 2", player.Name))
         end
     end)
     

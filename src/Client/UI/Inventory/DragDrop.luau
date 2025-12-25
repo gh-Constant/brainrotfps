@@ -73,6 +73,9 @@ local janitor = Janitor.new()
 --[[
     Creates a ghost/preview element that follows the mouse during drag.
 ]]
+--[[
+    Creates a ghost/preview element that follows the mouse during drag.
+]]
 local function createDragGhost(sourceFrame: Frame, screenGui: ScreenGui): Frame
     local ghost = sourceFrame:Clone()
     ghost.Name = "DragGhost"
@@ -80,8 +83,16 @@ local function createDragGhost(sourceFrame: Frame, screenGui: ScreenGui): Frame
     ghost.BackgroundTransparency = CONFIG.DragTransparency
     ghost.Parent = screenGui
     
+    -- Convert scale size to absolute offset to prevent full-screen ghost
+    ghost.Size = UDim2.fromOffset(sourceFrame.AbsoluteSize.X, sourceFrame.AbsoluteSize.Y)
+    ghost.AnchorPoint = Vector2.new(0.5, 0.5) -- Center on mouse
+    
     -- Remove interactivity
     ghost.Active = false
+    -- Remove UIAspectRatioConstraint to prevent resizing issues during drag if container aspect differs
+    local aspect = ghost:FindFirstChildWhichIsA("UIAspectRatioConstraint")
+    if aspect then aspect:Destroy() end
+
     for _, child in ghost:GetDescendants() do
         if child:IsA("GuiButton") then
             child.Active = false
@@ -99,10 +110,8 @@ end
     Updates ghost position to follow mouse.
 ]]
 local function updateGhostPosition(ghost: Frame, mousePosition: Vector2)
-    ghost.Position = UDim2.fromOffset(
-        mousePosition.X - ghost.AbsoluteSize.X / 2,
-        mousePosition.Y - ghost.AbsoluteSize.Y / 2
-    )
+    -- Just center on mouse since we set AnchorPoint to 0.5, 0.5
+    ghost.Position = UDim2.fromOffset(mousePosition.X, mousePosition.Y)
 end
 
 --[[

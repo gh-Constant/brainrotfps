@@ -73,6 +73,14 @@ local function onShootEvent(
 
 	-- Get damage based on player level instead of weapon attribute
 	local damage = getPlayerLevel(player) * 3
+	
+	-- Apply Damage Multiplier
+	local PlayerManager = require(script.Parent.Parent.Parent.Player)
+	local playerData = PlayerManager.GetPlayerData(player)
+	if playerData then
+		damage = damage * playerData.DamageMultiplier
+	end
+	
 	local ammo = blaster:GetAttribute(Constants.AMMO_ATTRIBUTE)
 	blaster:SetAttribute(Constants.AMMO_ATTRIBUTE, ammo - 1)
 

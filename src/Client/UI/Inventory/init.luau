@@ -49,11 +49,13 @@ local toolbarSlots: {[number]: string} = {}
 local toolbarSlotFrames: {Frame} = {}
 local screenGui: ScreenGui? = nil
 local janitor: Janitor = Janitor.new()
+local slotTemplate: Frame? = nil -- Added slot template
 
 -- Info Panel State
 local infoTitle: TextLabel? = nil
 local infoIcon: ImageLabel? = nil
 local infoDesc: TextLabel? = nil
+local consumeButton: GuiButton? = nil -- Consume button
 local _infoStats: Frame? = nil
 local _selectedItem: ItemSlotData? = nil
 
@@ -61,44 +63,51 @@ local _selectedItem: ItemSlotData? = nil
 InventoryUI.OnItemClicked = Signal.new()
 InventoryUI.OnToggled = Signal.new()
 
--- UI Constants - Clean Modern Dark Theme
-local UI_CONFIG = {
-    -- Gradient colors
-    BackgroundTop = Color3.fromRGB(24, 26, 36),
-    BackgroundBottom = Color3.fromRGB(14, 16, 22),
-    HeaderTop = Color3.fromRGB(38, 42, 58),
-    HeaderBottom = Color3.fromRGB(28, 32, 44),
-    
-    -- Accents
-    AccentPrimary = Color3.fromRGB(90, 170, 255), -- Cyan
-    AccentSecondary = Color3.fromRGB(160, 130, 255), -- Purple
-    AccentGold = Color3.fromRGB(255, 200, 80),
-    
-    -- Borders
-    BorderColor = Color3.fromRGB(50, 55, 75),
-    BorderGlow = Color3.fromRGB(90, 130, 180),
-    
-    -- Slots
-    SlotColor = Color3.fromRGB(30, 34, 48),
-    SlotBorder = Color3.fromRGB(50, 55, 75),
-    
-    -- Layout
-    Columns = 4,
-    HeaderHeight = 52,
-    ToolbarHeight = 100,
-    Padding = 12,
-    ToolbarSlots = 9,
-}
+-- UI Constants
+-- (Removed as we are using existing UI)
 
 --------------------------------------------------------------------------------
 -- Private Functions
 --------------------------------------------------------------------------------
 
+-- Forward declaration
+local updateIntegratedToolbar 
+
+--[[
+    Gets the display name for an item.
+    Checks Config for "DisplayName" attribute, falls back to templateId.
+]]
+local function getDisplayName(templateId: string): string
+    local config = ReplicatedStorage:FindFirstChild("Config")
+    if config then
+        local items = config:FindFirstChild("Items")
+        if items then
+            local itemConfig = items:FindFirstChild(templateId)
+            if itemConfig then
+                local displayName = itemConfig:GetAttribute("DisplayName")
+                if displayName and displayName ~= "" then
+                    return displayName
+                end
+            end
+        end
+    end
+    return templateId
+end
+
+--[[
+    Consumes an item (placeholder logic).
+]]
+local function consumeItem(itemData: ItemSlotData)
+    local itemId = itemData.ItemIds[1]
+    print(string.format("[Inventory] Consuming item: %s (ID: %s)", itemData.TemplateId, itemId or "nil"))
+    
+    -- TODO: Send consume packet to server
+    -- Packets.inventoryAction.send({ action = "Consume", itemId = itemId })
+end
+
 --[[
     Updates the Info Panel with item details.
 ]]
-local updateIntegratedToolbar -- Forward declaration
-
 local function updateInfoPanel(itemData: ItemSlotData?)
     if not infoTitle or not infoIcon or not infoDesc then return end
     
@@ -108,421 +117,31 @@ local function updateInfoPanel(itemData: ItemSlotData?)
         infoIcon.Image = "rbxassetid://6031763426" -- Default icon
         infoDesc.Text = "Click on an item to see more details."
         infoIcon.ImageTransparency = 0.5
+        _selectedItem = nil
         return
     end
     
     -- Populate Data
-    infoTitle.Text = itemData.TemplateId
-    infoIcon.Image = "rbxassetid://6031763426" -- Placeholder, needs real icon derived from name/config
+    infoTitle.Text = getDisplayName(itemData.TemplateId)
+    infoIcon.Image = "rbxassetid://6031763426" -- Placeholder
     infoIcon.ImageTransparency = 0
     
     -- Generate description based on type/rarity
-    local desc = string.format("Type: %s\nRarity: %s\nID: %s\n", 
-        itemData.Type, 
-        itemData.Rarity or "Common",
-        itemData.ItemIds[1] or "Unknown")
+    local desc = string.format("Type: <font color='#88ccff'>%s</font>\n", itemData.Type)
+    desc = desc .. string.format("Rarity: <font color='#ccaaff'>%s</font>\n", itemData.Rarity or "Common")
+    
     if itemData.Count > 1 then
-        desc = desc .. string.format("Count: %d\n", itemData.Count)
+        desc = desc .. string.format("Count: <b>%d</b>\n", itemData.Count)
     end
     
     infoDesc.Text = desc
-    
-    -- Highlight selected slot (visual feedback handled in refreshDisplay or loop, 
-    -- but for now we rely on the panel updating)
+    infoDesc.Text = desc
     _selectedItem = itemData
-end
-
---[[
-    Creates the content for the Info Panel.
-]]
-local function createInfoPanelContent(parent: Frame)
-    local padding = Instance.new("UIPadding")
-    padding.PaddingTop = UDim.new(0, 16)
-    padding.PaddingBottom = UDim.new(0, 16)
-    padding.PaddingLeft = UDim.new(0, 16)
-    padding.PaddingRight = UDim.new(0, 16)
-    padding.Parent = parent
     
-    local layout = Instance.new("UIListLayout")
-    layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Padding = UDim.new(0, 12)
-    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    layout.Parent = parent
-    
-    -- Icon Container (Circle)
-    local iconContainer = Instance.new("Frame")
-    iconContainer.Name = "IconContainer"
-    iconContainer.Size = UDim2.fromOffset(100, 100)
-    iconContainer.BackgroundColor3 = UI_CONFIG.SlotColor
-    iconContainer.BorderSizePixel = 0
-    iconContainer.LayoutOrder = 1
-    iconContainer.Parent = parent
-    
-    local iconCorner = Instance.new("UICorner")
-    iconCorner.CornerRadius = UDim.new(1, 0) -- Circle
-    iconCorner.Parent = iconContainer
-    
-    local iconStroke = Instance.new("UIStroke")
-    iconStroke.Color = UI_CONFIG.AccentPrimary
-    iconStroke.Thickness = 2
-    iconStroke.Parent = iconContainer
-    
-    local icon = Instance.new("ImageLabel")
-    icon.Name = "Icon"
-    icon.Size = UDim2.fromScale(0.6, 0.6)
-    icon.Position = UDim2.fromScale(0.5, 0.5)
-    icon.AnchorPoint = Vector2.new(0.5, 0.5)
-    icon.BackgroundTransparency = 1
-    icon.Image = "rbxassetid://6031763426"
-    icon.Parent = iconContainer
-    infoIcon = icon
-    
-    -- Title
-    local title = Instance.new("TextLabel")
-    title.Name = "ItemName"
-    title.Size = UDim2.new(1, 0, 0, 30)
-    title.BackgroundTransparency = 1
-    title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    title.TextSize = 20
-    title.Font = Enum.Font.FredokaOne
-    title.Text = "Select Key"
-    title.LayoutOrder = 2
-    title.Parent = parent
-    infoTitle = title
-    
-    -- Divider
-    local divider = Instance.new("Frame")
-    divider.Name = "Divider"
-    divider.Size = UDim2.new(1, 0, 0, 2)
-    divider.BackgroundColor3 = UI_CONFIG.BorderColor
-    divider.BorderSizePixel = 0
-    divider.LayoutOrder = 3
-    divider.Parent = parent
-    
-    -- Description / Stats
-    local desc = Instance.new("TextLabel")
-    desc.Name = "Description"
-    desc.Size = UDim2.new(1, 0, 0, 100) -- Automatic size later if needed
-    desc.BackgroundTransparency = 1
-    desc.TextColor3 = Color3.fromRGB(200, 200, 200)
-    desc.TextSize = 14
-    desc.Font = Enum.Font.Gotham
-    desc.TextWrapped = true
-    desc.TextXAlignment = Enum.TextXAlignment.Left
-    desc.TextYAlignment = Enum.TextYAlignment.Top
-    desc.Text = "Item description..."
-    desc.LayoutOrder = 4
-    desc.Parent = parent
-    infoDesc = desc
-    
-    -- Initialize with empty state
-    updateInfoPanel(nil)
-end
-
---[[
-    Creates the inventory panel UI with clean modern styling.
-]]
-local function createInventoryUI(playerGui: PlayerGui): Frame
-    -- Main container - responsive scaling
-    local container = Instance.new("Frame")
-    container.Name = "InventoryPanel"
-    container.Size = UDim2.fromScale(0.5, 0.55) -- Wider for Info Panel
-    container.Position = UDim2.fromScale(0.5, 0.5)
-    container.AnchorPoint = Vector2.new(0.5, 0.5)
-    container.BackgroundColor3 = UI_CONFIG.BackgroundTop
-    container.BorderSizePixel = 0
-    container.Visible = false
-    
-    -- Size constraint - wider max size
-    local sizeConstraint = Instance.new("UISizeConstraint")
-    sizeConstraint.MinSize = Vector2.new(580, 400) -- Increased width
-    sizeConstraint.MaxSize = Vector2.new(700, 550)
-    sizeConstraint.Parent = container
-    
-    -- Cartoon rounded corners
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 16)
-    corner.Parent = container
-    
-    -- Subtle border
-    local outerBorder = Instance.new("UIStroke")
-    outerBorder.Name = "OuterBorder"
-    outerBorder.Color = UI_CONFIG.BorderGlow
-    outerBorder.Thickness = 1.5
-    outerBorder.Transparency = 0.4
-    outerBorder.Parent = container
-    
-    -- Gradient background
-    local bgGradient = Instance.new("UIGradient")
-    bgGradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, UI_CONFIG.BackgroundTop),
-        ColorSequenceKeypoint.new(1, UI_CONFIG.BackgroundBottom),
-    })
-    bgGradient.Rotation = 180
-    bgGradient.Parent = container
-    
-    -- Header
-    local header = Instance.new("Frame")
-    header.Name = "Header"
-    header.Size = UDim2.new(1, 0, 0, UI_CONFIG.HeaderHeight)
-    header.BackgroundColor3 = UI_CONFIG.HeaderTop
-    header.BorderSizePixel = 0
-    header.Parent = container
-    
-    local headerCorner = Instance.new("UICorner")
-    headerCorner.CornerRadius = UDim.new(0, 12)
-    headerCorner.Parent = header
-    
-    -- Header gradient
-    local headerGradient = Instance.new("UIGradient")
-    headerGradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, UI_CONFIG.HeaderTop),
-        ColorSequenceKeypoint.new(1, UI_CONFIG.HeaderBottom),
-    })
-    headerGradient.Rotation = 180
-    headerGradient.Parent = header
-    
-    -- Header clip for bottom corners
-    local headerClip = Instance.new("Frame")
-    headerClip.Name = "HeaderClip"
-    headerClip.Size = UDim2.new(1, 0, 0.5, 0)
-    headerClip.Position = UDim2.fromScale(0, 0.5)
-    headerClip.BackgroundColor3 = UI_CONFIG.HeaderBottom
-    headerClip.BorderSizePixel = 0
-    headerClip.Parent = header
-    
-    -- Accent line under header
-    local accentLine = Instance.new("Frame")
-    accentLine.Name = "AccentLine"
-    accentLine.Size = UDim2.new(1, -24, 0, 2)
-    accentLine.Position = UDim2.new(0, 12, 1, -2)
-    accentLine.BackgroundColor3 = UI_CONFIG.AccentPrimary
-    accentLine.BorderSizePixel = 0
-    accentLine.Parent = header
-    
-    -- Gradient line
-    local lineGradient = Instance.new("UIGradient")
-    lineGradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, UI_CONFIG.AccentPrimary),
-        ColorSequenceKeypoint.new(0.5, UI_CONFIG.AccentSecondary),
-        ColorSequenceKeypoint.new(1, UI_CONFIG.AccentPrimary),
-    })
-    lineGradient.Parent = accentLine
-    
-    local accentCorner = Instance.new("UICorner")
-    accentCorner.CornerRadius = UDim.new(1, 0)
-    accentCorner.Parent = accentLine
-    
-    -- Title with cartoon font style
-    local title = Instance.new("TextLabel")
-    title.Name = "Title"
-    title.Size = UDim2.new(1, -80, 1, -10)
-    title.Position = UDim2.fromOffset(20, 5)
-    title.BackgroundTransparency = 1
-    title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    title.TextSize = 28
-    title.Font = Enum.Font.FredokaOne -- Cartoon font
-    title.TextXAlignment = Enum.TextXAlignment.Left
-    title.Text = "⚔️ INVENTORY"
-    title.ZIndex = 102
-    title.Parent = header
-    
-    -- Title stroke for cartoon effect
-    local titleStroke = Instance.new("UIStroke")
-    titleStroke.Color = Color3.fromRGB(0, 0, 0)
-    titleStroke.Thickness = 2
-    titleStroke.Parent = title
-    
-    -- Close button with cartoon style
-    local closeButton = Instance.new("TextButton")
-    closeButton.Name = "CloseButton"
-    closeButton.Size = UDim2.fromOffset(40, 40)
-    closeButton.Position = UDim2.new(1, -50, 0.5, 0)
-    closeButton.AnchorPoint = Vector2.new(0, 0.5)
-    closeButton.BackgroundColor3 = Color3.fromRGB(220, 60, 80)
-    closeButton.BorderSizePixel = 0
-    closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    closeButton.TextSize = 24
-    closeButton.Font = Enum.Font.FredokaOne
-    closeButton.Text = "✕"
-    closeButton.ZIndex = 102
-    closeButton.Parent = header
-    
-    local closeCorner = Instance.new("UICorner")
-    closeCorner.CornerRadius = UDim.new(0, 10)
-    closeCorner.Parent = closeButton
-    
-    local closeBorder = Instance.new("UIStroke")
-    closeBorder.Color = Color3.fromRGB(150, 40, 60)
-    closeBorder.Thickness = 3
-    closeBorder.Parent = closeButton
-    
-    closeButton.MouseButton1Click:Connect(function()
-        InventoryUI.Toggle(false)
-    end)
-    
-    -- Toolbar section at bottom
-    local toolbarSection = Instance.new("Frame")
-    toolbarSection.Name = "ToolbarSection"
-    toolbarSection.Size = UDim2.new(1, 0, 0, UI_CONFIG.ToolbarHeight)
-    toolbarSection.Position = UDim2.new(0, 0, 1, -UI_CONFIG.ToolbarHeight)
-    toolbarSection.BackgroundColor3 = UI_CONFIG.BackgroundBottom
-    toolbarSection.BorderSizePixel = 0
-    toolbarSection.Parent = container
-    
-    local toolbarCorner = Instance.new("UICorner")
-    toolbarCorner.CornerRadius = UDim.new(0, 12)
-    toolbarCorner.Parent = toolbarSection
-    
-    -- Toolbar top accent line
-    local toolbarTopLine = Instance.new("Frame")
-    toolbarTopLine.Name = "TopLine"
-    toolbarTopLine.Size = UDim2.new(1, -24, 0, 2)
-    toolbarTopLine.Position = UDim2.fromOffset(12, 0)
-    toolbarTopLine.BackgroundColor3 = UI_CONFIG.AccentGold
-    toolbarTopLine.BorderSizePixel = 0
-    toolbarTopLine.Parent = toolbarSection
-    
-    local toolbarTitle = Instance.new("TextLabel")
-    toolbarTitle.Name = "ToolbarTitle"
-    toolbarTitle.Size = UDim2.new(1, 0, 0, 22)
-    toolbarTitle.Position = UDim2.fromOffset(12, 6)
-    toolbarTitle.BackgroundTransparency = 1
-    toolbarTitle.TextColor3 = UI_CONFIG.AccentGold
-    toolbarTitle.TextSize = 12
-    toolbarTitle.Font = Enum.Font.GothamBold
-    toolbarTitle.TextXAlignment = Enum.TextXAlignment.Left
-    toolbarTitle.Text = "HOTBAR"
-    toolbarTitle.Parent = toolbarSection
-    
-    -- Toolbar slots container
-    local toolbarSlots = Instance.new("Frame")
-    toolbarSlots.Name = "ToolbarSlots"
-    toolbarSlots.Size = UDim2.new(1, -24, 1, -32)
-    toolbarSlots.Position = UDim2.fromOffset(12, 28)
-    toolbarSlots.BackgroundTransparency = 1
-    toolbarSlots.Parent = toolbarSection
-    
-    local toolbarLayout = Instance.new("UIListLayout")
-    toolbarLayout.FillDirection = Enum.FillDirection.Horizontal
-    toolbarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    toolbarLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-    toolbarLayout.Padding = UDim.new(0, 8)
-    toolbarLayout.Parent = toolbarSlots
-    
-    -- Create 9 toolbar slots with cartoon style
-    toolbarSlotFrames = {}
-    for i = 1, UI_CONFIG.ToolbarSlots do
-        local slot = Instance.new("Frame")
-        slot.Name = "ToolbarSlot" .. i
-        slot.Size = UDim2.fromOffset(72, 72)
-        slot.BackgroundColor3 = UI_CONFIG.SlotColor
-        slot.BorderSizePixel = 0
-        slot.ZIndex = 103
-        slot.Parent = toolbarSlots
-        
-        local slotCorner = Instance.new("UICorner")
-        slotCorner.CornerRadius = UDim.new(0, 10)
-        slotCorner.Parent = slot
-        
-        local slotBorder = Instance.new("UIStroke")
-        slotBorder.Name = "BorderStroke"
-        slotBorder.Color = UI_CONFIG.BorderColor
-        slotBorder.Thickness = 2
-        slotBorder.Parent = slot
-        
-        -- Hotkey badge
-        local hotkeyLabel = Instance.new("TextLabel")
-        hotkeyLabel.Name = "Hotkey"
-        hotkeyLabel.Size = UDim2.fromOffset(16, 16)
-        hotkeyLabel.Position = UDim2.fromOffset(2, 2)
-        hotkeyLabel.BackgroundColor3 = UI_CONFIG.AccentPrimary
-        hotkeyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-        hotkeyLabel.TextSize = 12
-        hotkeyLabel.Font = Enum.Font.FredokaOne
-        hotkeyLabel.Text = tostring(i)
-        hotkeyLabel.ZIndex = 104
-        hotkeyLabel.Parent = slot
-        
-        local hotkeyCorner = Instance.new("UICorner")
-        hotkeyCorner.CornerRadius = UDim.new(0, 5)
-        hotkeyCorner.Parent = hotkeyLabel
-        
-        table.insert(toolbarSlotFrames, slot)
+    -- Update Consume button visibility
+    if consumeButton then
+        consumeButton.Visible = (itemData.Type == "Consumable")
     end
-    
-    -- Register toolbar slots for drag & drop
-    DragDrop.RegisterToolbarSlots(toolbarSlotFrames)
-    
-    -- Content Container (Splits Grid and Info Panel)
-    local contentContainer = Instance.new("Frame")
-    contentContainer.Name = "ContentContainer"
-    contentContainer.Size = UDim2.new(1, -UI_CONFIG.Padding * 2, 1, -UI_CONFIG.HeaderHeight - UI_CONFIG.ToolbarHeight - 20)
-    contentContainer.Position = UDim2.new(0, UI_CONFIG.Padding, 0, UI_CONFIG.HeaderHeight + 8)
-    contentContainer.BackgroundTransparency = 1
-    contentContainer.Parent = container
-    
-    -- Left Side: Slots Container
-    local scrollFrame = Instance.new("ScrollingFrame")
-    scrollFrame.Name = "SlotsContainer"
-    scrollFrame.Size = UDim2.new(0.65, -8, 1, 0) -- 65% width
-    scrollFrame.BackgroundTransparency = 1
-    scrollFrame.BorderSizePixel = 0
-    scrollFrame.ScrollBarThickness = 4
-    scrollFrame.ScrollBarImageColor3 = UI_CONFIG.AccentPrimary
-    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-    scrollFrame.Parent = contentContainer
-    
-    -- Grid layout for inventory slots (fixed square size)
-    local gridLayout = Instance.new("UIGridLayout")
-    gridLayout.CellSize = UDim2.fromOffset(85, 85) -- Slightly smaller slots
-    gridLayout.CellPadding = UDim2.fromOffset(8, 8)
-    gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    gridLayout.FillDirectionMaxCells = UI_CONFIG.Columns
-    gridLayout.Parent = scrollFrame
-    
-    -- Auto-size canvas
-    gridLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        scrollFrame.CanvasSize = UDim2.fromOffset(0, gridLayout.AbsoluteContentSize.Y + UI_CONFIG.Padding)
-    end)
-    
-    slotsContainer = scrollFrame
-    
-    -- Right Side: Info Panel
-    local infoPanel = Instance.new("Frame")
-    infoPanel.Name = "InfoPanel"
-    infoPanel.Size = UDim2.new(0.35, 0, 1, 0)
-    infoPanel.Position = UDim2.new(0.65, 8, 0, 0)
-    infoPanel.BackgroundColor3 = Color3.fromRGB(20, 22, 30)
-    infoPanel.BorderSizePixel = 0
-    infoPanel.Parent = contentContainer
-    
-    local infoCorner = Instance.new("UICorner")
-    infoCorner.CornerRadius = UDim.new(0, 12)
-    infoCorner.Parent = infoPanel
-    
-    local infoStroke = Instance.new("UIStroke")
-    infoStroke.Color = UI_CONFIG.BorderColor
-    infoStroke.Thickness = 1
-    infoStroke.Parent = infoPanel
-    
-    -- Info Panel Content (Created via helper function later)
-    createInfoPanelContent(infoPanel)
-    
-    -- Parent to ScreenGui (high display order to be on top)
-    screenGui = playerGui:FindFirstChild("InventoryUI") :: ScreenGui?
-    if not screenGui then
-        screenGui = Instance.new("ScreenGui")
-        screenGui.Name = "InventoryUI"
-        screenGui.DisplayOrder = 100 -- On top of other UIs
-        screenGui.ResetOnSpawn = false
-        screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-        screenGui.Parent = playerGui
-    end
-    
-    container.Parent = screenGui
-    
-    return container
 end
 
 --[[
@@ -562,7 +181,7 @@ end
 ]]
 local function refreshDisplay()
     if not slotsContainer then 
-        print("[InventoryUI] refreshDisplay: No slotsContainer!")
+        -- Can happen if packet arrives before Init
         return 
     end
     
@@ -575,7 +194,8 @@ local function refreshDisplay()
     
     -- Create more slots if needed
     while #itemSlots < requiredSlots do
-        local slot = ItemSlot.new(slotsContainer)
+        -- Pass the stored slotTemplate if available
+        local slot = ItemSlot.new(slotsContainer, slotTemplate)
         slot.Frame.LayoutOrder = #itemSlots + 1
         
         -- Click handler
@@ -708,7 +328,7 @@ end
 ]]
 updateIntegratedToolbar = function()
     if #toolbarSlotFrames == 0 then 
-        print("[InventoryUI] No toolbar slot frames!")
+        -- Can happen before Init
         return 
     end
     
@@ -778,16 +398,17 @@ updateIntegratedToolbar = function()
     for i, slotFrame in ipairs(toolbarSlotFrames) do
         local data = toolbarData[i]
         
-        -- Clear existing content (except hotkey label and border)
+        -- Clear existing content (except hotkey label and border/corner)
+        -- We only clear specific types we created to avoid destroying user's layout elements?
+        -- For now, sticking to the current logic but ensuring new elements are on TOP.
         for _, child in slotFrame:GetChildren() do
-            if child.Name ~= "Hotkey" and not child:IsA("UICorner") and not child:IsA("UIStroke") then
+            if child.Name ~= "Hotkey" and not child:IsA("UICorner") and not child:IsA("UIStroke") and not child:IsA("UIGradient") then
                 child:Destroy()
             end
         end
         
         if data and data.Tool then
             local tool = data.Tool
-            print("[InventoryUI] Showing tool in slot", i, ":", tool.Name)
             
             -- Create icon for the tool
             local icon = Instance.new("ImageLabel")
@@ -796,29 +417,47 @@ updateIntegratedToolbar = function()
             icon.Position = UDim2.fromScale(0.5, 0.5)
             icon.AnchorPoint = Vector2.new(0.5, 0.5)
             icon.BackgroundTransparency = 1
-            icon.Image = if tool.TextureId ~= "" then tool.TextureId else "rbxassetid://6031763426"
+            
+            -- Handle TextureId
+            local textureId = tool.TextureId
+            if textureId and textureId ~= "" and not string.find(textureId, "://") then
+                textureId = "rbxassetid://" .. textureId
+            end
+            icon.Image = if textureId and textureId ~= "" then textureId else "rbxassetid://6031763426"
+            
+            icon.ScaleType = Enum.ScaleType.Fit
+            icon.ZIndex = 50 -- Ensure it renders above background
             icon.Parent = slotFrame
             
-            -- Add tool name label
+            -- Add tool name label (Tiny)
             local nameLabel = Instance.new("TextLabel")
             nameLabel.Name = "ToolName"
-            nameLabel.Size = UDim2.new(1, 0, 0.25, 0)
-            nameLabel.Position = UDim2.new(0, 0, 1, -15)
+            nameLabel.Size = UDim2.fromScale(1, 0.2)
+            nameLabel.Position = UDim2.fromScale(0.5, 0.85)
+            nameLabel.AnchorPoint = Vector2.new(0.5, 0)
             nameLabel.BackgroundTransparency = 1
             nameLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-            nameLabel.TextSize = 8
+            nameLabel.TextScaled = true
             nameLabel.Font = Enum.Font.GothamBold
-            nameLabel.Text = tool.Name
+            
+            -- Check for DisplayName attribute on the tool itself, fallback to Name
+            local toolDisplayName = tool:GetAttribute("DisplayName")
+            nameLabel.Text = if toolDisplayName and toolDisplayName ~= "" then toolDisplayName else tool.Name
+            
             nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+            nameLabel.ZIndex = 51
             nameLabel.Parent = slotFrame
             
             -- Mark if it's from inventory (green badge = can be moved)
             if data.InventoryItemId then
                 local inventoryBadge = Instance.new("Frame")
                 inventoryBadge.Name = "InventoryBadge"
-                inventoryBadge.Size = UDim2.fromOffset(8, 8)
-                inventoryBadge.Position = UDim2.new(1, -10, 0, 2)
-                inventoryBadge.BackgroundColor3 = Color3.fromRGB(100, 200, 100)
+                inventoryBadge.Size = UDim2.fromScale(0.15, 0.15)
+                inventoryBadge.SizeConstraint = Enum.SizeConstraint.RelativeXX
+                inventoryBadge.Position = UDim2.fromScale(0.85, 0.05)
+                inventoryBadge.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
+                inventoryBadge.BorderSizePixel = 0
+                inventoryBadge.ZIndex = 52
                 inventoryBadge.Parent = slotFrame
                 
                 local badgeCorner = Instance.new("UICorner")
@@ -839,9 +478,12 @@ updateIntegratedToolbar = function()
                 -- Red badge = cannot be moved (not from inventory)
                 local lockedBadge = Instance.new("Frame")
                 lockedBadge.Name = "LockedBadge"
-                lockedBadge.Size = UDim2.fromOffset(8, 8)
-                lockedBadge.Position = UDim2.new(1, -10, 0, 2)
-                lockedBadge.BackgroundColor3 = Color3.fromRGB(150, 80, 80)
+                lockedBadge.Size = UDim2.fromScale(0.15, 0.15)
+                lockedBadge.SizeConstraint = Enum.SizeConstraint.RelativeXX
+                lockedBadge.Position = UDim2.fromScale(0.85, 0.05)
+                lockedBadge.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
+                lockedBadge.BorderSizePixel = 0
+                lockedBadge.ZIndex = 52
                 lockedBadge.Parent = slotFrame
                 
                 local badgeCorner = Instance.new("UICorner")
@@ -941,15 +583,124 @@ function InventoryUI.SwapToolbarSlots(slot1: number, slot2: number)
 end
 
 --[[
-    Initializes the inventory UI.
+    Initializes the inventory UI by binding to existing instances.
     
     @param context - ClientContext with PlayerGui
 ]]
 function InventoryUI.Init(context: any)
     local playerGui = context.PlayerGui :: PlayerGui
     
-    -- Create UI
-    inventoryFrame = createInventoryUI(playerGui)
+    -- Find existing UI
+    local existingScreenGui = playerGui:WaitForChild("InventoryUI", 10)
+    if not existingScreenGui then
+        warn("[InventoryUI] Failed to find InventoryUI in PlayerGui")
+        return
+    end
+    screenGui = existingScreenGui :: ScreenGui
+    
+    inventoryFrame = screenGui:WaitForChild("InventoryPanel") :: Frame
+    inventoryFrame.Visible = false -- Start hidden
+    
+    -- Bind Content Area
+    local contentArea = inventoryFrame:WaitForChild("ContentArea")
+    slotsContainer = contentArea:WaitForChild("GridContainer") :: ScrollingFrame
+    
+    -- Load slot template from Config
+    local Config = ReplicatedStorage:WaitForChild("Config", 5)
+    if Config then
+        local inventoryConfig = Config:WaitForChild("Inventory", 2)
+        if inventoryConfig then
+            local templates = inventoryConfig:WaitForChild("Templates", 2)
+            if templates then
+                local tmpl = templates:WaitForChild("ItemSlot", 2)
+                if tmpl and tmpl:IsA("Frame") then
+                    slotTemplate = tmpl
+                    print("[InventoryUI] Loaded ItemSlot template from Config.Inventory.Templates")
+                end
+            end
+        end
+    end
+    
+    if not slotTemplate then
+        warn("[InventoryUI] Failed to load ItemSlot template from Config! Checking Container fallback...")
+        -- Fallback: Check for slot template in ScanList
+        local existingTemplate = slotsContainer:FindFirstChild("ItemSlot") 
+                              or slotsContainer:FindFirstChildWhichIsA("Frame")
+                              
+        if existingTemplate and existingTemplate:IsA("Frame") then
+            print("[InventoryUI] Found slot template in container:", existingTemplate.Name)
+            slotTemplate = existingTemplate:Clone()
+        end
+    end
+    
+    -- Clean up container (remove placeholders)
+    for _, child in slotsContainer:GetChildren() do
+        if child:IsA("Frame") then
+            child:Destroy()
+        end
+    end
+    
+    -- Bind Info Panel
+    local infoPanel = contentArea:WaitForChild("InfoPanel")
+    infoTitle = infoPanel:WaitForChild("ItemName") :: TextLabel
+    infoDesc = infoPanel:WaitForChild("Description") :: TextLabel
+    
+    local iconContainer = infoPanel:WaitForChild("IconContainer")
+    infoIcon = iconContainer:WaitForChild("Icon") :: ImageLabel
+    
+    -- Bind Consume Button
+    consumeButton = infoPanel:FindFirstChild("Consume") :: GuiButton?
+    if consumeButton then
+        consumeButton.Visible = false -- Start hidden
+        consumeButton.Activated:Connect(function()
+            if _selectedItem then
+                consumeItem(_selectedItem)
+            end
+        end)
+        print("[InventoryUI] Found Consume button")
+    else
+        warn("[InventoryUI] Consume button not found in InfoPanel")
+    end
+    
+    -- Bind Close Button (New Path: Header.Close.CloseButton)
+    local header = inventoryFrame:WaitForChild("Header")
+    local closeContainer = header:FindFirstChild("Close") -- Look for "Close" container first
+    local closeBtn
+    
+    if closeContainer then
+        closeBtn = closeContainer:WaitForChild("TextButton") :: TextButton
+    else
+        -- Fallback if user didn't nest it yet or changed mind
+        closeBtn = header:WaitForChild("CloseButton") :: TextButton
+    end
+    
+    if closeBtn then
+        closeBtn.MouseButton1Click:Connect(function()
+            InventoryUI.Toggle(false)
+        end)
+    end
+    
+    -- Bind Toolbar Area
+    local toolbarArea = inventoryFrame:WaitForChild("ToolbarArea")
+    
+    -- Find toolbar slots (TSlot1..TSlot9)
+    -- Assuming they are direct children of ToolbarArea or in a container.
+    -- If user cloned checking direct usage is safer if we loop
+    toolbarSlotFrames = {}
+    for i = 1, 9 do
+        local slotName = "TSlot" .. i
+        -- Check direct child first
+        local slot = toolbarArea:FindFirstChild(slotName)
+        if slot then
+            table.insert(toolbarSlotFrames, slot)
+        else
+            warn("[InventoryUI] Toolbar slot not found:", slotName)
+        end
+    end
+    
+    if #toolbarSlotFrames > 0 then
+        DragDrop.RegisterToolbarSlots(toolbarSlotFrames)
+    end
     
     -- Get Toolbar reference (from context if available, or require it)
     if context.Toolbar then
@@ -1015,32 +766,36 @@ function InventoryUI.Init(context: any)
         updateInfoPanel(itemData)
     end))
     
-    -- Connect to inventory button
-    
-    -- Connect to inventory button
-    local base = playerGui:WaitForChild("Base", 5)
-    if base then
-        local hid = base:FindFirstChild("HID")
-        if hid then
-            local left = hid:FindFirstChild("Left")
-            if left then
-                local buttons = left:FindFirstChild("Buttons")
-                if buttons then
-                    local inventoryButton = buttons:FindFirstChild("Inventory") :: TextButton?
-                    if inventoryButton then
-                        inventoryButton.MouseButton1Click:Connect(function()
-                            InventoryUI.Toggle()
-                        end)
-                        print("[InventoryUI] Connected to inventory button")
-                    else
-                        warn("[InventoryUI] Inventory button not found at Base.HID.Left.Buttons.Inventory")
-                    end
-                end
-            end
+    -- Connect to inventory button (Async to avoid blocking Init)
+    task.spawn(function()
+        local base = playerGui:WaitForChild("Base", 10)
+        if not base then
+            warn("[InventoryUI] Base UI not found in PlayerGui")
+            return
         end
-    end
+
+        local hid = base:WaitForChild("HID", 10)
+        if not hid then return end
+        
+        local left = hid:WaitForChild("Left", 10)
+        if not left then return end
+        
+        local buttons = left:WaitForChild("Buttons", 10)
+        if not buttons then return end
+        
+        local inventoryButton = buttons:WaitForChild("Inventory", 10) :: GuiButton
+        if inventoryButton then
+            inventoryButton.Activated:Connect(function()
+                print("[InventoryUI] Inventory button clicked")
+                InventoryUI.Toggle()
+            end)
+            print("[InventoryUI] Connected to inventory button")
+        else
+            warn("[InventoryUI] Inventory button not found at Base.HID.Left.Buttons.Inventory")
+        end
+    end)
     
-    print("[InventoryUI] Initialized!")
+    print("[InventoryUI] Initialized (Existing UI)!")
 end
 
 --[[

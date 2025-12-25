@@ -41,12 +41,15 @@ export type ItemSlot = {
 }
 
 -- Constants
-local SLOT_SIZE = UDim2.fromOffset(110, 110)
+-- Constants
+local _SLOT_SIZE = UDim2.fromOffset(110, 110) -- Unused but kept for reference
 local ROTATION_SPEED = 10 -- Rotations per second
 local _TOOLS_PATH = "Config.Weapons.Tools" -- Path in ReplicatedStorage (for reference)
 
 local ItemSlotModule = {}
 ItemSlotModule.__index = ItemSlotModule
+
+-- ... (skipping unchanged parts)
 
 --[[
     Item Configuration Structure (in ReplicatedStorage/Config/Items)
@@ -71,9 +74,6 @@ local itemConfigCache: {[string]: Configuration} = {}
 
 --[[
     Gets item configuration from Config/Items.
-    
-    @param templateId - The item name
-    @return Configuration? - The config, or nil
 ]]
 local function getItemConfig(templateId: string): Configuration?
     -- Check cache first
@@ -98,9 +98,6 @@ end
 
 --[[
     Gets the Tool instance from inside a Configuration.
-    
-    @param itemConfig - The Configuration
-    @return Tool? - The Tool child, or nil
 ]]
 local function getToolFromConfig(itemConfig: Configuration): Tool?
     return itemConfig:FindFirstChildWhichIsA("Tool") :: Tool?
@@ -108,9 +105,6 @@ end
 
 --[[
     Finds the 3D model for an item based on its ToolModel attribute.
-    
-    @param templateId - The item name
-    @return Instance? - The model to display (Tool or Model), or nil
 ]]
 local function findItemModel(templateId: string): Instance?
     local itemConfig = getItemConfig(templateId)
@@ -155,9 +149,6 @@ end
 
 --[[
     Gets the image for an item (for items without 3D model).
-    
-    @param templateId - The item name
-    @return string - The image asset ID, or empty string
 ]]
 local function getItemImage(templateId: string): string
     local itemConfig = getItemConfig(templateId)
@@ -227,13 +218,19 @@ end
 local function createSlotFrame(): Frame
     local frame = Instance.new("Frame")
     frame.Name = "ItemSlot"
-    frame.Size = SLOT_SIZE
+    -- Use scale to let the parent layout control size, but keep aspect ratio
+    frame.Size = UDim2.fromScale(1, 1)
     frame.BackgroundColor3 = Color3.fromRGB(30, 34, 48) -- Match UI_CONFIG.SlotBackground
     frame.BorderSizePixel = 0
     
+    -- Keep aspect ratio square
+    local aspect = Instance.new("UIAspectRatioConstraint")
+    aspect.AspectRatio = 1
+    aspect.Parent = frame
+    
     -- Clean rounded corners
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 10)
+    corner.CornerRadius = UDim.new(0.15, 0) -- Responsive corner radius
     corner.Parent = frame
     
     -- ViewportFrame for 3D model
@@ -270,12 +267,12 @@ local function createSlotFrame(): Frame
     -- Quantity label
     local quantityLabel = Instance.new("TextLabel")
     quantityLabel.Name = "QuantityLabel"
-    quantityLabel.Size = UDim2.fromOffset(30, 20)
-    quantityLabel.Position = UDim2.fromScale(1, 1)
+    quantityLabel.Size = UDim2.fromScale(0.3, 0.2)
+    quantityLabel.Position = UDim2.fromScale(0.95, 0.95)
     quantityLabel.AnchorPoint = Vector2.new(1, 1)
     quantityLabel.BackgroundTransparency = 1
     quantityLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    quantityLabel.TextSize = 14
+    quantityLabel.TextScaled = true -- Use TextScaled for responsive text
     quantityLabel.Font = Enum.Font.GothamBold
     quantityLabel.TextXAlignment = Enum.TextXAlignment.Right
     quantityLabel.Text = ""
@@ -285,7 +282,7 @@ local function createSlotFrame(): Frame
     -- Add drop shadow to quantity for readability
     local quantityStroke = Instance.new("UIStroke")
     quantityStroke.Color = Color3.fromRGB(0, 0, 0)
-    quantityStroke.Thickness = 1
+    quantityStroke.Thickness = 1.5
     quantityStroke.Parent = quantityLabel
     
     -- Selection indicator (hidden by default)
@@ -296,35 +293,151 @@ local function createSlotFrame(): Frame
     selection.Transparency = 1
     selection.Parent = frame
     
-    -- Delete button (replaces info button)
+    -- DeleteButton
     local deleteButton = Instance.new("TextButton")
     deleteButton.Name = "DeleteButton"
-    deleteButton.Size = UDim2.fromOffset(18, 18)
-    deleteButton.Position = UDim2.new(0, 4, 0, 4)
-    deleteButton.BackgroundColor3 = Color3.fromRGB(220, 60, 60) -- Red
-    deleteButton.BorderSizePixel = 0
+    deleteButton.Size = UDim2.fromScale(0.2, 0.2)
+    deleteButton.Position = UDim2.fromScale(0.05, 0.05)
+    deleteButton.BackgroundColor3 = Color3.fromRGB(220, 60, 60)
     deleteButton.Text = "✕"
     deleteButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    deleteButton.TextSize = 12
+    deleteButton.TextScaled = true
     deleteButton.Font = Enum.Font.FredokaOne
     deleteButton.ZIndex = 15
-    deleteButton.Visible = false -- Hidden by default, shown when data is set
+    deleteButton.Visible = false
     deleteButton.Parent = frame
     
     local delBtnCorner = Instance.new("UICorner")
-    delBtnCorner.CornerRadius = UDim.new(0, 6)
+    delBtnCorner.CornerRadius = UDim.new(0.3, 0)
     delBtnCorner.Parent = deleteButton
     
     return frame
 end
 
 --[[
+    Ensures the slot frame has all required components.
+    Injects missing naming/elements if the template is incomplete.
+]]
+local function ensureSlotComponents(frame: Frame)
+    -- Ensure Aspect Ratio (optional, but good for stability)
+    if not frame:FindFirstChildWhichIsA("UIAspectRatioConstraint") then
+        local aspect = Instance.new("UIAspectRatioConstraint")
+        aspect.AspectRatio = 1
+        aspect.Parent = frame
+    end
+    
+    -- ViewportFrame
+    local existingViewport = frame:FindFirstChild("Viewport")
+    local viewportFrame: ViewportFrame
+    
+    if existingViewport and existingViewport:IsA("ViewportFrame") then
+        viewportFrame = existingViewport
+    else
+        if existingViewport then existingViewport.Name = "Viewport_Old" end -- Rename conflict
+        viewportFrame = Instance.new("ViewportFrame")
+        viewportFrame.Name = "Viewport"
+        viewportFrame.Size = UDim2.fromScale(0.85, 0.85)
+        viewportFrame.Position = UDim2.fromScale(0.5, 0.45)
+        viewportFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+        viewportFrame.BackgroundTransparency = 1
+        viewportFrame.Parent = frame
+    end
+    
+    -- Camera & WorldModel
+    local camera = viewportFrame:FindFirstChild("ViewportCamera")
+    if not camera then
+        camera = Instance.new("Camera")
+        camera.Name = "ViewportCamera"
+        camera.Parent = viewportFrame
+        viewportFrame.CurrentCamera = camera
+    end
+    
+    if not viewportFrame:FindFirstChild("WorldModel") then
+        local worldModel = Instance.new("WorldModel")
+        worldModel.Name = "WorldModel"
+        worldModel.Parent = viewportFrame
+    end
+    
+    -- ImageLabel
+    local existingImage = frame:FindFirstChild("ImageLabel")
+    if not (existingImage and existingImage:IsA("ImageLabel")) then
+        if existingImage then existingImage:Destroy() end
+        local imageLabel = Instance.new("ImageLabel")
+        imageLabel.Name = "ImageLabel"
+        imageLabel.Size = UDim2.fromScale(0.7, 0.7)
+        imageLabel.Position = UDim2.fromScale(0.5, 0.45)
+        imageLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+        imageLabel.BackgroundTransparency = 1
+        imageLabel.ScaleType = Enum.ScaleType.Fit
+        imageLabel.Visible = false
+        imageLabel.Parent = frame
+    end
+    
+    -- QuantityLabel
+    local existingQty = frame:FindFirstChild("QuantityLabel")
+    if not (existingQty and existingQty:IsA("TextLabel")) then
+        if existingQty then existingQty:Destroy() end
+        local quantityLabel = Instance.new("TextLabel")
+        quantityLabel.Name = "QuantityLabel"
+        quantityLabel.Size = UDim2.fromScale(0.3, 0.2)
+        quantityLabel.Position = UDim2.fromScale(0.95, 0.95)
+        quantityLabel.AnchorPoint = Vector2.new(1, 1)
+        quantityLabel.BackgroundTransparency = 1
+        quantityLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        quantityLabel.TextScaled = true
+        quantityLabel.Font = Enum.Font.GothamBold
+        quantityLabel.TextXAlignment = Enum.TextXAlignment.Right
+        quantityLabel.Visible = false
+        quantityLabel.Parent = frame
+        
+        -- Add stroke
+        local s = Instance.new("UIStroke")
+        s.Color = Color3.new(0,0,0)
+        s.Thickness = 1.5
+        s.Parent = quantityLabel
+    end
+    
+    -- DeleteButton
+    local existingDel = frame:FindFirstChild("DeleteButton")
+    if not (existingDel and existingDel:IsA("TextButton")) then
+        if existingDel then existingDel:Destroy() end
+        local deleteButton = Instance.new("TextButton")
+        deleteButton.Name = "DeleteButton"
+        deleteButton.Size = UDim2.fromScale(0.2, 0.2)
+        deleteButton.Position = UDim2.fromScale(0.05, 0.05)
+        deleteButton.BackgroundColor3 = Color3.fromRGB(220, 60, 60)
+        deleteButton.Text = "✕"
+        deleteButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+        deleteButton.TextScaled = true
+        deleteButton.Font = Enum.Font.FredokaOne
+        deleteButton.ZIndex = 15
+        deleteButton.Visible = false
+        deleteButton.Parent = frame
+        
+        local c = Instance.new("UICorner")
+        c.CornerRadius = UDim.new(0.3, 0)
+        c.Parent = deleteButton
+    end
+    
+    -- SelectionStroke
+    if not frame:FindFirstChild("SelectionStroke") then
+        local selection = Instance.new("UIStroke")
+        selection.Name = "SelectionStroke"
+        selection.Color = Color3.fromRGB(255, 255, 255)
+        selection.Thickness = 3
+        selection.Transparency = 1
+        selection.Parent = frame
+    end
+end
+
+--[[
     Creates a new ItemSlot.
     
     @param parent - Parent GUI object
+    @param template - Optional template frame to clone
     @return ItemSlot
 ]]
-function ItemSlotModule.new(parent: GuiObject?): ItemSlot
+function ItemSlotModule.new(parent: GuiObject?, template: Frame?): ItemSlot
     local self = setmetatable({}, ItemSlotModule)
     
     self._janitor = Janitor.new() :: Janitor
@@ -333,7 +446,12 @@ function ItemSlotModule.new(parent: GuiObject?): ItemSlot
     self._highlight = nil :: Highlight?
     
     -- Create UI
-    self.Frame = createSlotFrame()
+    if template then
+        self.Frame = template:Clone()
+        ensureSlotComponents(self.Frame)
+    else
+        self.Frame = createSlotFrame()
+    end
     self.Data = nil :: ItemSlotData?
     self.OnDeleteClicked = require(Packages:WaitForChild("signal")).new()
     

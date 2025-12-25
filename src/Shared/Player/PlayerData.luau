@@ -35,11 +35,19 @@ export type Player = {
     Credits: number,
     TotalCreditsEarned: number,
     
+    -- Multipliers
+    GoldMultiplier: number,
+    ExperienceMultiplier: number,
+    DamageMultiplier: number,
+    
     -- Events
     OnLevelUp: Signal?,
     OnGoldChanged: Signal?,
     OnExperienceChanged: Signal?,
     OnCreditsChanged: Signal?,
+    
+    -- Internal
+    _destroyed: boolean,
     
     -- Methods
     GetData: (self: Player) -> PlayerData,
@@ -110,6 +118,11 @@ function PlayerClass.new(robloxPlayer: Player, initialData: PlayerData?): Player
     
     -- Track active state
     self._destroyed = false
+    
+    -- Multipliers (default to 1)
+    self.GoldMultiplier = 1
+    self.ExperienceMultiplier = 1
+    self.DamageMultiplier = 1
     
     return self :: any
 end
@@ -203,36 +216,40 @@ end
     @return boolean - True if any level ups occurred
 ]]
 function PlayerClass:AddExperience(amount: number): boolean
-    if self._destroyed or amount <= 0 then
+    local player = self :: Player
+    if player._destroyed or amount <= 0 then
         return false
     end
     
-    local previousExperience = self.Experience
-    self.Experience = self.Experience + amount
+    -- Apply multiplier
+    amount = amount * player.ExperienceMultiplier
+    
+    local previousExperience = player.Experience
+    player.Experience = player.Experience + amount
     
     -- Fire experience changed event
-    if self.OnExperienceChanged then
-        self.OnExperienceChanged:Fire(self.Experience, previousExperience, amount)
+    if player.OnExperienceChanged then
+        player.OnExperienceChanged:Fire(player.Experience, previousExperience, amount)
     end
     
     local leveledUp = false
     
     -- Check for level ups (XP is per-level, resets on level up)
     while true do
-        local requiredXP = self:GetExperienceForLevel(self.Level)
+        local requiredXP = player:GetExperienceForLevel(player.Level)
         
-        if self.Experience >= requiredXP then
+        if player.Experience >= requiredXP then
             -- Level up! Carry over excess XP to next level
-            self.Experience = self.Experience - requiredXP
-            self.Level = self.Level + 1
+            player.Experience = player.Experience - requiredXP
+            player.Level = player.Level + 1
             leveledUp = true
             
             -- Fire level up event
-            if self.OnLevelUp then
-                self.OnLevelUp:Fire(self.Level)
+            if player.OnLevelUp then
+                player.OnLevelUp:Fire(player.Level)
             end
             
-            print(string.format("[Player] %s leveled up to %d!", self.Name, self.Level))
+            print(string.format("[Player] %s leveled up to %d!", player.Name, player.Level))
         else
             break
         end
@@ -240,29 +257,7 @@ function PlayerClass:AddExperience(amount: number): boolean
     
     return leveledUp
 end
-
---[[
-    Resets the player's progress to Level 1 and 0 Experience.
-]]
-function PlayerClass:ResetProgress()
-	local oldLevel = self.Level
-	local oldXP = self.Experience
-	
-    self.Level = 1
-    self.Experience = 0
-    
-    -- Fire events
-    if self.OnLevelUp then
-        self.OnLevelUp:Fire(self.Level)
-    end
-    
-    if self.OnExperienceChanged then
-        self.OnExperienceChanged:Fire(self.Experience, oldXP, -oldXP)
-    end
-    
-    print(string.format("[Player] %s progress reset (Was Level %d)", self.Name, oldLevel))
-end
-
+            
 --[[
     Adds gold to the player's balance.
     
@@ -270,17 +265,21 @@ end
     @return boolean - True if successful
 ]]
 function PlayerClass:AddGold(amount: number): boolean
-    if self._destroyed or amount <= 0 then
+    local player = self :: Player
+    if player._destroyed or amount <= 0 then
         return false
     end
     
-    local previousGold = self.Gold
-    self.Gold = self.Gold + amount
-    self.TotalGoldEarned = self.TotalGoldEarned + amount
+    -- Apply multiplier
+    amount = amount * player.GoldMultiplier
+    
+    local previousGold = player.Gold
+    player.Gold = player.Gold + amount
+    player.TotalGoldEarned = player.TotalGoldEarned + amount
     
     -- Fire gold changed event
-    if self.OnGoldChanged then
-        self.OnGoldChanged:Fire(self.Gold, previousGold, amount)
+    if player.OnGoldChanged then
+        player.OnGoldChanged:Fire(player.Gold, previousGold, amount)
     end
     
     return true
@@ -293,20 +292,21 @@ end
     @return boolean - True if successful, false if insufficient funds
 ]]
 function PlayerClass:SpendGold(amount: number): boolean
-    if self._destroyed or amount <= 0 then
+    local player = self :: Player
+    if player._destroyed or amount <= 0 then
         return false
     end
     
-    if self.Gold < amount then
+    if player.Gold < amount then
         return false
     end
     
-    local previousGold = self.Gold
-    self.Gold = self.Gold - amount
+    local previousGold = player.Gold
+    player.Gold = player.Gold - amount
     
     -- Fire gold changed event
-    if self.OnGoldChanged then
-        self.OnGoldChanged:Fire(self.Gold, previousGold, -amount)
+    if player.OnGoldChanged then
+        player.OnGoldChanged:Fire(player.Gold, previousGold, -amount)
     end
     
     return true
@@ -319,17 +319,18 @@ end
     @return boolean - True if successful
 ]]
 function PlayerClass:AddCredits(amount: number): boolean
-    if self._destroyed or amount <= 0 then
+    local player = self :: Player
+    if player._destroyed or amount <= 0 then
         return false
     end
     
-    local previousCredits = self.Credits
-    self.Credits = self.Credits + amount
-    self.TotalCreditsEarned = self.TotalCreditsEarned + amount
+    local previousCredits = player.Credits
+    player.Credits = player.Credits + amount
+    player.TotalCreditsEarned = player.TotalCreditsEarned + amount
     
     -- Fire credits changed event
-    if self.OnCreditsChanged then
-        self.OnCreditsChanged:Fire(self.Credits, previousCredits, amount)
+    if player.OnCreditsChanged then
+        player.OnCreditsChanged:Fire(player.Credits, previousCredits, amount)
     end
     
     return true
@@ -342,20 +343,21 @@ end
     @return boolean - True if successful, false if insufficient funds
 ]]
 function PlayerClass:SpendCredits(amount: number): boolean
-    if self._destroyed or amount <= 0 then
+    local player = self :: Player
+    if player._destroyed or amount <= 0 then
         return false
     end
     
-    if self.Credits < amount then
+    if player.Credits < amount then
         return false
     end
     
-    local previousCredits = self.Credits
-    self.Credits = self.Credits - amount
+    local previousCredits = player.Credits
+    player.Credits = player.Credits - amount
     
     -- Fire credits changed event
-    if self.OnCreditsChanged then
-        self.OnCreditsChanged:Fire(self.Credits, previousCredits, -amount)
+    if player.OnCreditsChanged then
+        player.OnCreditsChanged:Fire(player.Credits, previousCredits, -amount)
     end
     
     return true
