@@ -9,6 +9,7 @@
     - Rarity: "Common" | "Uncommon" | "Epic" | "Legendary" | "Mythic" | "Secret" | "God"
     - Image: "rbxassetid://123456789"  (custom image, skips 3D)
     - ToolModel: "ToolModels" | "ViewModel" | "ToolIcon"
+    - Stackable: boolean (true = items stack in inventory UI, consume removes 1)
     
     TOOLMODEL OPTIONS:
     - nil (default)  → Uses Tool child for 3D viewport
@@ -17,3 +18,4 @@
     - "ToolIcon"     → Uses Tool.TextureId as image (no 3D)
 ]]
 return nil
+

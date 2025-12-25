@@ -25,6 +25,9 @@ local Janitor = require(Packages:WaitForChild("janitor"))
 local Inventory = require(Shared:WaitForChild("Inventory"))
 local Packets = require(Shared:WaitForChild("Packets"))
 
+-- ItemRegistry for global item tracking
+local ItemRegistry = require(script.ItemRegistry)
+
 -- Types
 type InventoryItem = Inventory.InventoryItem
 type InventoryData = Inventory.InventoryData
@@ -49,6 +52,7 @@ local InventoryManager = {}
 -- Caches
 local ActiveInventories: {[number]: InventoryData} = {}
 local ActiveProfiles: {[number]: any} = {}
+local DupedItems: {[string]: boolean} = {} -- itemId -> isMaybeDuped (in-memory detection)
 local PlayerJanitors: {[Player]: typeof(Janitor.new())} = {}
 
 -- Security Configuration
@@ -84,6 +88,7 @@ local function syncInventoryToClient(player: Player)
             templateId = item.TemplateId,
             itemType = item.Type,
             rarity = item.Rarity or "",
+            maybeDuped = DupedItems[item.Id] or false,
         })
     end
     
@@ -104,6 +109,7 @@ local function sendInventoryUpdate(player: Player, action: string, item: Invento
             templateId = item.TemplateId,
             itemType = item.Type,
             rarity = item.Rarity or "",
+            maybeDuped = DupedItems[item.Id] or false,
         },
     }, player)
 end
@@ -202,6 +208,11 @@ function InventoryManager.LoadInventory(player: Player)
         -- Create janitor for this player
         local playerJanitor = Janitor.new()
         PlayerJanitors[player] = playerJanitor
+        
+        -- Detect duplicates (async, after profile loaded)
+        task.spawn(function()
+            InventoryManager._detectDuplicates(player, profile.Data.Items)
+        end)
         
         -- Sync to client
         syncInventoryToClient(player)
@@ -338,6 +349,13 @@ function InventoryManager.AddItem(
     local item = Inventory.CreateItem(templateId, itemType, rarity, metadata)
     table.insert(inventory.Items, item)
     
+    -- Register in global ItemRegistry (async, don't block)
+    task.spawn(function()
+        ItemRegistry.RegisterItem(item.Id, player.UserId, templateId):catch(function(err)
+            warn("[InventoryManager] Failed to register item:", err)
+        end)
+    end)
+    
     -- Fire events
     InventoryManager.OnItemAdded:Fire(player, item)
     InventoryManager.OnInventoryChanged:Fire(player, "Add", item)
@@ -351,6 +369,7 @@ end
 
 --[[
     Removes an item from a player's inventory by ID.
+    For stackable items in toolbar, updates the tool's StackCount.
     
     @param player - The Roblox Player
     @param itemId - The item's unique ID
@@ -364,13 +383,90 @@ function InventoryManager.RemoveItem(player: Player, itemId: string): boolean
     if not index then return false end
     
     local item = inventory.Items[index]
+    local isStackable = Inventory.IsStackable(item.TemplateId)
+    
     table.remove(inventory.Items, index)
     
-    -- Remove from toolbar if equipped
-    for slot, equippedId in pairs(inventory.ToolbarSlots) do
-        if equippedId == itemId then
-            InventoryManager.RemoveFromToolbar(player, slot)
-            break
+    -- Handle toolbar update for stackable items
+    if isStackable then
+        -- Find if this item's template is in a toolbar slot
+        local foundSlot: number? = nil
+        local remainingCount = 0
+        
+        -- Count remaining items of same template
+        for _, invItem in ipairs(inventory.Items) do
+            if invItem.TemplateId == item.TemplateId 
+                and invItem.Type == item.Type 
+                and invItem.Rarity == item.Rarity then
+                remainingCount = remainingCount + 1
+            end
+        end
+        
+        -- Check if any item of this stack is in toolbar
+        for slot, equippedId in pairs(inventory.ToolbarSlots) do
+            if equippedId then
+                local equippedItem = Inventory.FindById(inventory.Items, equippedId)
+                if equippedItem and equippedItem.TemplateId == item.TemplateId 
+                    and equippedItem.Type == item.Type 
+                    and equippedItem.Rarity == item.Rarity then
+                    foundSlot = slot
+                    break
+                elseif equippedId == itemId then
+                    -- The removed item was the toolbar reference
+                    foundSlot = slot
+                    break
+                end
+            end
+        end
+        
+        if foundSlot then
+            if remainingCount > 0 then
+                -- Update the toolbar slot to point to another item in stack
+                local newReferenceItem: InventoryItem? = nil
+                for _, invItem in ipairs(inventory.Items) do
+                    if invItem.TemplateId == item.TemplateId 
+                        and invItem.Type == item.Type 
+                        and invItem.Rarity == item.Rarity then
+                        newReferenceItem = invItem
+                        break
+                    end
+                end
+                
+                if newReferenceItem then
+                    inventory.ToolbarSlots[foundSlot] = newReferenceItem.Id
+                end
+                
+                -- Update the tool's StackCount attribute
+                local backpack = player:FindFirstChild("Backpack")
+                local character = player.Character
+                
+                local function updateToolStackCount(container: Instance)
+                    for _, tool in container:GetChildren() do
+                        if tool:IsA("Tool") and tool:GetAttribute("StackTemplateId") == item.TemplateId then
+                            tool:SetAttribute("StackCount", remainingCount)
+                            if newReferenceItem then
+                                tool:SetAttribute("InventoryItemId", newReferenceItem.Id)
+                            end
+                            return true
+                        end
+                    end
+                    return false
+                end
+                
+                if backpack then updateToolStackCount(backpack) end
+                if character and not updateToolStackCount(character) then end
+            else
+                -- No items left in stack, remove from toolbar
+                InventoryManager.RemoveFromToolbar(player, foundSlot)
+            end
+        end
+    else
+        -- Non-stackable: remove from toolbar if equipped
+        for slot, equippedId in pairs(inventory.ToolbarSlots) do
+            if equippedId == itemId then
+                InventoryManager.RemoveFromToolbar(player, slot)
+                break
+            end
         end
     end
     
@@ -387,9 +483,10 @@ end
 --[[
     Assigns an item to a toolbar slot.
     Only Tools can be assigned to toolbar slots.
+    For stackable items, the entire stack is assigned to the slot.
     
     @param player - The Roblox Player
-    @param itemId - The item's unique ID
+    @param itemId - The item's unique ID (or any item from the stack)
     @param slot - Slot number (1-9)
     @return boolean - True if successful
 ]]
@@ -407,21 +504,56 @@ function InventoryManager.AssignToToolbar(player: Player, itemId: string, slot: 
         return false
     end
     
-    -- Remove from current slot if exists (moving from another slot)
-    for s, id in pairs(inventory.ToolbarSlots) do
-        if id == itemId then
-            inventory.ToolbarSlots[s] = nil
-            -- Remove old Tool from Backpack if it exists
-            local backpack = player:FindFirstChild("Backpack")
-            if backpack then
-                for _, tool in backpack:GetChildren() do
-                    if tool:IsA("Tool") and tool:GetAttribute("InventoryItemId") == id then
-                        tool:Destroy()
+    -- Check if this item is stackable
+    local isStackable = Inventory.IsStackable(item.TemplateId)
+    
+    -- Get all item IDs for this stack (or just the one if not stackable)
+    local stackItemIds: {string} = {}
+    if isStackable then
+        for _, invItem in ipairs(inventory.Items) do
+            if invItem.TemplateId == item.TemplateId 
+                and invItem.Type == item.Type 
+                and invItem.Rarity == item.Rarity then
+                table.insert(stackItemIds, invItem.Id)
+            end
+        end
+    else
+        stackItemIds = {itemId}
+    end
+    
+    -- Remove all stack items from their current slot if any (moving from another slot)
+    for s, slotData in pairs(inventory.ToolbarSlots) do
+        if slotData then
+            -- Check if this slot contains any of our stack items
+            local shouldClear = false
+            if isStackable then
+                -- For stackable, check if slot is storing same template
+                for _, stackId in ipairs(stackItemIds) do
+                    if slotData == stackId then
+                        shouldClear = true
                         break
                     end
                 end
+            else
+                if slotData == itemId then
+                    shouldClear = true
+                end
             end
-            break
+            
+            if shouldClear then
+                inventory.ToolbarSlots[s] = nil
+                -- Remove old Tool from Backpack if it exists
+                local backpack = player:FindFirstChild("Backpack")
+                if backpack then
+                    for _, tool in backpack:GetChildren() do
+                        if tool:IsA("Tool") and tool:GetAttribute("InventoryItemId") == slotData then
+                            tool:Destroy()
+                            break
+                        end
+                    end
+                end
+                break
+            end
         end
     end
     
@@ -450,8 +582,8 @@ function InventoryManager.AssignToToolbar(player: Player, itemId: string, slot: 
         end
     end
     
-    -- Assign to new slot
-    inventory.ToolbarSlots[slot] = itemId
+    -- Assign to new slot (use first item ID as the slot reference)
+    inventory.ToolbarSlots[slot] = stackItemIds[1]
     
     -- Spawn actual Tool in player's Backpack
     local backpack = player:FindFirstChild("Backpack")
@@ -467,10 +599,17 @@ function InventoryManager.AssignToToolbar(player: Player, itemId: string, slot: 
                     local toolTemplate = itemConfig:FindFirstChildWhichIsA("Tool")
                     if toolTemplate then
                         local toolClone = toolTemplate:Clone()
-                        toolClone:SetAttribute("InventoryItemId", itemId)
+                        toolClone:SetAttribute("InventoryItemId", stackItemIds[1])
                         toolClone:SetAttribute("ToolbarSlot", slot)
+                        -- For stackable items, add stack info
+                        if isStackable then
+                            toolClone:SetAttribute("StackCount", #stackItemIds)
+                            toolClone:SetAttribute("StackTemplateId", item.TemplateId)
+                            toolClone:SetAttribute("IsStackable", true)
+                        end
                         toolClone.Parent = backpack
-                        print(string.format("[InventoryManager] Spawned %s in %s's backpack (slot %d)", item.TemplateId, player.Name, slot))
+                        print(string.format("[InventoryManager] Spawned %s in %s's backpack (slot %d, stack: %d)", 
+                            item.TemplateId, player.Name, slot, #stackItemIds))
                     end
                 end
             end
@@ -671,8 +810,104 @@ function InventoryManager.UpgradeInventorySize(player: Player, amount: number): 
     -- Save immediately
     InventoryManager.SaveInventory(player)
     
+
     print(string.format("[InventoryManager] Upgraded inventory size for %s: %d -> %d", player.Name, currentSize, inventory.MaxSize or 50))
     return true
+end
+
+--[[
+    Detects duplicated items by checking against global ItemRegistry.
+    Items not found in registry or with mismatched owner are flagged.
+    
+    @param player - The player whose inventory to check
+    @param items - Array of inventory items
+]]
+function InventoryManager._detectDuplicates(player: Player, items: {InventoryItem})
+    local userId = player.UserId
+    local dupeCount = 0
+    
+    for _, item in ipairs(items) do
+        ItemRegistry.IsValidOwner(item.Id, userId):andThen(function(isValid)
+            if not isValid then
+                DupedItems[item.Id] = true
+                dupeCount = dupeCount + 1
+                warn(string.format("[InventoryManager] Detected MAYBE DUPED item %s for %s", 
+                    item.Id:sub(1, 8), player.Name))
+            end
+        end):catch(function(err)
+            warn("[InventoryManager] Error checking item validity:", err)
+        end)
+    end
+    
+    -- Re-sync after detection completes (give some time for async checks)
+    task.delay(2, function()
+        if player.Parent == Players and dupeCount > 0 then
+            syncInventoryToClient(player)
+            print(string.format("[InventoryManager] Flagged %d potentially duped items for %s", 
+                dupeCount, player.Name))
+        end
+    end)
+end
+
+--[[
+    Duplicates an item WITHOUT registering in ItemRegistry.
+    This simulates a duplication exploit for testing detection.
+    
+    @param player - The player to give the dupe to
+    @param itemId - The item to duplicate
+    @return InventoryItem? - The duplicated item
+]]
+function InventoryManager.DuplicateItem(player: Player, itemId: string): InventoryItem?
+    local inventory = ActiveInventories[player.UserId]
+    if not inventory then
+        warn("[InventoryManager] No inventory for player:", player.Name)
+        return nil
+    end
+    
+    -- Find original item
+    local originalItem = Inventory.FindById(inventory.Items, itemId)
+    if not originalItem then
+        warn("[InventoryManager] Item not found:", itemId)
+        return nil
+    end
+    
+    -- Security: Check inventory size limit
+    local maxSize = inventory.MaxSize or 50
+    if #inventory.Items >= maxSize then
+        warn("[InventoryManager] Inventory full, cannot duplicate")
+        return nil
+    end
+    
+    -- Create a copy with NEW Id but same properties
+    -- IMPORTANT: We do NOT register this in ItemRegistry - that's how detection catches it
+    local dupedItem: InventoryItem = {
+        Id = Inventory.ItemUtils.GenerateId(), -- New unique ID
+        TemplateId = originalItem.TemplateId,
+        Type = originalItem.Type,
+        Rarity = originalItem.Rarity,
+        Metadata = if originalItem.Metadata then table.clone(originalItem.Metadata) else nil,
+    }
+    
+    table.insert(inventory.Items, dupedItem)
+    
+    -- Fire events
+    InventoryManager.OnItemAdded:Fire(player, dupedItem)
+    InventoryManager.OnInventoryChanged:Fire(player, "Add", dupedItem)
+    
+    -- Sync to client
+    sendInventoryUpdate(player, "Add", dupedItem)
+    
+    print(string.format("[InventoryManager] DUPLICATED item %s -> %s (NOT registered in ItemRegistry)", 
+        originalItem.Id:sub(1, 8), dupedItem.Id:sub(1, 8)))
+    
+    return dupedItem
+end
+
+--[[
+    Gets the ItemRegistry module for external access (e.g., commands).
+]]
+function InventoryManager.GetItemRegistry()
+    return ItemRegistry
 end
 
 --[[
@@ -703,10 +938,14 @@ function InventoryManager.Init()
             InventoryManager.SwapToolbarSlots(p, slot, slot2)
         elseif action == "DeleteItem" and itemId then
             InventoryManager.RemoveItem(p, itemId)
+        elseif action == "Consume" and itemId then
+            -- Consume removes one item from inventory (for stackable consumables)
+            InventoryManager.RemoveItem(p, itemId)
+            print(string.format("[InventoryManager] Consumed item %s for %s", itemId:sub(1, 8), p.Name))
         end
     end)
     
-    print("[InventoryManager] Initialized!")
+    print("[InventoryManager] Initialized with ItemRegistry integration!")
 end
 
 return InventoryManager

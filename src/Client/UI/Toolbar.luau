@@ -112,6 +112,19 @@ local function updateSlotDisplay(slot: ToolSlot)
     if nameLabel then
         nameLabel.Text = tool.Name
     end
+    
+    -- Show stack count using existing QuantityLabel from template
+    local quantityLabel = frame:FindFirstChild("QuantityLabel") :: TextLabel?
+    if quantityLabel then
+        local stackCount = tool:GetAttribute("StackCount") :: number?
+        if stackCount and stackCount > 1 then
+            quantityLabel.Text = "x" .. tostring(stackCount)
+            quantityLabel.Visible = true
+        else
+            quantityLabel.Text = ""
+            quantityLabel.Visible = false
+        end
+    end
 end
 
 --[[
@@ -157,7 +170,8 @@ local function addTool(tool: Tool)
     end
     
     -- First check if the tool has a ToolbarSlot attribute (assigned by inventory system)
-    local assignedSlot = tool:GetAttribute("ToolbarSlot") :: number?
+    local rawAssignedSlot = tool:GetAttribute("ToolbarSlot")
+    local assignedSlot = if type(rawAssignedSlot) == "number" then rawAssignedSlot else tonumber(rawAssignedSlot)
     local slotIndex: number?
     
     if assignedSlot and assignedSlot >= 1 and assignedSlot <= CONFIG.MaxSlots then
@@ -222,6 +236,13 @@ local function addTool(tool: Tool)
             end
         end)
     end
+    
+    -- Listen for StackCount changes to update display
+    tool:GetAttributeChangedSignal("StackCount"):Connect(function()
+        if toolSlots[tool] then
+            updateSlotDisplay(toolSlots[tool])
+        end
+    end)
 end
 
 --[[

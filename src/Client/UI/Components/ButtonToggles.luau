@@ -8,10 +8,7 @@
 
 local ButtonToggles = {}
 
--- Store for toggle states
-local toggleStates: {[string]: boolean} = {}
-
--- Store for registered toggles
+-- Store for registered toggles (no longer stores state, just the references)
 local registeredToggles: {[string]: {
     button: GuiButton,
     targetFrame: GuiObject,
@@ -35,8 +32,6 @@ function ButtonToggles.Register(
     onToggle: ((boolean) -> ())?
 )
     local visible = startVisible or false
-    
-    toggleStates[name] = visible
     targetFrame.Visible = visible
     
     registeredToggles[name] = {
@@ -54,9 +49,10 @@ end
 
 --[[
     Toggles a registered UI element.
+    Uses the inverse of the current Visible property.
     
     @param name - The toggle identifier
-    @param state - Optional explicit state (true/false), nil to toggle
+    @param state - Optional explicit state (true/false), nil to toggle current
 ]]
 function ButtonToggles.Toggle(name: string, state: boolean?)
     local toggle = registeredToggles[name]
@@ -65,8 +61,8 @@ function ButtonToggles.Toggle(name: string, state: boolean?)
         return
     end
     
-    local newState = if state ~= nil then state else not toggleStates[name]
-    toggleStates[name] = newState
+    -- Use inverse of current visible state, or explicit state if provided
+    local newState = if state ~= nil then state else not toggle.targetFrame.Visible
     toggle.targetFrame.Visible = newState
     
     if toggle.onToggle then
@@ -83,7 +79,8 @@ end
     @return boolean - Current visibility state
 ]]
 function ButtonToggles.IsOpen(name: string): boolean
-    return toggleStates[name] or false
+    local toggle = registeredToggles[name]
+    return toggle and toggle.targetFrame.Visible or false
 end
 
 --[[

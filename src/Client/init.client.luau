@@ -13,6 +13,7 @@ local InputController = require(script.Movement.InputController)
 local UI = require(script.UI)
 local CmdrClientSetup = require(script.CmdrClientSetup)
 local SystemLoader = require(script.SystemLoader)
+local GrenadeController = require(script.Weapons.GrenadeController)
 
 -- Note: Core GUI is disabled in ReplicatedFirst/LoadingScreen
 
@@ -98,6 +99,15 @@ systemLoader:RegisterSystem({
     Priority = 4,
     Init = function(context)
         setupSafezoneCollision(context.Character)
+    end,
+})
+
+-- System: Grenades
+systemLoader:RegisterSystem({
+    Name = "Grenades",
+    Priority = 5,
+    Init = function(context)
+        GrenadeController.Init(context)
     end,
 })
 

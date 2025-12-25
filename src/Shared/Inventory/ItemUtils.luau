@@ -53,16 +53,39 @@ function ItemUtils.CreateItem(
 end
 
 --[[
-    Checks if two items are stackable (same template, type, and rarity).
+    Checks if two items are stackable (same template, type, rarity, AND template is marked stackable).
     
     @param item1 - First item
     @param item2 - Second item
     @return boolean - True if items can be stacked together
 ]]
 function ItemUtils.AreItemsStackable(item1: InventoryItem, item2: InventoryItem): boolean
-    return item1.TemplateId == item2.TemplateId
+    return ItemUtils.IsStackable(item1.TemplateId)
+        and item1.TemplateId == item2.TemplateId
         and item1.Type == item2.Type
         and item1.Rarity == item2.Rarity
+end
+
+--[[
+    Checks if an item template is marked as stackable.
+    Looks up Config/Items/{templateId} for the Stackable attribute.
+    
+    @param templateId - The template to check
+    @return boolean - True if stackable
+]]
+function ItemUtils.IsStackable(templateId: string): boolean
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local config = ReplicatedStorage:FindFirstChild("Config")
+    if not config then return false end
+    
+    local items = config:FindFirstChild("Items")
+    if not items then return false end
+    
+    local itemConfig = items:FindFirstChild(templateId)
+    if not itemConfig then return false end
+    
+    local stackable = itemConfig:GetAttribute("Stackable")
+    return stackable == true
 end
 
 --[[

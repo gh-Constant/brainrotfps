@@ -46,6 +46,7 @@ local slotsContainer: ScrollingFrame? = nil
 local itemSlots: {ItemSlot.ItemSlot} = {}
 local inventoryData: {InventoryItem} = {}
 local toolbarSlots: {[number]: string} = {}
+local dupedItems: {[string]: boolean} = {} -- itemId -> maybeDuped
 local toolbarSlotFrames: {Frame} = {}
 local screenGui: ScreenGui? = nil
 local janitor: Janitor = Janitor.new()
@@ -55,6 +56,7 @@ local slotTemplate: Frame? = nil -- Added slot template
 local infoTitle: TextLabel? = nil
 local infoIcon: ImageLabel? = nil
 local infoDesc: TextLabel? = nil
+local infoItemId: TextLabel? = nil -- Item ID display
 local consumeButton: GuiButton? = nil -- Consume button
 local _infoStats: Frame? = nil
 local _selectedItem: ItemSlotData? = nil
@@ -95,14 +97,22 @@ local function getDisplayName(templateId: string): string
 end
 
 --[[
-    Consumes an item (placeholder logic).
+    Consumes an item (removes one from stack).
 ]]
 local function consumeItem(itemData: ItemSlotData)
     local itemId = itemData.ItemIds[1]
-    print(string.format("[Inventory] Consuming item: %s (ID: %s)", itemData.TemplateId, itemId or "nil"))
+    if not itemId then
+        warn("[Inventory] Cannot consume item: no item ID")
+        return
+    end
     
-    -- TODO: Send consume packet to server
-    -- Packets.inventoryAction.send({ action = "Consume", itemId = itemId })
+    print(string.format("[Inventory] Consuming item: %s (ID: %s)", itemData.TemplateId, itemId))
+    
+    -- Send consume packet to server (removes one item from inventory)
+    Packets.inventoryAction.send({ 
+        action = "Consume", 
+        itemId = itemId,
+    })
 end
 
 --[[
@@ -135,8 +145,12 @@ local function updateInfoPanel(itemData: ItemSlotData?)
     end
     
     infoDesc.Text = desc
-    infoDesc.Text = desc
     _selectedItem = itemData
+    
+    -- Update Item ID display
+    if infoItemId then
+        infoItemId.Text = itemData.ItemIds[1] or ""
+    end
     
     -- Update Consume button visibility
     if consumeButton then
@@ -145,8 +159,8 @@ local function updateInfoPanel(itemData: ItemSlotData?)
 end
 
 --[[
-    Converts inventory items to individual slot display data.
-    Shows all items individually (no stacking) with equipped indicator.
+    Converts inventory items to slot display data.
+    Stackable items are grouped together, non-stackable items shown individually.
 ]]
 local function getItemsForDisplay(): {ItemSlotData}
     -- Create a set of item IDs that are in toolbar slots
@@ -159,22 +173,70 @@ local function getItemsForDisplay(): {ItemSlotData}
     
     local slotDataList: {ItemSlotData} = {}
     
-    -- Add each item individually (no stacking)
+    -- Separate stackable and non-stackable items
+    local stackableItems: {InventoryItem} = {}
+    local nonStackableItems: {InventoryItem} = {}
+    
     for _, item in inventoryData do
+        if Inventory.IsStackable(item.TemplateId) then
+            table.insert(stackableItems, item)
+        else
+            table.insert(nonStackableItems, item)
+        end
+    end
+    
+    -- Group stackable items into stacks
+    local stacks = Inventory.GroupIntoStacks(stackableItems)
+    for _, stack in ipairs(stacks) do
+        -- Check if any item in this stack is equipped
+        local equippedSlot: number? = nil
+        for _, stackItem in ipairs(stack.Items) do
+            if equippedItemIds[stackItem.Id] then
+                equippedSlot = equippedItemIds[stackItem.Id]
+                break
+            end
+        end
+        
+        -- Collect all item IDs in the stack
+        local itemIds: {string} = {}
+        local anyDuped = false
+        for _, stackItem in ipairs(stack.Items) do
+            table.insert(itemIds, stackItem.Id)
+            if dupedItems[stackItem.Id] then
+                anyDuped = true
+            end
+        end
+        
+        table.insert(slotDataList, {
+            TemplateId = stack.TemplateId,
+            Type = stack.Type :: string,
+            Rarity = if stack.Rarity then stack.Rarity :: string else nil,
+            Count = stack.Count,
+            ItemIds = itemIds,
+            IsEquipped = equippedSlot ~= nil,
+            EquippedSlot = equippedSlot,
+            MaybeDuped = anyDuped,
+        })
+    end
+    
+    -- Add non-stackable items individually
+    for _, item in nonStackableItems do
         local equippedSlot = equippedItemIds[item.Id]
         table.insert(slotDataList, {
             TemplateId = item.TemplateId,
             Type = item.Type :: string,
             Rarity = if item.Rarity then item.Rarity :: string else nil,
-            Count = 1, -- Always 1 since no stacking
+            Count = 1,
             ItemIds = {item.Id},
             IsEquipped = equippedSlot ~= nil,
             EquippedSlot = equippedSlot,
+            MaybeDuped = dupedItems[item.Id] or false,
         })
     end
     
     return slotDataList
 end
+
 
 --[[
     Updates the display with current inventory data.
@@ -267,6 +329,7 @@ end
 local function onInventorySync(data: any)
     inventoryData = {}
     toolbarSlots = {}
+    dupedItems = {} -- Reset duped tracking
     
     for _, itemData in data.items do
         local item: InventoryItem = {
@@ -277,6 +340,11 @@ local function onInventorySync(data: any)
             Metadata = nil,
         }
         table.insert(inventoryData, item)
+        
+        -- Track duped status
+        if itemData.maybeDuped then
+            dupedItems[itemData.id] = true
+        end
     end
     
     for slot, itemId in pairs(data.toolbarSlots) do
@@ -304,6 +372,12 @@ local function onInventoryUpdate(data: any)
             Metadata = nil,
         }
         table.insert(inventoryData, item)
+        
+        -- Track duped status
+        if itemData.maybeDuped then
+            dupedItems[itemData.id] = true
+        end
+        
         print("[InventoryUI] Added item:", item.TemplateId, "total items:", #inventoryData)
     elseif action == "Remove" then
         for i, item in inventoryData do
@@ -447,6 +521,19 @@ updateIntegratedToolbar = function()
             nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
             nameLabel.ZIndex = 51
             nameLabel.Parent = slotFrame
+            
+            -- Show stack count using existing QuantityLabel from template
+            local quantityLabel = slotFrame:FindFirstChild("QuantityLabel") :: TextLabel?
+            if quantityLabel then
+                local stackCount = tool:GetAttribute("StackCount")
+                if stackCount and stackCount > 1 then
+                    quantityLabel.Text = "x" .. tostring(stackCount)
+                    quantityLabel.Visible = true
+                else
+                    quantityLabel.Text = ""
+                    quantityLabel.Visible = false
+                end
+            end
             
             -- Mark if it's from inventory (green badge = can be moved)
             if data.InventoryItemId then
@@ -644,6 +731,7 @@ function InventoryUI.Init(context: any)
     local infoPanel = contentArea:WaitForChild("InfoPanel")
     infoTitle = infoPanel:WaitForChild("ItemName") :: TextLabel
     infoDesc = infoPanel:WaitForChild("Description") :: TextLabel
+    infoItemId = infoPanel:FindFirstChild("ItemID") :: TextLabel? -- Optional ItemID display
     
     local iconContainer = infoPanel:WaitForChild("IconContainer")
     infoIcon = iconContainer:WaitForChild("Icon") :: ImageLabel

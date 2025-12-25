@@ -23,8 +23,10 @@ return {
     -- Convenience re-exports
     CreateItem = ItemUtils.CreateItem,
     AreItemsStackable = ItemUtils.AreItemsStackable,
+    IsStackable = ItemUtils.IsStackable,
     GroupIntoStacks = ItemUtils.GroupIntoStacks,
     CountItems = ItemUtils.CountItems,
     FindById = ItemUtils.FindById,
     GenerateId = ItemUtils.GenerateId,
 }
+

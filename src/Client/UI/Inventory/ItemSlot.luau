@@ -29,6 +29,7 @@ export type ItemSlotData = {
     ItemIds: {string}, -- All item IDs in this stack
     IsEquipped: boolean?, -- Whether this item is in a toolbar slot
     EquippedSlot: number?, -- Which toolbar slot (1-9) if equipped
+    MaybeDuped: boolean?, -- Whether this item might be duplicated
 }
 
 export type ItemSlot = {
@@ -277,6 +278,7 @@ local function createSlotFrame(): Frame
     quantityLabel.TextXAlignment = Enum.TextXAlignment.Right
     quantityLabel.Text = ""
     quantityLabel.Visible = false
+    quantityLabel.ZIndex = 100 -- High ZIndex to render above other elements
     quantityLabel.Parent = frame
     
     -- Add drop shadow to quantity for readability
@@ -388,6 +390,7 @@ local function ensureSlotComponents(frame: Frame)
         quantityLabel.Font = Enum.Font.GothamBold
         quantityLabel.TextXAlignment = Enum.TextXAlignment.Right
         quantityLabel.Visible = false
+        quantityLabel.ZIndex = 100 -- High ZIndex to render above other elements
         quantityLabel.Parent = frame
         
         -- Add stroke
@@ -641,6 +644,47 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
         slotLabel.Parent = badge
         
         self._janitor:Add(badge)
+    end
+    
+    -- Show "MAYBE DUPED" badge if item is potentially duplicated
+    local existingDupeBadge = self.Frame:FindFirstChild("DupedBadge")
+    if existingDupeBadge then
+        existingDupeBadge:Destroy()
+    end
+    
+    if data.MaybeDuped then
+        local dupeBadge = Instance.new("Frame")
+        dupeBadge.Name = "DupedBadge"
+        dupeBadge.Size = UDim2.new(0.9, 0, 0, 18)
+        dupeBadge.Position = UDim2.new(0.5, 0, 1, -22)
+        dupeBadge.AnchorPoint = Vector2.new(0.5, 0)
+        dupeBadge.BackgroundColor3 = Color3.fromRGB(200, 60, 60) -- Red warning
+        dupeBadge.BorderSizePixel = 0
+        dupeBadge.ZIndex = 12
+        dupeBadge.Parent = self.Frame
+        
+        local dupeBadgeCorner = Instance.new("UICorner")
+        dupeBadgeCorner.CornerRadius = UDim.new(0, 4)
+        dupeBadgeCorner.Parent = dupeBadge
+        
+        local dupeLabel = Instance.new("TextLabel")
+        dupeLabel.Name = "DupeLabel"
+        dupeLabel.Size = UDim2.fromScale(1, 1)
+        dupeLabel.BackgroundTransparency = 1
+        dupeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        dupeLabel.TextScaled = true
+        dupeLabel.Font = Enum.Font.GothamBold
+        dupeLabel.Text = "MAYBE DUPED"
+        dupeLabel.ZIndex = 13
+        dupeLabel.Parent = dupeBadge
+        
+        -- Add padding
+        local dupePadding = Instance.new("UIPadding")
+        dupePadding.PaddingLeft = UDim.new(0, 4)
+        dupePadding.PaddingRight = UDim.new(0, 4)
+        dupePadding.Parent = dupeLabel
+        
+        self._janitor:Add(dupeBadge)
     end
 end
 

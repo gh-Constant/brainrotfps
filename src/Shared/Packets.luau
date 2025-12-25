@@ -91,6 +91,7 @@ return ByteNet.defineNamespace("game", function()
 					templateId = ByteNet.string,
 					itemType = ByteNet.string,
 					rarity = ByteNet.string, -- Empty string if no rarity
+					maybeDuped = ByteNet.optional(ByteNet.bool),
 				})),
 				toolbarSlots = ByteNet.map(ByteNet.uint8, ByteNet.string), -- Slot -> ItemId
 			}),
@@ -107,6 +108,7 @@ return ByteNet.defineNamespace("game", function()
 					templateId = ByteNet.string,
 					itemType = ByteNet.string,
 					rarity = ByteNet.string,
+					maybeDuped = ByteNet.optional(ByteNet.bool),
 				}),
 			}),
 			reliabilityType = "reliable",
@@ -120,6 +122,20 @@ return ByteNet.defineNamespace("game", function()
 				itemId = ByteNet.optional(ByteNet.string),
 				slot = ByteNet.optional(ByteNet.uint8),
 				slot2 = ByteNet.optional(ByteNet.uint8), -- For swap operations
+			}),
+			reliabilityType = "reliable",
+		}),
+
+		-- Throw grenade packet (Client -> Server)
+		throwGrenade = ByteNet.definePacket({
+			value = ByteNet.struct({
+				originX = ByteNet.float32,
+				originY = ByteNet.float32,
+				originZ = ByteNet.float32,
+				dirX = ByteNet.float32,
+				dirY = ByteNet.float32,
+				dirZ = ByteNet.float32,
+				strength = ByteNet.float32,
 			}),
 			reliabilityType = "reliable",
 		}),

@@ -19,6 +19,12 @@ local DamageIndicatorTemplate = Config:WaitForChild("Player"):WaitForChild("UI")
 
 local DamageIndicator = {}
 
+-- Configuration
+local MAX_INDICATORS = 50 -- Maximum number of damage indicators on screen at once
+
+-- Track active indicators
+local activeIndicators: {Instance} = {}
+
 -- Tween helper (Linear easing)
 local function tween(object: GuiObject, properties: {[string]: any}, duration: number)
 	local tweenObj = TweenService:Create(
@@ -36,9 +42,19 @@ local function spawnIndicator(position: Vector3, damage: number, didDamage: bool
 		return
 	end
 	
+	-- Check if we're at the limit - remove oldest indicator if so
+	if #activeIndicators >= MAX_INDICATORS then
+		local oldest = table.remove(activeIndicators, 1)
+		if oldest and oldest.Parent then
+			oldest:Destroy()
+		end
+	end
 	
 	local indicator = DamageIndicatorTemplate:Clone()
 	indicator.Parent = workspace
+	
+	-- Track this indicator
+	table.insert(activeIndicators, indicator)
 	
 	-- Position the BillboardGui's adornee
 	local billboardGui = indicator:FindFirstChild("BillboardGui")
@@ -82,6 +98,11 @@ local function spawnIndicator(position: Vector3, damage: number, didDamage: bool
 		
 	-- Cleanup after animation
 	task.delay(1, function()
+		-- Remove from tracking
+		local index = table.find(activeIndicators, indicator)
+		if index then
+			table.remove(activeIndicators, index)
+		end
 		indicator:Destroy()
 	end)
 end
