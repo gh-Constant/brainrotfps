@@ -75,7 +75,7 @@ local function onShootEvent(
 	local damage = getPlayerLevel(player) * 3
 	
 	-- Apply Damage Multiplier
-	local PlayerManager = require(script.Parent.Parent.Parent.Player)
+	local PlayerManager = require(script.Parent.Parent.Player)
 	local playerData = PlayerManager.GetPlayerData(player)
 	if playerData then
 		damage = damage * playerData.DamageMultiplier

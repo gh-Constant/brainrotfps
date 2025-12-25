@@ -27,6 +27,7 @@ local XPBar = require(Components.XPBar)
 local StatsDisplay = require(Components.StatsDisplay)
 local PvPToggle = require(Components.PvPToggle)
 local CombatIndicator = require(Components.CombatIndicator)
+local ButtonToggles = require(Components.ButtonToggles)
 
 local UI = {
     -- Shared utilities
@@ -45,6 +46,7 @@ local UI = {
     StatsDisplay = StatsDisplay,
     PvPToggle = PvPToggle,
     CombatIndicator = CombatIndicator,
+    ButtonToggles = ButtonToggles,
 }
 
 --[[
@@ -92,6 +94,7 @@ function UI.Init(context: any)
     LootFX.Init()
     DamageIndicator.Init()
     InventoryUI.Init(uiContext)
+    ButtonToggles.Init(uiContext)
     
     print("[UI] All systems initialized!")
 end
