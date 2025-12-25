@@ -76,7 +76,7 @@ return ByteNet.defineNamespace("game", function()
 				posX = ByteNet.float32,
 				posY = ByteNet.float32,
 				posZ = ByteNet.float32,
-				damage = ByteNet.uint16,
+				damage = ByteNet.float64, -- float64 to support large damage values (3M+)
 				didDamage = ByteNet.bool,
 			}),
 			reliabilityType = "unreliable", -- Fast, non-critical

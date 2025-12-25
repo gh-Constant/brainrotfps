@@ -12,6 +12,7 @@ local TweenService = game:GetService("TweenService")
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
 local Shared = Rojo:WaitForChild("Shared")
 local Packets = require(Shared:WaitForChild("Packets"))
+local MoneyLib = require(Shared:WaitForChild("MoneyLib"))
 
 -- Get damage indicator template
 local Config = ReplicatedStorage:WaitForChild("Config")
@@ -78,7 +79,7 @@ local function spawnIndicator(position: Vector3, damage: number, didDamage: bool
 		if frame then
 			local damagesLabel = frame:FindFirstChild("Damages")
 			if damagesLabel then
-				damagesLabel.Text = tostring(damage)
+				damagesLabel.Text = MoneyLib.HandleMoney(damage)
 				damagesLabel.Visible = true
 			end
 			

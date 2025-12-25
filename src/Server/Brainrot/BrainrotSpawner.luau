@@ -21,6 +21,7 @@ local brainrotConfig = config:WaitForChild("Brainrots")
 local zonesConfig = brainrotConfig:WaitForChild("Zones")
 local MobAI = require(Server:WaitForChild("Brainrot"):WaitForChild("MobAI"))
 local MobDisplay = require(Server:WaitForChild("Brainrot"):WaitForChild("MobDisplay"))
+local Mutations = require(Shared:WaitForChild("Mutations"))
 
 local BrainrotSpawner = {}
 
@@ -528,6 +529,174 @@ function BrainrotSpawner.ClearAll()
 		group.spawnedBrainrots = {}
 	end
 	log("[BrainrotSpawner] Cleared all zones")
+end
+
+--[[
+	Spawns a specific brainrot by name in a zone with optional mutation.
+	Used by admin command to force-spawn mobs.
+	@param zoneName The zone name to spawn in
+	@param mobName The mob template name to spawn
+	@param mutationName Optional mutation to apply
+	@return boolean success
+]]
+function BrainrotSpawner.SpawnBrainrotWithMutation(zoneName: string, mobName: string, mutationName: string?): boolean
+	local group = zoneGroups[zoneName]
+	if not group then
+		warn("[BrainrotSpawner] Zone not found: " .. zoneName)
+		return false
+	end
+	
+	-- Find the mob template
+	local zoneFolder = zonesConfig:FindFirstChild(zoneName)
+	if not zoneFolder then
+		warn("[BrainrotSpawner] Zone folder not found: " .. zoneName)
+		return false
+	end
+	
+	local template: Model? = nil
+	for _, child in zoneFolder:GetChildren() do
+		if child:IsA("Model") and child.Name == mobName then
+			template = child
+			break
+		end
+	end
+	
+	if not template then
+		warn("[BrainrotSpawner] Mob not found in zone: " .. mobName)
+		return false
+	end
+	
+	-- Clone the mob
+	local brainrot = template:Clone()
+	
+	-- Apply mutation if specified
+	if mutationName then
+		local mutationData = Mutations.GetMutation(mutationName)
+		if mutationData then
+			brainrot:SetAttribute("Mutation", mutationName)
+			
+			-- Apply HP multiplier
+			local baseMaxHealth = brainrot:GetAttribute("MaxHealth") or 100
+			local newMaxHealth = baseMaxHealth * mutationData.MultiplierModifier
+			brainrot:SetAttribute("MaxHealth", newMaxHealth)
+			brainrot:SetAttribute("Health", newMaxHealth)
+			
+			log(string.format("[BrainrotSpawner] Applied mutation %s to %s (HP: %d -> %d)", 
+				mutationName, mobName, baseMaxHealth, newMaxHealth))
+		else
+			warn("[BrainrotSpawner] Unknown mutation: " .. mutationName)
+		end
+	end
+	
+	-- Pick a random part from the group for spawn position
+	if #group.parts == 0 then
+		brainrot:Destroy()
+		return false
+	end
+	local randomPart = group.parts[math.random(1, #group.parts)]
+	
+	-- Get spawn position
+	local spawnPos = getRandomSpawnPosition(randomPart)
+	if not spawnPos then
+		brainrot:Destroy()
+		return false
+	end
+	
+	-- Position the brainrot
+	local primaryPart = brainrot.PrimaryPart or brainrot:FindFirstChildWhichIsA("BasePart")
+	if primaryPart then
+		brainrot:PivotTo(CFrame.new(spawnPos))
+	end
+	
+	-- Track the spawned brainrot
+	table.insert(group.spawnedBrainrots, brainrot)
+	
+	-- Parent to Workspace.Zones.{ZoneName} folder
+	local zonesFolder = workspace:FindFirstChild("Zones")
+	if zonesFolder then
+		local zoneWorkspaceFolder = zonesFolder:FindFirstChild(group.zoneName)
+		if zoneWorkspaceFolder then
+			brainrot.Parent = zoneWorkspaceFolder
+		else
+			brainrot.Parent = workspace
+		end
+	else
+		brainrot.Parent = workspace
+	end
+	
+	-- Setup Health and Death logic (same as spawnBrainrot)
+	local maxHealthAttr = brainrot:GetAttribute("MaxHealth")
+	local maxHealth: number = if typeof(maxHealthAttr) == "number" then maxHealthAttr else 100
+	local health = Health.new(brainrot, maxHealth)
+	
+	-- Setup AI
+	local mobAI = MobAI.new(brainrot)
+	if mobAI then
+		mobAI:Start()
+	end
+	
+	-- Setup Mob Display (UI)
+	local mobDisplay = MobDisplay.new(brainrot)
+	
+	-- Death and cleanup handlers (same as spawnBrainrot)
+	health.Died:Connect(function(instigator)
+		local healthConfig = config:FindFirstChild("Health")
+		local loggingEnabled = healthConfig and healthConfig:GetAttribute("Logging") == true
+		
+		if instigator then
+			local playerData = PlayerManager.GetPlayerData(instigator)
+			if playerData then
+				local xpRewardAttr = brainrot:GetAttribute("BaseXPReward")
+				local xpReward: number = if typeof(xpRewardAttr) == "number" then xpRewardAttr else 10
+				playerData:AddExperience(xpReward)
+				
+				local goldRewardAttr = brainrot:GetAttribute("BaseGoldReward")
+				local goldReward: number = if typeof(goldRewardAttr) == "number" then goldRewardAttr else 5
+				playerData:AddGold(goldReward)
+				
+				if primaryPart then
+					local fxPos = primaryPart.Position
+					local xpImage = config.Effects.FX.XP.Image
+					local goldImage = config.Effects.FX.Coin.Image
+					
+					Packets.lootDropFX.sendTo({
+						posX = fxPos.X - 0.5, posY = fxPos.Y + 1, posZ = fxPos.Z,
+						config = { image = xpImage, color = { 66, 135, 245 }, trailEnabled = true, trailColor = { 100, 160, 255 }, count = math.floor(xpReward / 10) },
+					}, instigator)
+					
+					Packets.lootDropFX.sendTo({
+						posX = fxPos.X + 0.5, posY = fxPos.Y + 1, posZ = fxPos.Z,
+						config = { image = goldImage, color = { 255, 215, 0 }, trailEnabled = true, trailColor = { 255, 200, 50 }, count = math.floor(goldReward / 100) },
+					}, instigator)
+				end
+			end
+		end
+		
+		if mobAI then mobAI:Stop() end
+		
+		for _, descendant in brainrot:GetDescendants() do
+			if descendant:IsA("BasePart") then
+				descendant.Transparency = 1
+				descendant.CanCollide = false
+			elseif descendant:IsA("Decal") or descendant:IsA("Texture") then
+				descendant.Transparency = 1
+			end
+		end
+		
+		if brainrot and brainrot.Parent then
+			brainrot:Destroy()
+		end
+	end)
+	
+	brainrot.Destroying:Connect(function()
+		if mobAI then mobAI:Destroy() end
+		if mobDisplay then mobDisplay:Destroy() end
+		local index = table.find(group.spawnedBrainrots, brainrot)
+		if index then table.remove(group.spawnedBrainrots, index) end
+	end)
+	
+	log(string.format("[BrainrotSpawner] Admin spawned %s in %s", brainrot.Name, zoneName))
+	return true
 end
 
 return BrainrotSpawner

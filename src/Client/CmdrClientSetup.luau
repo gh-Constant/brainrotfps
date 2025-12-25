@@ -61,8 +61,8 @@ function CmdrClientSetup.Init()
 		warn("[Cmdr] Commands folder not found in CmdrClient!")
 	end
 	
-	-- Set custom activation keys (default is F2)
-	CmdrClient:SetActivationKeys({ Enum.KeyCode.F2, Enum.KeyCode.Semicolon })
+	-- Set custom activation keys (F2 only)
+	CmdrClient:SetActivationKeys({ Enum.KeyCode.F2 })
 	
 	-- Verify registration
 	local clientCommands = CmdrClient.Registry:GetCommandNames()
@@ -81,7 +81,7 @@ function CmdrClientSetup.Init()
 		warn("[Cmdr] ✗ Custom commands not found in registry!")
 	end
 	
-	print("[Cmdr] Client console ready! Press F2 or ; to open.")
+	print("[Cmdr] Client console ready! Press F2 to open.")
 end
 
 --[[
