@@ -50,6 +50,13 @@ local toolbarSlotFrames: {Frame} = {}
 local screenGui: ScreenGui? = nil
 local janitor: Janitor = Janitor.new()
 
+-- Info Panel State
+local infoTitle: TextLabel? = nil
+local infoIcon: ImageLabel? = nil
+local infoDesc: TextLabel? = nil
+local _infoStats: Frame? = nil
+local _selectedItem: ItemSlotData? = nil
+
 -- Events
 InventoryUI.OnItemClicked = Signal.new()
 InventoryUI.OnToggled = Signal.new()
@@ -88,23 +95,148 @@ local UI_CONFIG = {
 --------------------------------------------------------------------------------
 
 --[[
+    Updates the Info Panel with item details.
+]]
+local updateIntegratedToolbar -- Forward declaration
+
+local function updateInfoPanel(itemData: ItemSlotData?)
+    if not infoTitle or not infoIcon or not infoDesc then return end
+    
+    if not itemData then
+        -- Default/Empty State
+        infoTitle.Text = "Select an Item"
+        infoIcon.Image = "rbxassetid://6031763426" -- Default icon
+        infoDesc.Text = "Click on an item to see more details."
+        infoIcon.ImageTransparency = 0.5
+        return
+    end
+    
+    -- Populate Data
+    infoTitle.Text = itemData.TemplateId
+    infoIcon.Image = "rbxassetid://6031763426" -- Placeholder, needs real icon derived from name/config
+    infoIcon.ImageTransparency = 0
+    
+    -- Generate description based on type/rarity
+    local desc = string.format("Type: %s\nRarity: %s\nID: %s\n", 
+        itemData.Type, 
+        itemData.Rarity or "Common",
+        itemData.ItemIds[1] or "Unknown")
+    if itemData.Count > 1 then
+        desc = desc .. string.format("Count: %d\n", itemData.Count)
+    end
+    
+    infoDesc.Text = desc
+    
+    -- Highlight selected slot (visual feedback handled in refreshDisplay or loop, 
+    -- but for now we rely on the panel updating)
+    _selectedItem = itemData
+end
+
+--[[
+    Creates the content for the Info Panel.
+]]
+local function createInfoPanelContent(parent: Frame)
+    local padding = Instance.new("UIPadding")
+    padding.PaddingTop = UDim.new(0, 16)
+    padding.PaddingBottom = UDim.new(0, 16)
+    padding.PaddingLeft = UDim.new(0, 16)
+    padding.PaddingRight = UDim.new(0, 16)
+    padding.Parent = parent
+    
+    local layout = Instance.new("UIListLayout")
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 12)
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    layout.Parent = parent
+    
+    -- Icon Container (Circle)
+    local iconContainer = Instance.new("Frame")
+    iconContainer.Name = "IconContainer"
+    iconContainer.Size = UDim2.fromOffset(100, 100)
+    iconContainer.BackgroundColor3 = UI_CONFIG.SlotColor
+    iconContainer.BorderSizePixel = 0
+    iconContainer.LayoutOrder = 1
+    iconContainer.Parent = parent
+    
+    local iconCorner = Instance.new("UICorner")
+    iconCorner.CornerRadius = UDim.new(1, 0) -- Circle
+    iconCorner.Parent = iconContainer
+    
+    local iconStroke = Instance.new("UIStroke")
+    iconStroke.Color = UI_CONFIG.AccentPrimary
+    iconStroke.Thickness = 2
+    iconStroke.Parent = iconContainer
+    
+    local icon = Instance.new("ImageLabel")
+    icon.Name = "Icon"
+    icon.Size = UDim2.fromScale(0.6, 0.6)
+    icon.Position = UDim2.fromScale(0.5, 0.5)
+    icon.AnchorPoint = Vector2.new(0.5, 0.5)
+    icon.BackgroundTransparency = 1
+    icon.Image = "rbxassetid://6031763426"
+    icon.Parent = iconContainer
+    infoIcon = icon
+    
+    -- Title
+    local title = Instance.new("TextLabel")
+    title.Name = "ItemName"
+    title.Size = UDim2.new(1, 0, 0, 30)
+    title.BackgroundTransparency = 1
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.TextSize = 20
+    title.Font = Enum.Font.FredokaOne
+    title.Text = "Select Key"
+    title.LayoutOrder = 2
+    title.Parent = parent
+    infoTitle = title
+    
+    -- Divider
+    local divider = Instance.new("Frame")
+    divider.Name = "Divider"
+    divider.Size = UDim2.new(1, 0, 0, 2)
+    divider.BackgroundColor3 = UI_CONFIG.BorderColor
+    divider.BorderSizePixel = 0
+    divider.LayoutOrder = 3
+    divider.Parent = parent
+    
+    -- Description / Stats
+    local desc = Instance.new("TextLabel")
+    desc.Name = "Description"
+    desc.Size = UDim2.new(1, 0, 0, 100) -- Automatic size later if needed
+    desc.BackgroundTransparency = 1
+    desc.TextColor3 = Color3.fromRGB(200, 200, 200)
+    desc.TextSize = 14
+    desc.Font = Enum.Font.Gotham
+    desc.TextWrapped = true
+    desc.TextXAlignment = Enum.TextXAlignment.Left
+    desc.TextYAlignment = Enum.TextYAlignment.Top
+    desc.Text = "Item description..."
+    desc.LayoutOrder = 4
+    desc.Parent = parent
+    infoDesc = desc
+    
+    -- Initialize with empty state
+    updateInfoPanel(nil)
+end
+
+--[[
     Creates the inventory panel UI with clean modern styling.
 ]]
 local function createInventoryUI(playerGui: PlayerGui): Frame
     -- Main container - responsive scaling
     local container = Instance.new("Frame")
     container.Name = "InventoryPanel"
-    container.Size = UDim2.fromScale(0.32, 0.55) -- Smaller, more compact
+    container.Size = UDim2.fromScale(0.5, 0.55) -- Wider for Info Panel
     container.Position = UDim2.fromScale(0.5, 0.5)
     container.AnchorPoint = Vector2.new(0.5, 0.5)
     container.BackgroundColor3 = UI_CONFIG.BackgroundTop
     container.BorderSizePixel = 0
     container.Visible = false
     
-    -- Size constraint - smaller max size
+    -- Size constraint - wider max size
     local sizeConstraint = Instance.new("UISizeConstraint")
-    sizeConstraint.MinSize = Vector2.new(340, 380)
-    sizeConstraint.MaxSize = Vector2.new(480, 550)
+    sizeConstraint.MinSize = Vector2.new(580, 400) -- Increased width
+    sizeConstraint.MaxSize = Vector2.new(700, 550)
     sizeConstraint.Parent = container
     
     -- Cartoon rounded corners
@@ -322,21 +454,28 @@ local function createInventoryUI(playerGui: PlayerGui): Frame
     -- Register toolbar slots for drag & drop
     DragDrop.RegisterToolbarSlots(toolbarSlotFrames)
     
-    -- Scrolling frame for inventory slots
+    -- Content Container (Splits Grid and Info Panel)
+    local contentContainer = Instance.new("Frame")
+    contentContainer.Name = "ContentContainer"
+    contentContainer.Size = UDim2.new(1, -UI_CONFIG.Padding * 2, 1, -UI_CONFIG.HeaderHeight - UI_CONFIG.ToolbarHeight - 20)
+    contentContainer.Position = UDim2.new(0, UI_CONFIG.Padding, 0, UI_CONFIG.HeaderHeight + 8)
+    contentContainer.BackgroundTransparency = 1
+    contentContainer.Parent = container
+    
+    -- Left Side: Slots Container
     local scrollFrame = Instance.new("ScrollingFrame")
     scrollFrame.Name = "SlotsContainer"
-    scrollFrame.Size = UDim2.new(1, -UI_CONFIG.Padding * 2, 1, -UI_CONFIG.HeaderHeight - UI_CONFIG.ToolbarHeight - 8)
-    scrollFrame.Position = UDim2.new(0, UI_CONFIG.Padding, 0, UI_CONFIG.HeaderHeight + 4)
+    scrollFrame.Size = UDim2.new(0.65, -8, 1, 0) -- 65% width
     scrollFrame.BackgroundTransparency = 1
     scrollFrame.BorderSizePixel = 0
     scrollFrame.ScrollBarThickness = 4
     scrollFrame.ScrollBarImageColor3 = UI_CONFIG.AccentPrimary
     scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-    scrollFrame.Parent = container
+    scrollFrame.Parent = contentContainer
     
     -- Grid layout for inventory slots (fixed square size)
     local gridLayout = Instance.new("UIGridLayout")
-    gridLayout.CellSize = UDim2.fromOffset(100, 100) -- Fixed square size
+    gridLayout.CellSize = UDim2.fromOffset(85, 85) -- Slightly smaller slots
     gridLayout.CellPadding = UDim2.fromOffset(8, 8)
     gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
     gridLayout.FillDirectionMaxCells = UI_CONFIG.Columns
@@ -348,6 +487,27 @@ local function createInventoryUI(playerGui: PlayerGui): Frame
     end)
     
     slotsContainer = scrollFrame
+    
+    -- Right Side: Info Panel
+    local infoPanel = Instance.new("Frame")
+    infoPanel.Name = "InfoPanel"
+    infoPanel.Size = UDim2.new(0.35, 0, 1, 0)
+    infoPanel.Position = UDim2.new(0.65, 8, 0, 0)
+    infoPanel.BackgroundColor3 = Color3.fromRGB(20, 22, 30)
+    infoPanel.BorderSizePixel = 0
+    infoPanel.Parent = contentContainer
+    
+    local infoCorner = Instance.new("UICorner")
+    infoCorner.CornerRadius = UDim.new(0, 12)
+    infoCorner.Parent = infoPanel
+    
+    local infoStroke = Instance.new("UIStroke")
+    infoStroke.Color = UI_CONFIG.BorderColor
+    infoStroke.Thickness = 1
+    infoStroke.Parent = infoPanel
+    
+    -- Info Panel Content (Created via helper function later)
+    createInfoPanelContent(infoPanel)
     
     -- Parent to ScreenGui (high display order to be on top)
     screenGui = playerGui:FindFirstChild("InventoryUI") :: ScreenGui?
@@ -427,6 +587,18 @@ local function refreshDisplay()
                 if data then
                     InventoryUI.OnItemClicked:Fire(data)
                 end
+            end
+        end)
+        
+        -- Delete handler
+        slot.OnDeleteClicked:Connect(function(itemData)
+            local itemId = itemData.ItemIds[1]
+            if itemId then
+                print("[InventoryUI] Deleting item:", itemId)
+                Packets.inventoryAction.send({
+                    action = "DeleteItem",
+                    itemId = itemId,
+                })
             end
         end)
         
@@ -523,13 +695,18 @@ local function onInventoryUpdate(data: any)
     end
     
     refreshDisplay()
+    
+    -- Refresh hotbar to reflect changes (e.g. removed items)
+    task.delay(0.2, function()
+        updateIntegratedToolbar()
+    end)
 end
 
 --[[
     Updates the integrated toolbar display to match the actual toolbar state.
     Shows tools from both inventory system and regular backpack.
 ]]
-local function updateIntegratedToolbar()
+updateIntegratedToolbar = function()
     if #toolbarSlotFrames == 0 then 
         print("[InventoryUI] No toolbar slot frames!")
         return 
@@ -831,6 +1008,14 @@ function InventoryUI.Init(context: any)
             updateIntegratedToolbar()
         end)
     end))
+    
+    -- Handle item selection
+    janitor:Add(InventoryUI.OnItemClicked:Connect(function(itemData: ItemSlotData)
+        print("[InventoryUI] Item clicked:", itemData.TemplateId)
+        updateInfoPanel(itemData)
+    end))
+    
+    -- Connect to inventory button
     
     -- Connect to inventory button
     local base = playerGui:WaitForChild("Base", 5)

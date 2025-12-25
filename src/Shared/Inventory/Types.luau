@@ -36,6 +36,7 @@ export type InventoryItem = {
 export type InventoryData = {
     Items: {InventoryItem},
     ToolbarSlots: {[number]: string?}, -- Slot index -> Item Id
+    MaxSize: number?, -- Max inventory slots (default 50, upgradeable)
 }
 
 --[[

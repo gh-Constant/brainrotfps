@@ -58,6 +58,8 @@ DragDropHandler.OnDragEnd = Signal.new()
 
 -- State
 local currentDragData: DragData? = nil
+local dragStartTime: number = 0
+local isDragActive: boolean = false -- True only after threshold passed
 local dragGhost: Frame? = nil
 local toolbarSlots: {Frame} = {}
 local toolbarContents: {[number]: string?} = {} -- slot index -> itemId (for swap detection)
@@ -160,23 +162,45 @@ end
 --[[
     Handles drag start (unified for inventory and toolbar slots).
 ]]
+--[[
+    Handles drag start (unified for inventory and toolbar slots).
+]]
 local function onDragStart(slotFrame: Frame, itemData: DragData, screenGui: ScreenGui, inputPosition: Vector2)
     currentDragData = itemData
+    dragStartTime = tick()
+    isDragActive = false
     
-    -- Create ghost
-    dragGhost = createDragGhost(slotFrame, screenGui)
-    updateGhostPosition(dragGhost :: Frame, inputPosition)
-    
-    -- Dim original
-    slotFrame.BackgroundTransparency = 0.7
-    
-    DragDropHandler.OnDragStart:Fire(currentDragData)
+    -- Defer ghost creation until threshold passed
 end
 
 --[[
     Handles drag continue (unified for inventory and toolbar slots).
 ]]
-local function onDragContinue(inputPosition: Vector2)
+--[[
+    Handles drag continue (unified for inventory and toolbar slots).
+]]
+local function onDragContinue(inputPosition: Vector2, slotFrame: Frame, screenGui: ScreenGui)
+    if not currentDragData then return end
+    
+    -- Check threshold if not active yet
+    if not isDragActive then
+        if tick() - dragStartTime > 0.15 then
+            -- Activate Drag
+            isDragActive = true
+            
+            -- Create ghost
+            dragGhost = createDragGhost(slotFrame, screenGui)
+            updateGhostPosition(dragGhost :: Frame, inputPosition)
+            
+            -- Dim original
+            slotFrame.BackgroundTransparency = 0.7
+            
+            DragDropHandler.OnDragStart:Fire(currentDragData)
+        else
+            return -- Wait for threshold
+        end
+    end
+
     if dragGhost then
         updateGhostPosition(dragGhost, inputPosition)
     end
@@ -204,8 +228,16 @@ end
 --[[
     Handles drag end for INVENTORY slot drop.
 ]]
+--[[
+    Handles drag end for INVENTORY slot drop.
+]]
 local function onInventoryDragEnd(slotFrame: Frame, inputPosition: Vector2)
     slotFrame.BackgroundTransparency = 0
+    
+    if not isDragActive then
+        cleanupDrag()
+        return -- Was just a click
+    end
     
     local droppedSlot, slotIndex = findHoveredToolbarSlot(inputPosition)
     
@@ -240,8 +272,16 @@ end
 --[[
     Handles drag end for TOOLBAR slot drop.
 ]]
+--[[
+    Handles drag end for TOOLBAR slot drop.
+]]
 local function onToolbarDragEnd(slotFrame: Frame, sourceSlotIndex: number, inputPosition: Vector2)
     slotFrame.BackgroundTransparency = 0
+    
+    if not isDragActive then
+        cleanupDrag()
+        return -- Was just a click
+    end
     
     local droppedSlot, targetSlotIndex = findHoveredToolbarSlot(inputPosition)
     
@@ -334,7 +374,7 @@ function DragDropHandler.MakeDraggable(slotFrame: Frame, itemData: DragData, scr
     end))
     
     slotJanitor:Add(dragDetector.DragContinue:Connect(function(inputPosition: Vector2)
-        onDragContinue(inputPosition)
+        onDragContinue(inputPosition, slotFrame, screenGui)
     end))
     
     slotJanitor:Add(dragDetector.DragEnd:Connect(function(inputPosition: Vector2)
@@ -392,7 +432,7 @@ function DragDropHandler.MakeToolbarSlotDraggable(
     end))
     
     slotJanitor:Add(dragDetector.DragContinue:Connect(function(inputPosition: Vector2)
-        onDragContinue(inputPosition)
+        onDragContinue(inputPosition, slotFrame, screenGui)
     end))
     
     slotJanitor:Add(dragDetector.DragEnd:Connect(function(inputPosition: Vector2)

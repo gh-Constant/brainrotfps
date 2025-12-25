@@ -37,6 +37,7 @@ local STORE_NAME = "InventoryData_v3"
 local DATA_TEMPLATE: InventoryData = {
     Items = {},
     ToolbarSlots = {},
+    MaxSize = 50, -- Default size
 }
 
 -- Create ProfileStore
@@ -49,6 +50,15 @@ local InventoryManager = {}
 local ActiveInventories: {[number]: InventoryData} = {}
 local ActiveProfiles: {[number]: any} = {}
 local PlayerJanitors: {[Player]: typeof(Janitor.new())} = {}
+
+-- Security Configuration
+local SECURITY = {
+    RateLimitWindow = 1.0, -- Time window in seconds
+    MaxActionsPerWindow = 10, -- Max actions per time window
+}
+
+-- Rate limiting state: userId -> {lastActionTime, actionCount}
+local RateLimitState: {[number]: {LastReset: number, ActionCount: number}} = {}
 
 -- Events
 InventoryManager.OnItemAdded = Signal.new()
@@ -96,6 +106,50 @@ local function sendInventoryUpdate(player: Player, action: string, item: Invento
             rarity = item.Rarity or "",
         },
     }, player)
+end
+
+--[[
+    Checks if a player is rate limited.
+    Returns true if action should be allowed, false if rate limited.
+]]
+local function checkRateLimit(player: Player): boolean
+    local userId = player.UserId
+    local now = os.clock()
+    
+    local state = RateLimitState[userId]
+    if not state then
+        RateLimitState[userId] = { LastReset = now, ActionCount = 1 }
+        return true
+    end
+    
+    -- Reset window if enough time has passed
+    if now - state.LastReset >= SECURITY.RateLimitWindow then
+        state.LastReset = now
+        state.ActionCount = 1
+        return true
+    end
+    
+    -- Check if under limit
+    if state.ActionCount < SECURITY.MaxActionsPerWindow then
+        state.ActionCount = state.ActionCount + 1
+        return true
+    end
+    
+    -- Rate limited
+    warn(string.format("[InventoryManager] Rate limited player %s (%d actions in %.1fs)", 
+        player.Name, state.ActionCount, SECURITY.RateLimitWindow))
+    return false
+end
+
+--[[
+    Validates that a templateId exists in Config/Items.
+]]
+local function isValidTemplateId(templateId: string): boolean
+    local config = ReplicatedStorage:FindFirstChild("Config")
+    if not config then return false end
+    local items = config:FindFirstChild("Items")
+    if not items then return false end
+    return items:FindFirstChild(templateId) ~= nil
 end
 
 --------------------------------------------------------------------------------
@@ -228,6 +282,9 @@ function InventoryManager.UnloadInventory(player: Player)
         PlayerJanitors[player] = nil
     end
     
+    -- Cleanup rate limit state
+    RateLimitState[userId] = nil
+    
     ActiveInventories[userId] = nil
     ActiveProfiles[userId] = nil
 end
@@ -265,6 +322,19 @@ function InventoryManager.AddItem(
         return nil
     end
     
+    -- Security: Check inventory size limit
+    local maxSize = inventory.MaxSize or 50 -- Fallback to default if nil (migrating old data)
+    if #inventory.Items >= maxSize then
+        warn(string.format("[InventoryManager] Inventory full for %s (%d/%d items)", player.Name, #inventory.Items, maxSize))
+        return nil
+    end
+    
+    -- Security: Validate templateId exists (for Tools)
+    if itemType == "Tool" and not isValidTemplateId(templateId) then
+        warn(string.format("[InventoryManager] Invalid templateId '%s' for %s", templateId, player.Name))
+        return nil
+    end
+    
     local item = Inventory.CreateItem(templateId, itemType, rarity, metadata)
     table.insert(inventory.Items, item)
     
@@ -299,7 +369,7 @@ function InventoryManager.RemoveItem(player: Player, itemId: string): boolean
     -- Remove from toolbar if equipped
     for slot, equippedId in pairs(inventory.ToolbarSlots) do
         if equippedId == itemId then
-            inventory.ToolbarSlots[slot] = nil
+            InventoryManager.RemoveFromToolbar(player, slot)
             break
         end
     end
@@ -585,6 +655,27 @@ function InventoryManager.SaveInventory(player: Player)
 end
 
 --[[
+    Upgrades a player's inventory size.
+    
+    @param player - The Roblox Player
+    @param amount - Amount to increase (default 5, can be negative to decrease)
+    @return boolean - True if successful
+]]
+function InventoryManager.UpgradeInventorySize(player: Player, amount: number): boolean
+    local inventory = ActiveInventories[player.UserId]
+    if not inventory then return false end
+    
+    local currentSize = inventory.MaxSize or 50
+    inventory.MaxSize = currentSize + amount
+    
+    -- Save immediately
+    InventoryManager.SaveInventory(player)
+    
+    print(string.format("[InventoryManager] Upgraded inventory size for %s: %d -> %d", player.Name, currentSize, inventory.MaxSize or 50))
+    return true
+end
+
+--[[
     Initializes the InventoryManager.
     Sets up packet listeners.
 ]]
@@ -593,6 +684,12 @@ function InventoryManager.Init()
     Packets.inventoryAction.listen(function(data, player)
         if not player then return end
         local p = player :: Player
+        
+        -- Security: Rate limit check
+        if not checkRateLimit(p) then
+            return -- Rate limited, ignore action
+        end
+        
         local action = data.action
         local itemId = data.itemId
         local slot = data.slot
@@ -604,6 +701,8 @@ function InventoryManager.Init()
             InventoryManager.RemoveFromToolbar(p, slot)
         elseif action == "SwapToolbar" and slot and slot2 then
             InventoryManager.SwapToolbarSlots(p, slot, slot2)
+        elseif action == "DeleteItem" and itemId then
+            InventoryManager.RemoveItem(p, itemId)
         end
     end)
     

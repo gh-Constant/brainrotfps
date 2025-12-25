@@ -37,6 +37,7 @@ export type ItemSlot = {
     SetData: (self: ItemSlot, data: ItemSlotData?) -> (),
     SetSelected: (self: ItemSlot, selected: boolean) -> (),
     Destroy: (self: ItemSlot) -> (),
+    OnDeleteClicked: any, -- Signal
 }
 
 -- Constants
@@ -295,24 +296,24 @@ local function createSlotFrame(): Frame
     selection.Transparency = 1
     selection.Parent = frame
     
-    -- Info button (shows item ID on click)
-    local infoButton = Instance.new("TextButton")
-    infoButton.Name = "InfoButton"
-    infoButton.Size = UDim2.fromOffset(16, 16)
-    infoButton.Position = UDim2.new(0, 4, 0, 4)
-    infoButton.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
-    infoButton.BorderSizePixel = 0
-    infoButton.Text = "i"
-    infoButton.TextColor3 = Color3.fromRGB(200, 200, 220)
-    infoButton.TextSize = 11
-    infoButton.Font = Enum.Font.GothamBold
-    infoButton.ZIndex = 15
-    infoButton.Visible = false -- Hidden by default, shown when data is set
-    infoButton.Parent = frame
+    -- Delete button (replaces info button)
+    local deleteButton = Instance.new("TextButton")
+    deleteButton.Name = "DeleteButton"
+    deleteButton.Size = UDim2.fromOffset(18, 18)
+    deleteButton.Position = UDim2.new(0, 4, 0, 4)
+    deleteButton.BackgroundColor3 = Color3.fromRGB(220, 60, 60) -- Red
+    deleteButton.BorderSizePixel = 0
+    deleteButton.Text = "✕"
+    deleteButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    deleteButton.TextSize = 12
+    deleteButton.Font = Enum.Font.FredokaOne
+    deleteButton.ZIndex = 15
+    deleteButton.Visible = false -- Hidden by default, shown when data is set
+    deleteButton.Parent = frame
     
-    local infoBtnCorner = Instance.new("UICorner")
-    infoBtnCorner.CornerRadius = UDim.new(0, 4)
-    infoBtnCorner.Parent = infoButton
+    local delBtnCorner = Instance.new("UICorner")
+    delBtnCorner.CornerRadius = UDim.new(0, 6)
+    delBtnCorner.Parent = deleteButton
     
     return frame
 end
@@ -334,6 +335,7 @@ function ItemSlotModule.new(parent: GuiObject?): ItemSlot
     -- Create UI
     self.Frame = createSlotFrame()
     self.Data = nil :: ItemSlotData?
+    self.OnDeleteClicked = require(Packages:WaitForChild("signal")).new()
     
     if parent then
         self.Frame.Parent = parent
@@ -375,36 +377,41 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
         self._highlight = nil
     end
     
-    -- Get info button reference
-    local infoButton = self.Frame:FindFirstChild("InfoButton") :: TextButton?
+    -- Get delete button reference
+    local deleteButton = self.Frame:FindFirstChild("DeleteButton") :: TextButton?
     
     if not data then
         -- Empty slot
         viewport.Visible = false
         imageLabel.Visible = false
         quantityLabel.Visible = false
-        if infoButton then
-            infoButton.Visible = false
+        if deleteButton then
+            deleteButton.Visible = false
         end
         Rarity.ApplyToFrame(self.Frame, nil)
         return
     end
     
-    -- Show info button and connect click handler
-    if infoButton then
-        infoButton.Visible = true
-        -- Store item ID for the click handler
-        local itemId = data.ItemIds[1] or "unknown"
-        local templateId = data.TemplateId
+    -- Show delete button and connect click handler
+    if deleteButton then
+        deleteButton.Visible = true
+        local _itemId = data.ItemIds[1] or "unknown"
         
         -- Disconnect old connection if exists
-        local oldConn = infoButton:GetAttribute("_clickConnection")
+        local oldConn = deleteButton:GetAttribute("_clickConnection")
         if oldConn then
-            infoButton:SetAttribute("_clickConnection", nil)
+            -- Note: We can't disconnect via attribute.
+            -- Better way: Clean up previous signal connection using janitor?
+            -- Actually, createSlotFrame creates a NEW button each time? No, it's reused.
+            -- We should use janitor to manage the connection.
         end
         
-        local clickConn = infoButton.MouseButton1Click:Connect(function()
-            print(string.format("[ItemSlot] Item Info:\n  TemplateId: %s\n  ItemId: %s", templateId, itemId))
+        -- Since we clean up self._janitor at the start of SetData,
+        -- any previous connections added to it are already gone.
+        -- So we just connect a new one!
+        
+        local clickConn = deleteButton.MouseButton1Click:Connect(function()
+            self.OnDeleteClicked:Fire(data)
         end)
         self._janitor:Add(clickConn)
     end
