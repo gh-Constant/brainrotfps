@@ -23,6 +23,17 @@ local Packages = Rojo:WaitForChild("Packages")
 local Promise = require(Packages:WaitForChild("promise"))
 local Signal = require(Packages:WaitForChild("signal"))
 
+-- Logging helper (checks Config.Inventory.Logging attribute)
+local function log(message: string)
+	local config = ReplicatedStorage:FindFirstChild("Config")
+	if config then
+		local invConfig = config:FindFirstChild("Inventory")
+		if invConfig and invConfig:GetAttribute("Logging") == true then
+			print(message)
+		end
+	end
+end
+
 -- Types
 export type OwnerHistoryEntry = {
     UserId: number,
@@ -111,7 +122,7 @@ function ItemRegistry.RegisterItem(originalId: string, ownerId: number, template
         if success then
             cache[originalId] = record
             ItemRegistry.OnItemRegistered:Fire(originalId, record)
-            print(string.format("[ItemRegistry] Registered item %s for user %d (%s)", 
+            log(string.format("[ItemRegistry] Registered item %s for user %d (%s)", 
                 originalId:sub(1, 8), ownerId, templateId))
             resolve(true)
         else
@@ -178,7 +189,7 @@ function ItemRegistry.TransferOwnership(originalId: string, newOwnerId: number)
             -- Invalidate cache
             cache[originalId] = nil
             ItemRegistry.OnOwnershipTransferred:Fire(originalId, newOwnerId)
-            print(string.format("[ItemRegistry] Transferred item %s to user %d", 
+            log(string.format("[ItemRegistry] Transferred item %s to user %d", 
                 originalId:sub(1, 8), newOwnerId))
             resolve(true)
         else

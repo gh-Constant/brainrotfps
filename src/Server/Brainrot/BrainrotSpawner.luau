@@ -279,12 +279,23 @@ local function spawnBrainrot(group: ZoneGroup)
 		if instigator then
 			local playerData = PlayerManager.GetPlayerData(instigator)
 			if playerData then
-				local xpRewardAttr = brainrot:GetAttribute("BaseXPReward")
+			local xpRewardAttr = brainrot:GetAttribute("BaseXPReward")
 				local xpReward: number = if typeof(xpRewardAttr) == "number" then xpRewardAttr else 10
-				playerData:AddExperience(xpReward)
 				
 				local goldRewardAttr = brainrot:GetAttribute("BaseGoldReward")
 				local goldReward: number = if typeof(goldRewardAttr) == "number" then goldRewardAttr else 5
+				
+				-- Apply mutation multiplier to rewards
+				local mobMutation = brainrot:GetAttribute("Mutation")
+				if mobMutation then
+					local mutationData = Mutations.GetMutation(mobMutation)
+					if mutationData then
+						xpReward = math.floor(xpReward * mutationData.MultiplierModifier)
+						goldReward = math.floor(goldReward * mutationData.MultiplierModifier)
+					end
+				end
+				
+				playerData:AddExperience(xpReward)
 				playerData:AddGold(goldReward)
 				
 				-- Send Loot FX to killer client

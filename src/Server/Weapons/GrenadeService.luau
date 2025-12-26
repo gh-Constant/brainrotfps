@@ -9,6 +9,7 @@ local Rojo = ReplicatedStorage:WaitForChild("Rojo")
 local Shared = Rojo:WaitForChild("Shared")
 local Packets = require(Shared:WaitForChild("Packets"))
 local _Inventory = require(Shared:WaitForChild("Inventory")) -- Prefixed to silence unused warning
+local Mutations = require(Shared:WaitForChild("Mutations"))
 local BrainrotSpawner = require(ServerScriptService.Rojo.Server.Brainrot.BrainrotSpawner)
 local InventoryManager = require(ServerScriptService.Rojo.Server.Inventory)
 
@@ -55,6 +56,13 @@ function GrenadeService.Launch(player: Player, origin: Vector3, direction: Vecto
 	grenade.CanTouch = true -- Explicitly enable touch events
 	grenade.CanQuery = true -- Allow raycasts to hit it
 	grenade.CFrame = CFrame.new(origin)
+	
+	-- Copy grenade mutation attributes to the projectile
+	local grenadeLuck = tool:GetAttribute("Luck") :: number?
+	local grenadeMutation = tool:GetAttribute("Mutation") :: string?
+	if grenadeLuck then grenade:SetAttribute("Luck", grenadeLuck) end
+	if grenadeMutation then grenade:SetAttribute("Mutation", grenadeMutation) end
+	
 	grenade.Parent = workspace
 	
 	-- Track this grenade
@@ -213,15 +221,16 @@ end
 function GrenadeService.Explode(grenade: BasePart, instigator: Player)
 	local pos = grenade.Position
 	
+	-- === READ ATTRIBUTES BEFORE DESTROY ===
+	local grenadeLuck = grenade:GetAttribute("Luck") :: number?
+	local grenadeMutation = grenade:GetAttribute("Mutation") :: string?
+	
 	-- Explosion visuals
 	local explosion = Instance.new("Explosion")
 	explosion.Position = pos
 	explosion.BlastRadius = 15
 	explosion.BlastPressure = 0 -- We handle damage manually
 	explosion.Parent = workspace
-	
-	-- Cleanup grenade
-	grenade:Destroy()
 	
 	-- Affect mobs spawned by BrainrotSpawner
 	print(string.format("[Grenade] 💥 Explosion at %s by %s", tostring(pos), instigator.Name))
@@ -248,6 +257,56 @@ function GrenadeService.Explode(grenade: BasePart, instigator: Player)
 	else
 		print("[Grenade] No mobs in blast radius.")
 	end
+	
+	-- === MUTATION SYSTEM ===
+	-- Use grenadeLuck and grenadeMutation read earlier
+	
+	if grenadeMutation and grenadeLuck and grenadeLuck > 0 then
+		local mutationData = Mutations.GetMutation(grenadeMutation)
+		if mutationData then
+			-- Roll mutation chance for each affected mob
+			-- Luck = "1 in X chance", so we roll a number from 1 to Luck
+			for _, group in zoneGroups do
+				for _, mob in group.spawnedBrainrots do
+					if mob and mob.Parent then
+						local primaryPart = mob.PrimaryPart or mob:FindFirstChildWhichIsA("BasePart")
+						if primaryPart then
+							local distance = (primaryPart.Position - pos).Magnitude
+							if distance <= 15 then
+								-- Already in range, check if already mutated
+								local existingMutation = mob:GetAttribute("Mutation")
+								if not existingMutation then
+									-- Only affect full health mobs
+									local currentHealth = mob:GetAttribute("Health") or 100
+									local currentMaxHealth = mob:GetAttribute("MaxHealth") or 100
+									if currentHealth >= currentMaxHealth then
+										-- Roll for mutation: 1 in Luck chance
+										local roll = math.random(1, math.floor(grenadeLuck))
+										if roll == 1 then
+											-- Apply mutation!
+											mob:SetAttribute("Mutation", grenadeMutation)
+											
+											-- Apply HP multiplier (use currentMaxHealth already retrieved)
+											local newMaxHealth = currentMaxHealth * mutationData.MultiplierModifier
+											
+											mob:SetAttribute("MaxHealth", newMaxHealth)
+											mob:SetAttribute("Health", newMaxHealth) -- Full health since mob was at full
+											
+											print(string.format("[Grenade] 🧬 %s mutated with %s! HP: %d -> %d", 
+												mob.Name, grenadeMutation, currentMaxHealth, newMaxHealth))
+										end
+									end
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+	
+	-- Cleanup grenade AFTER reading attributes
+	grenade:Destroy()
 end
 
 return GrenadeService

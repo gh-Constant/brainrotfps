@@ -28,6 +28,17 @@ local Packets = require(Shared:WaitForChild("Packets"))
 -- ItemRegistry for global item tracking
 local ItemRegistry = require(script.ItemRegistry)
 
+-- Logging helper
+local function log(message: string)
+	local config = ReplicatedStorage:FindFirstChild("Config")
+	if config then
+		local invConfig = config:FindFirstChild("Inventory")
+		if invConfig and invConfig:GetAttribute("Logging") == true then
+			print(message)
+		end
+	end
+end
+
 -- Types
 type InventoryItem = Inventory.InventoryItem
 type InventoryData = Inventory.InventoryData
@@ -265,8 +276,26 @@ function InventoryManager.SpawnToolbarTools(player: Player)
                         local toolClone = toolTemplate:Clone()
                         toolClone:SetAttribute("InventoryItemId", itemId)
                         toolClone:SetAttribute("ToolbarSlot", slot)
+                        
+                        -- Check if this is a stackable item and set stack attributes
+                        local isStackable = Inventory.IsStackable(item.TemplateId)
+                        if isStackable then
+                            -- Count all items of same template in inventory
+                            local stackCount = 0
+                            for _, invItem in ipairs(inventory.Items) do
+                                if invItem.TemplateId == item.TemplateId 
+                                    and invItem.Type == item.Type 
+                                    and invItem.Rarity == item.Rarity then
+                                    stackCount = stackCount + 1
+                                end
+                            end
+                            toolClone:SetAttribute("StackCount", stackCount)
+                            toolClone:SetAttribute("StackTemplateId", item.TemplateId)
+                            toolClone:SetAttribute("IsStackable", true)
+                        end
+                        
                         toolClone.Parent = backpack
-                        print(string.format("[InventoryManager] Spawned %s for %s (slot %d)", item.TemplateId, player.Name, slot))
+                        log(string.format("[InventoryManager] Spawned %s for %s (slot %d)", item.TemplateId, player.Name, slot))
                     end
                 end
             end
@@ -363,7 +392,7 @@ function InventoryManager.AddItem(
     -- Sync to client
     sendInventoryUpdate(player, "Add", item)
     
-    print(string.format("[InventoryManager] Added %s (%s) to %s", templateId, itemType, player.Name))
+    log(string.format("[InventoryManager] Added %s (%s) to %s", templateId, itemType, player.Name))
     return item
 end
 
@@ -608,7 +637,7 @@ function InventoryManager.AssignToToolbar(player: Player, itemId: string, slot: 
                             toolClone:SetAttribute("IsStackable", true)
                         end
                         toolClone.Parent = backpack
-                        print(string.format("[InventoryManager] Spawned %s in %s's backpack (slot %d, stack: %d)", 
+                        log(string.format("[InventoryManager] Spawned %s in %s's backpack (slot %d, stack: %d)", 
                             item.TemplateId, player.Name, slot, #stackItemIds))
                     end
                 end
@@ -703,7 +732,7 @@ function InventoryManager.SwapToolbarSlots(player: Player, slot1: number, slot2:
     if itemId1 then spawnToolInSlot(itemId1, slot2) end
     if itemId2 then spawnToolInSlot(itemId2, slot1) end
     
-    print(string.format("[InventoryManager] Swapped toolbar slots %d <-> %d for %s", slot1, slot2, player.Name))
+    log(string.format("[InventoryManager] Swapped toolbar slots %d <-> %d for %s", slot1, slot2, player.Name))
     
     syncInventoryToClient(player)
     return true
@@ -811,7 +840,7 @@ function InventoryManager.UpgradeInventorySize(player: Player, amount: number): 
     InventoryManager.SaveInventory(player)
     
 
-    print(string.format("[InventoryManager] Upgraded inventory size for %s: %d -> %d", player.Name, currentSize, inventory.MaxSize or 50))
+    log(string.format("[InventoryManager] Upgraded inventory size for %s: %d -> %d", player.Name, currentSize, inventory.MaxSize or 50))
     return true
 end
 
@@ -843,7 +872,7 @@ function InventoryManager._detectDuplicates(player: Player, items: {InventoryIte
     task.delay(2, function()
         if player.Parent == Players and dupeCount > 0 then
             syncInventoryToClient(player)
-            print(string.format("[InventoryManager] Flagged %d potentially duped items for %s", 
+            log(string.format("[InventoryManager] Flagged %d potentially duped items for %s", 
                 dupeCount, player.Name))
         end
     end)
@@ -897,7 +926,7 @@ function InventoryManager.DuplicateItem(player: Player, itemId: string): Invento
     -- Sync to client
     sendInventoryUpdate(player, "Add", dupedItem)
     
-    print(string.format("[InventoryManager] DUPLICATED item %s -> %s (NOT registered in ItemRegistry)", 
+    log(string.format("[InventoryManager] DUPLICATED item %s -> %s (NOT registered in ItemRegistry)", 
         originalItem.Id:sub(1, 8), dupedItem.Id:sub(1, 8)))
     
     return dupedItem
@@ -941,11 +970,11 @@ function InventoryManager.Init()
         elseif action == "Consume" and itemId then
             -- Consume removes one item from inventory (for stackable consumables)
             InventoryManager.RemoveItem(p, itemId)
-            print(string.format("[InventoryManager] Consumed item %s for %s", itemId:sub(1, 8), p.Name))
+            log(string.format("[InventoryManager] Consumed item %s for %s", itemId:sub(1, 8), p.Name))
         end
     end)
     
-    print("[InventoryManager] Initialized with ItemRegistry integration!")
+    log("[InventoryManager] Initialized with ItemRegistry integration!")
 end
 
 return InventoryManager

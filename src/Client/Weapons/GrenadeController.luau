@@ -202,7 +202,8 @@ local function updateBeamTrajectory(points: {Vector3}, hitPoint: Vector3?)
 			marker.CanQuery = false
 			marker.CanTouch = false
 			marker.CastShadow = false
-			marker.Transparency = 0.2
+			marker.Massless = true
+			marker.Transparency = 0.85 -- Very transparent
 			marker.Parent = container
 			
 			-- Add a point light for glow effect
@@ -216,10 +217,10 @@ local function updateBeamTrajectory(points: {Vector3}, hitPoint: Vector3?)
 			impactMarker = marker
 		end
 		impactMarker.Position = hitPoint
-		impactMarker.Transparency = 0.2
+		impactMarker.Transparency = 0.85 -- Very transparent
 		
-		-- Pulse effect based on charge
-		local pulse = 1.8 + math.sin(os.clock() * 8) * 0.3
+		-- Pulse effect based on charge (pulsing around radius 15)
+		local pulse = 28 + math.sin(os.clock() * 8) * 2 -- ~14 radius with pulse
 		impactMarker.Size = Vector3.new(pulse, pulse, pulse)
 	elseif impactMarker then
 		impactMarker.Transparency = 1

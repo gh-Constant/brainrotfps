@@ -18,6 +18,17 @@ local Shared = Rojo:WaitForChild("Shared")
 local Janitor = require(Packages:WaitForChild("janitor"))
 local Rarity = require(Shared:WaitForChild("Rarity"))
 
+-- Logging helper (checks Config.Inventory.Logging attribute)
+local function log(message: string)
+	local config = ReplicatedStorage:FindFirstChild("Config")
+	if config then
+		local invConfig = config:FindFirstChild("Inventory")
+		if invConfig and invConfig:GetAttribute("Logging") == true then
+			print(message)
+		end
+	end
+end
+
 -- Types
 type Janitor = typeof(Janitor.new())
 
@@ -537,7 +548,7 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
         self._janitor:Add(clickConn)
     end
     
-    print("[ItemSlot] SetData for:", data.TemplateId, "Type:", data.Type, "Count:", data.Count)
+    log("[ItemSlot] SetData for: " .. data.TemplateId .. " Type: " .. data.Type .. " Count: " .. tostring(data.Count))
     
     -- Apply rarity border
     Rarity.ApplyToFrame(self.Frame, data.Rarity, { StrokeThickness = 2 })
@@ -552,7 +563,7 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
     
     -- Try to load 3D model (for Tools or items with ToolModel attribute)
     local itemModel = findItemModel(data.TemplateId)
-    print("[ItemSlot] findItemModel result:", itemModel and itemModel.Name or "nil")
+    log("[ItemSlot] findItemModel result: " .. (itemModel and itemModel.Name or "nil"))
     
     if itemModel then
         local modelClone = cloneModelForDisplay(itemModel)
@@ -590,7 +601,7 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
             viewport.Visible = true
             imageLabel.Visible = false
             self.Frame.Visible = true
-            print("[ItemSlot] Model loaded! Frame visible:", self.Frame.Visible, "Parent:", self.Frame.Parent and self.Frame.Parent.Name or "nil")
+            log("[ItemSlot] Model loaded! Frame visible: " .. tostring(self.Frame.Visible) .. " Parent: " .. (self.Frame.Parent and self.Frame.Parent.Name or "nil"))
         else
             -- Model clone failed, use image fallback
             viewport.Visible = false

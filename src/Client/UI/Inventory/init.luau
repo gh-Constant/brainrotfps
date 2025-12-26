@@ -25,6 +25,17 @@ local Packets = require(Shared:WaitForChild("Packets"))
 local ItemSlot = require(script.ItemSlot)
 local DragDrop = require(script.DragDrop)
 
+-- Logging helper (checks Config.Inventory.Logging attribute)
+local function log(message: string)
+	local config = ReplicatedStorage:FindFirstChild("Config")
+	if config then
+		local invConfig = config:FindFirstChild("Inventory")
+		if invConfig and invConfig:GetAttribute("Logging") == true then
+			print(message)
+		end
+	end
+end
+
 -- Get Toolbar module (for hide/show when inventory opens)
 local Toolbar: any? = nil -- Will be set in Init to avoid circular dependency
 
@@ -106,7 +117,7 @@ local function consumeItem(itemData: ItemSlotData)
         return
     end
     
-    print(string.format("[Inventory] Consuming item: %s (ID: %s)", itemData.TemplateId, itemId))
+    log(string.format("[Inventory] Consuming item: %s (ID: %s)", itemData.TemplateId, itemId))
     
     -- Send consume packet to server (removes one item from inventory)
     Packets.inventoryAction.send({ 
@@ -249,7 +260,7 @@ local function refreshDisplay()
     
     -- Get individual items for display (no stacking)
     local itemData = getItemsForDisplay()
-    print("[InventoryUI] refreshDisplay: inventoryData count:", #inventoryData, "displayItems count:", #itemData)
+    log("[InventoryUI] refreshDisplay: inventoryData count: " .. #inventoryData .. " displayItems count: " .. #itemData)
     
     -- Reuse or create slots
     local requiredSlots = #itemData
@@ -276,7 +287,7 @@ local function refreshDisplay()
         slot.OnDeleteClicked:Connect(function(itemData)
             local itemId = itemData.ItemIds[1]
             if itemId then
-                print("[InventoryUI] Deleting item:", itemId)
+                log("[InventoryUI] Deleting item: " .. itemId)
                 Packets.inventoryAction.send({
                     action = "DeleteItem",
                     itemId = itemId,
@@ -361,7 +372,7 @@ local function onInventoryUpdate(data: any)
     local action = data.action
     local itemData = data.item
     
-    print("[InventoryUI] onInventoryUpdate:", action, "item:", itemData and itemData.templateId or "nil")
+    log("[InventoryUI] onInventoryUpdate: " .. action .. " item: " .. (itemData and itemData.templateId or "nil"))
     
     if action == "Add" then
         local item: InventoryItem = {
@@ -378,7 +389,7 @@ local function onInventoryUpdate(data: any)
             dupedItems[itemData.id] = true
         end
         
-        print("[InventoryUI] Added item:", item.TemplateId, "total items:", #inventoryData)
+        log("[InventoryUI] Added item: " .. item.TemplateId .. " total items: " .. #inventoryData)
     elseif action == "Remove" then
         for i, item in inventoryData do
             if item.Id == itemData.id then
@@ -410,9 +421,9 @@ updateIntegratedToolbar = function()
     local toolbarData = nil
     if Toolbar and Toolbar.GetToolbarData then
         toolbarData = Toolbar.GetToolbarData()
-        print("[InventoryUI] Got toolbar data:", #toolbarData, "slots")
+        log("[InventoryUI] Got toolbar data: " .. #toolbarData .. " slots")
     else
-        print("[InventoryUI] Toolbar module not available, checking backpack directly")
+        log("[InventoryUI] Toolbar module not available, checking backpack directly")
         -- Fallback: get tools directly from backpack
         local player = Players.LocalPlayer
         local backpack = player:FindFirstChild("Backpack")
@@ -702,7 +713,7 @@ function InventoryUI.Init(context: any)
                 local tmpl = templates:WaitForChild("ItemSlot", 2)
                 if tmpl and tmpl:IsA("Frame") then
                     slotTemplate = tmpl
-                    print("[InventoryUI] Loaded ItemSlot template from Config.Inventory.Templates")
+                    log("[InventoryUI] Loaded ItemSlot template from Config.Inventory.Templates")
                 end
             end
         end
@@ -715,7 +726,7 @@ function InventoryUI.Init(context: any)
                               or slotsContainer:FindFirstChildWhichIsA("Frame")
                               
         if existingTemplate and existingTemplate:IsA("Frame") then
-            print("[InventoryUI] Found slot template in container:", existingTemplate.Name)
+            log("[InventoryUI] Found slot template in container: " .. existingTemplate.Name)
             slotTemplate = existingTemplate:Clone()
         end
     end
@@ -745,7 +756,7 @@ function InventoryUI.Init(context: any)
                 consumeItem(_selectedItem)
             end
         end)
-        print("[InventoryUI] Found Consume button")
+        log("[InventoryUI] Found Consume button")
     else
         warn("[InventoryUI] Consume button not found in InfoPanel")
     end
@@ -810,7 +821,7 @@ function InventoryUI.Init(context: any)
         if result.Success and result.ToolbarSlotIndex then
             -- Skip if dropping on the same slot (no-op)
             if result.ItemData.SourceToolbarSlot == result.ToolbarSlotIndex then
-                print("[InventoryUI] Dropped on same slot, ignoring")
+                log("[InventoryUI] Dropped on same slot, ignoring")
                 return
             end
             
@@ -820,7 +831,7 @@ function InventoryUI.Init(context: any)
             end
             -- Send assignment to server
             InventoryUI.AssignToToolbar(result.ItemData.ItemId, result.ToolbarSlotIndex)
-            print("[InventoryUI] Assigned", result.ItemData.TemplateId, "to toolbar slot", result.ToolbarSlotIndex)
+            log("[InventoryUI] Assigned " .. result.ItemData.TemplateId .. " to toolbar slot " .. result.ToolbarSlotIndex)
             -- Refresh integrated toolbar display after a short delay (wait for server to process)
             task.delay(0.2, function()
                 updateIntegratedToolbar()
@@ -831,7 +842,7 @@ function InventoryUI.Init(context: any)
     -- Handle removing items from toolbar (dragged to inventory)
     janitor:Add(DragDrop.OnToolbarItemRemoved:Connect(function(slotIndex: number, _itemId: string)
         InventoryUI.RemoveFromToolbar(slotIndex)
-        print("[InventoryUI] Removed tool from toolbar slot", slotIndex)
+        log("[InventoryUI] Removed tool from toolbar slot " .. slotIndex)
         -- Refresh display after removal
         task.delay(0.2, function()
             updateIntegratedToolbar()
@@ -841,7 +852,7 @@ function InventoryUI.Init(context: any)
     -- Handle swapping toolbar items
     janitor:Add(DragDrop.OnToolbarSwap:Connect(function(slot1: number, slot2: number)
         InventoryUI.SwapToolbarSlots(slot1, slot2)
-        print("[InventoryUI] Swapped toolbar slots", slot1, "<->", slot2)
+        log("[InventoryUI] Swapped toolbar slots " .. slot1 .. " <-> " .. slot2)
         -- Refresh display after swap
         task.delay(0.2, function()
             updateIntegratedToolbar()
@@ -850,7 +861,7 @@ function InventoryUI.Init(context: any)
     
     -- Handle item selection
     janitor:Add(InventoryUI.OnItemClicked:Connect(function(itemData: ItemSlotData)
-        print("[InventoryUI] Item clicked:", itemData.TemplateId)
+        log("[InventoryUI] Item clicked: " .. itemData.TemplateId)
         updateInfoPanel(itemData)
     end))
     
@@ -874,16 +885,16 @@ function InventoryUI.Init(context: any)
         local inventoryButton = buttons:WaitForChild("Inventory", 10) :: GuiButton
         if inventoryButton then
             inventoryButton.Activated:Connect(function()
-                print("[InventoryUI] Inventory button clicked")
+                log("[InventoryUI] Inventory button clicked")
                 InventoryUI.Toggle()
             end)
-            print("[InventoryUI] Connected to inventory button")
+            log("[InventoryUI] Connected to inventory button")
         else
             warn("[InventoryUI] Inventory button not found at Base.HID.Left.Buttons.Inventory")
         end
     end)
     
-    print("[InventoryUI] Initialized (Existing UI)!")
+    log("[InventoryUI] Initialized (Existing UI)!")
 end
 
 --[[
