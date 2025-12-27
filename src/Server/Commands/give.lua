@@ -15,7 +15,7 @@ return {
 			Description = "What to give";
 		},
 		{
-			Type = "integer";
+			Type = "number";
 			Name = "Amount";
 			Description = "Amount to give.";
 		},

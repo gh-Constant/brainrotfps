@@ -33,97 +33,79 @@ local wastedLabel: TextLabel? = nil
 local respawnButton: TextButton? = nil
 
 --[[
-    Creates the death screen UI elements.
+    Finds the death screen UI elements from PlayerGui (copied from StarterGui).
+    Resets all elements to hidden state so tweens can animate them in.
 ]]
-local function createUI()
-    -- Main ScreenGui
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "DeathScreen"
-    gui.DisplayOrder = 100 -- Above most UI
-    gui.IgnoreGuiInset = true
-    gui.Enabled = false
-    gui.ResetOnSpawn = false
-    gui.Parent = playerGui
+local function findUI()
+    -- Wait for existing DeathScreen in PlayerGui (from StarterGui)
+    local gui = playerGui:WaitForChild("DeathScreen", 5) :: ScreenGui?
+    if not gui then
+        warn("[DeathScreen] DeathScreen ScreenGui not found in PlayerGui! Make sure it's in StarterGui.")
+        return
+    end
     
-    -- Dark overlay
-    local overlayFrame = Instance.new("Frame")
-    overlayFrame.Name = "Overlay"
-    overlayFrame.Size = UDim2.fromScale(1, 1)
-    overlayFrame.Position = UDim2.fromScale(0, 0)
-    overlayFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    overlayFrame.BackgroundTransparency = 1 -- Start invisible
-    overlayFrame.BorderSizePixel = 0
-    overlayFrame.Parent = gui
+    -- Find overlay
+    local overlayFrame = gui:FindFirstChild("Overlay") :: Frame?
+    if not overlayFrame then
+        warn("[DeathScreen] Overlay frame not found in DeathScreen!")
+    end
     
-    -- WASTED text with cartoonish styling
-    local wasted = Instance.new("TextLabel")
-    wasted.Name = "WastedText"
-    wasted.Size = UDim2.fromScale(1, 0.2)
-    wasted.Position = UDim2.fromScale(0, 0.4)
-    wasted.BackgroundTransparency = 1
-    wasted.Text = "WASTED"
-    wasted.TextColor3 = Color3.fromRGB(255, 50, 50) -- Bright red
-    wasted.Font = Enum.Font.GothamBlack
-    wasted.TextSize = 120
-    wasted.TextTransparency = 1 -- Start invisible
-    wasted.TextScaled = false
-    wasted.Parent = gui
+    -- Find WASTED text
+    local wasted = gui:FindFirstChild("WastedText") :: TextLabel?
+    if not wasted then
+        warn("[DeathScreen] WastedText label not found in DeathScreen!")
+    end
     
-    -- Add UIStroke for cartoonish outline
-    local stroke = Instance.new("UIStroke")
-    stroke.Name = "Outline"
-    stroke.Color = Color3.fromRGB(80, 0, 0) -- Dark red outline
-    stroke.Thickness = 4
-    stroke.Transparency = 1 -- Start invisible
-    stroke.Parent = wasted
-    
-    -- Add shadow text for depth
-    local shadow = Instance.new("TextLabel")
-    shadow.Name = "Shadow"
-    shadow.Size = UDim2.fromScale(1, 1)
-    shadow.Position = UDim2.fromOffset(6, 6)
-    shadow.BackgroundTransparency = 1
-    shadow.Text = "WASTED"
-    shadow.TextColor3 = Color3.fromRGB(30, 0, 0)
-    shadow.Font = Enum.Font.GothamBlack
-    shadow.TextSize = 120
-    shadow.TextTransparency = 1
-    shadow.ZIndex = -1
-    shadow.Parent = wasted
-    
-    -- Respawn button
-    local button = Instance.new("TextButton")
-    button.Name = "RespawnButton"
-    button.Size = UDim2.fromOffset(200, 60)
-    button.Position = UDim2.new(0.5, -100, 0.65, 0)
-    button.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-    button.BackgroundTransparency = 1 -- Start invisible
-    button.Text = "RESPAWN"
-    button.TextColor3 = Color3.fromRGB(255, 255, 255)
-    button.Font = Enum.Font.GothamBold
-    button.TextSize = 24
-    button.TextTransparency = 1 -- Start invisible
-    button.BorderSizePixel = 0
-    button.AutoButtonColor = false
-    button.Parent = gui
-    
-    -- Button styling (rounded corners)
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
-    corner.Parent = button
-    
-    -- Button stroke
-    local buttonStroke = Instance.new("UIStroke")
-    buttonStroke.Color = Color3.fromRGB(150, 0, 0)
-    buttonStroke.Thickness = 3
-    buttonStroke.Transparency = 1 -- Start invisible
-    buttonStroke.Parent = button
+    -- Find respawn button
+    local button = gui:FindFirstChild("RespawnButton") :: TextButton?
+    if not button then
+        warn("[DeathScreen] RespawnButton not found in DeathScreen!")
+    end
     
     -- Store references
     screenGui = gui
     overlay = overlayFrame
     wastedLabel = wasted
     respawnButton = button
+    
+    -- === RESET TO DEFAULT HIDDEN STATE FOR TWEENS ===
+    -- You can design the UI visible in Studio, this code will hide it on load
+    
+    if screenGui then
+        screenGui.Enabled = false
+    end
+    
+    if overlay then
+        overlay.BackgroundTransparency = 1
+    end
+    
+    if wastedLabel then
+        wastedLabel.TextTransparency = 1
+        wastedLabel.TextSize = 120 -- Default size before scale-up tween
+        
+        local stroke = wastedLabel:FindFirstChild("Outline") :: UIStroke?
+        if stroke then
+            stroke.Transparency = 1
+        end
+        
+        local shadow = wastedLabel:FindFirstChild("Shadow") :: TextLabel?
+        if shadow then
+            shadow.TextTransparency = 1
+            shadow.TextSize = 120
+        end
+    end
+    
+    if respawnButton then
+        respawnButton.BackgroundTransparency = 1
+        respawnButton.TextTransparency = 1
+        
+        local buttonStroke = respawnButton:FindFirstChild("UIStroke") :: UIStroke?
+        if buttonStroke then
+            buttonStroke.Transparency = 1
+        end
+    end
+    
+    print("[DeathScreen] Found existing UI from StarterGui! Reset to hidden state.")
 end
 
 --[[
@@ -157,7 +139,7 @@ end
 ]]
 function DeathScreen.Show()
     if not screenGui then
-        createUI()
+        findUI()
     end
     
     if not screenGui or not overlay or not wastedLabel then return end
@@ -320,7 +302,7 @@ end
     Initialize death screen with ByteNet packet listener.
 ]]
 function DeathScreen.Init()
-    createUI()
+    findUI()
     
     -- Import ByteNet packets
     local Rojo = ReplicatedStorage:WaitForChild("Rojo")

@@ -22,6 +22,7 @@ local Signal = require(Packages:WaitForChild("signal"))
 
 local Inventory = require(Shared:WaitForChild("Inventory"))
 local Packets = require(Shared:WaitForChild("Packets"))
+local RarityVisual = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityVisual"))
 local ItemSlot = require(script.ItemSlot)
 local DragDrop = require(script.DragDrop)
 
@@ -95,7 +96,20 @@ local function getDisplayName(templateId: string): string
     if config then
         local items = config:FindFirstChild("Items")
         if items then
-            local itemConfig = items:FindFirstChild(templateId)
+            -- Recursive search for Configuration elements
+            local function searchRecursive(parent: Instance): Configuration?
+                for _, child in parent:GetChildren() do
+                    if child:IsA("Configuration") and child.Name == templateId then
+                        return child
+                    elseif child:IsA("Folder") then
+                        local found = searchRecursive(child)
+                        if found then return found end
+                    end
+                end
+                return nil
+            end
+            
+            local itemConfig = searchRecursive(items)
             if itemConfig then
                 local displayName = itemConfig:GetAttribute("DisplayName")
                 if displayName and displayName ~= "" then
@@ -139,6 +153,8 @@ local function updateInfoPanel(itemData: ItemSlotData?)
         infoDesc.Text = "Click on an item to see more details."
         infoIcon.ImageTransparency = 0.5
         _selectedItem = nil
+        -- Reset title color to default
+        RarityVisual.ApplyToText(infoTitle, nil)
         return
     end
     
@@ -146,6 +162,9 @@ local function updateInfoPanel(itemData: ItemSlotData?)
     infoTitle.Text = getDisplayName(itemData.TemplateId)
     infoIcon.Image = "rbxassetid://6031763426" -- Placeholder
     infoIcon.ImageTransparency = 0
+    
+    -- Apply rarity color effect to the title
+    RarityVisual.ApplyToText(infoTitle, itemData.Rarity)
     
     -- Generate description based on type/rarity
     local desc = string.format("Type: <font color='#88ccff'>%s</font>\n", itemData.Type)

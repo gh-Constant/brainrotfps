@@ -25,13 +25,14 @@ local taggedEvent = events.Tagged
 local eliminatedEvent = events.Eliminated
 
 -- Send damage indicator to the shooter client
-local function sendDamageIndicator(player: Player, position: Vector3, damage: number, didDamage: boolean)
+local function sendDamageIndicator(player: Player, position: Vector3, damage: number, didDamage: boolean, target: Model?)
 	Packets.damageIndicator.sendTo({
 		posX = position.X,
 		posY = position.Y,
 		posZ = position.Z,
 		damage = damage,
 		didDamage = didDamage,
+		targetId = target,
 	}, player)
 end
 
@@ -153,8 +154,8 @@ local function onShootEvent(
 				indicatorPos = modelCFrame.Position + Vector3.new(randomOffsetX, modelSize.Y / 3, randomOffsetZ)
 			end
 			
-			-- Send damage indicator to shooter client
-			sendDamageIndicator(player, indicatorPos, damage, didDamage)
+			-- Send damage indicator to shooter client (with target model for highlight)
+			sendDamageIndicator(player, indicatorPos, damage, didDamage, model)
 
 			taggedEvent:Fire(player, taggedHumanoid, damage)
 

@@ -1,5 +1,5 @@
 -- ItemName type for Cmdr autocomplete
--- Reads available items from ReplicatedStorage/Config/Items
+-- Reads available items from ReplicatedStorage/Config/Items (supports nested folders)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -9,11 +9,17 @@ local function getItemNames()
     if config then
         local items = config:FindFirstChild("Items")
         if items then
-            for _, item in ipairs(items:GetChildren()) do
-                if item:IsA("Configuration") then
-                    table.insert(names, item.Name)
+            -- Recursive search for Configuration elements in nested folders
+            local function searchRecursive(parent)
+                for _, child in parent:GetChildren() do
+                    if child:IsA("Configuration") then
+                        table.insert(names, child.Name)
+                    elseif child:IsA("Folder") then
+                        searchRecursive(child)
+                    end
                 end
             end
+            searchRecursive(items)
         end
     end
     return names

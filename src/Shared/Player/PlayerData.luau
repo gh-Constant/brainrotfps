@@ -235,7 +235,13 @@ function PlayerClass:AddExperience(amount: number): boolean
     local leveledUp = false
     
     -- Check for level ups (XP is per-level, resets on level up)
+    local iteration = 0
     while true do
+        iteration += 1
+        if iteration % 1000 == 0 then
+            task.wait()
+        end
+        
         local requiredXP = player:GetExperienceForLevel(player.Level)
         
         if player.Experience >= requiredXP then
@@ -397,8 +403,20 @@ end
     
     @return string - Formatted gold string with abbreviations for large values
 ]]
-function PlayerClass:GetGoldDisplay(): string
-    return MoneyLib.HandleMoney(self.Gold)
+--[[
+    Resets the player's progress (Level 1, 0 XP).
+]]
+function PlayerClass:ResetProgress()
+    self.Level = 1
+    self.Experience = 0
+    
+    if self.OnLevelUp then
+        self.OnLevelUp:Fire(self.Level)
+    end
+    
+    if self.OnExperienceChanged then
+        self.OnExperienceChanged:Fire(0, 0, 0)
+    end
 end
 
 --[[

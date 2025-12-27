@@ -136,10 +136,133 @@ function RarityVisual.ApplyToFrame(
                 strokeInstance.Color = colors[index]:Lerp(colors[nextIndex], alpha)
             end)
             activeAnimations[frame] = conn
+            
+        elseif animType == "RotatingGradient" then
+            -- Rotating gradient with two lighter lines on dark base
+            local baseColor = config.Color
+            local lightColor = config.LightColor or Color3.fromRGB(
+                math.min(255, baseColor.R * 255 + 80),
+                math.min(255, baseColor.G * 255 + 80),
+                math.min(255, baseColor.B * 255 + 80)
+            )
+            
+            -- Create or get UIGradient on stroke
+            local gradient = strokeInstance:FindFirstChild("RotatingGradient") :: UIGradient?
+            if not gradient then
+                local gradientInstance = Instance.new("UIGradient")
+                gradientInstance.Name = "RotatingGradient"
+                gradientInstance.Parent = strokeInstance
+                gradient = gradientInstance
+            end
+            
+            -- Set up the gradient with two big bright opposing lines
+            if gradient then
+                gradient.Color = ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, lightColor),    -- Line 1 start
+                    ColorSequenceKeypoint.new(0.15, lightColor), -- Line 1 (wider)
+                    ColorSequenceKeypoint.new(0.25, baseColor),  -- Transition
+                    ColorSequenceKeypoint.new(0.45, baseColor),  -- Dark section
+                    ColorSequenceKeypoint.new(0.5, lightColor),  -- Line 2 start (opposite)
+                    ColorSequenceKeypoint.new(0.65, lightColor), -- Line 2 (wider)
+                    ColorSequenceKeypoint.new(0.75, baseColor),  -- Transition
+                    ColorSequenceKeypoint.new(1, baseColor),     -- Dark section back to start
+                })
+                
+                local conn = RunService.Heartbeat:Connect(function()
+                    local rotation = (os.clock() * speed * 360) % 360
+                    gradient.Rotation = rotation
+                end)
+                activeAnimations[frame] = conn
+            end
         end
     end
 end
 
+--[[
+    Applies rarity visual to a TextLabel.
+    Sets text color and optional animation.
+    
+    @param textLabel - The TextLabel to style
+    @param rarityName - Name of the rarity (or nil for no rarity)
+]]
+function RarityVisual.ApplyToText(
+    textLabel: TextLabel,
+    rarityName: string?
+)
+    -- Stop existing animation
+    RarityVisual.StopAnimation(textLabel)
+    
+    -- No rarity = gray text
+    if not rarityName then
+        textLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+        return
+    end
+    
+    local config = RarityConfig.GetConfig(rarityName)
+    if not config then
+        textLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+        return
+    end
+    
+    textLabel.TextColor3 = config.Color
+    
+    -- Apply animation if needed
+    if config.Animated then
+        local animType = config.AnimationType or "Pulse"
+        local speed = config.AnimationSpeed or 1
+        
+        if animType == "Rainbow" then
+            local conn = RunService.Heartbeat:Connect(function()
+                local hue = (os.clock() * speed) % 1
+                textLabel.TextColor3 = hueToColor(hue)
+            end)
+            activeAnimations[textLabel] = conn
+            
+        elseif animType == "Cycle" and config.AnimationColors then
+            local colors = config.AnimationColors
+            local conn = RunService.Heartbeat:Connect(function()
+                local t = (os.clock() * speed) % #colors
+                local index = math.floor(t) + 1
+                local nextIndex = (index % #colors) + 1
+                local alpha = t % 1
+                textLabel.TextColor3 = colors[index]:Lerp(colors[nextIndex], alpha)
+            end)
+            activeAnimations[textLabel] = conn
+            
+        elseif animType == "RotatingGradient" then
+            -- For text, use UIGradient on the text
+            local lightColor = config.LightColor or config.Color
+            local baseColor = config.Color
+            
+            local gradient = textLabel:FindFirstChild("RarityTextGradient") :: UIGradient?
+            if not gradient then
+                local gradientInstance = Instance.new("UIGradient")
+                gradientInstance.Name = "RarityTextGradient"
+                gradientInstance.Parent = textLabel
+                gradient = gradientInstance
+            end
+            
+            if gradient then
+                gradient.Color = ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, lightColor),
+                    ColorSequenceKeypoint.new(0.15, lightColor),
+                    ColorSequenceKeypoint.new(0.25, baseColor),
+                    ColorSequenceKeypoint.new(0.45, baseColor),
+                    ColorSequenceKeypoint.new(0.5, lightColor),
+                    ColorSequenceKeypoint.new(0.65, lightColor),
+                    ColorSequenceKeypoint.new(0.75, baseColor),
+                    ColorSequenceKeypoint.new(1, baseColor),
+                })
+                
+                local conn = RunService.Heartbeat:Connect(function()
+                    local rotation = (os.clock() * speed * 360) % 360
+                    gradient.Rotation = rotation
+                end)
+                activeAnimations[textLabel] = conn
+            end
+        end
+    end
+end
 --[[
     Applies rarity visual to a Highlight (for 3D models).
     

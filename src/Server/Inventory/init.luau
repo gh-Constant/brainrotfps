@@ -159,14 +159,10 @@ local function checkRateLimit(player: Player): boolean
 end
 
 --[[
-    Validates that a templateId exists in Config/Items.
+    Validates that a templateId exists in Config/Items (supports nested folders).
 ]]
 local function isValidTemplateId(templateId: string): boolean
-    local config = ReplicatedStorage:FindFirstChild("Config")
-    if not config then return false end
-    local items = config:FindFirstChild("Items")
-    if not items then return false end
-    return items:FindFirstChild(templateId) ~= nil
+    return Inventory.ItemUtils.FindItemConfig(templateId) ~= nil
 end
 
 --------------------------------------------------------------------------------
@@ -269,7 +265,7 @@ function InventoryManager.SpawnToolbarTools(player: Player)
             end
             
             if not alreadyExists then
-                local itemConfig = items:FindFirstChild(item.TemplateId)
+                local itemConfig = Inventory.ItemUtils.FindItemConfig(item.TemplateId)
                 if itemConfig then
                     local toolTemplate = itemConfig:FindFirstChildWhichIsA("Tool")
                     if toolTemplate then
@@ -622,7 +618,7 @@ function InventoryManager.AssignToToolbar(player: Player, itemId: string, slot: 
         if config then
             local items = config:FindFirstChild("Items")
             if items then
-                local itemConfig = items:FindFirstChild(item.TemplateId)
+                local itemConfig = Inventory.ItemUtils.FindItemConfig(item.TemplateId)
                 if itemConfig then
                     -- Find the Tool child in the Configuration
                     local toolTemplate = itemConfig:FindFirstChildWhichIsA("Tool")
@@ -708,7 +704,7 @@ function InventoryManager.SwapToolbarSlots(player: Player, slot1: number, slot2:
         local items = config:FindFirstChild("Items")
         if not items then return end
         
-        local itemConfig = items:FindFirstChild(item.TemplateId)
+        local itemConfig = Inventory.ItemUtils.FindItemConfig(item.TemplateId)
         if not itemConfig then return end
         
         local toolTemplate = itemConfig:FindFirstChildWhichIsA("Tool")

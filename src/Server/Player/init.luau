@@ -160,22 +160,22 @@ local function onPlayerAdded(player: Player)
     leaderstats.Name = "leaderstats"
     leaderstats.Parent = player
     
-    local levelValue = Instance.new("IntValue")
+    local levelValue = Instance.new("NumberValue")
     levelValue.Name = "Level"
     levelValue.Value = 1
     levelValue.Parent = leaderstats
     
-    local xpValue = Instance.new("IntValue")
+    local xpValue = Instance.new("NumberValue")
     xpValue.Name = "XP"
     xpValue.Value = 0
     xpValue.Parent = leaderstats
     
-    local goldValue = Instance.new("IntValue")
+    local goldValue = Instance.new("NumberValue")
     goldValue.Name = "Gold"
     goldValue.Value = 0
     goldValue.Parent = leaderstats
     
-    local creditsValue = Instance.new("IntValue")
+    local creditsValue = Instance.new("NumberValue")
     creditsValue.Name = "Credits"
     creditsValue.Value = 0
     creditsValue.Parent = leaderstats

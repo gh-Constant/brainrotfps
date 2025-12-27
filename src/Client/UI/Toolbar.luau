@@ -374,9 +374,57 @@ local function setupCharacter(character: Model)
 end
 
 --[[
+    Gets the current equipped slot index, or nil if nothing is equipped.
+]]
+local function getEquippedSlotIndex(): number?
+    if equippedTool then
+        local slot = toolSlots[equippedTool]
+        if slot then
+            return slot.Index
+        end
+    end
+    return nil
+end
+
+--[[
+    Finds the next occupied slot in a given direction.
+    @param direction - 1 for next, -1 for previous
+    @return The slot index of the next/previous tool, or nil if no tools exist
+]]
+local function findNextOccupiedSlot(currentIndex: number, direction: number): number?
+    for i = 1, CONFIG.MaxSlots do
+        local nextIndex = ((currentIndex - 1 + direction * i) % CONFIG.MaxSlots) + 1
+        if slotOrder[nextIndex] then
+            return nextIndex
+        end
+    end
+    return nil
+end
+
+--[[
+    Equips a tool at the specified slot index.
+]]
+local function equipSlot(slotIndex: number)
+    local tool = slotOrder[slotIndex]
+    if tool then
+        local character = LocalPlayer.Character
+        local humanoid = character and character:FindFirstChild("Humanoid") :: Humanoid?
+        
+        if humanoid then
+            if equippedTool == tool then
+                humanoid:UnequipTools()
+            else
+                humanoid:EquipTool(tool)
+            end
+        end
+    end
+end
+
+--[[
     Handles hotkey input for tool selection.
 ]]
 local function setupHotkeyInput()
+    -- Keyboard input for number keys 1-9
     local inputConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if gameProcessed then
             return
@@ -406,22 +454,42 @@ local function setupHotkeyInput()
         end
         
         if keyNumber then
-            local tool = slotOrder[keyNumber]
-            if tool then
-                local character = LocalPlayer.Character
-                local humanoid = character and character:FindFirstChild("Humanoid") :: Humanoid?
-                
-                if humanoid then
-                    if equippedTool == tool then
-                        humanoid:UnequipTools()
-                    else
-                        humanoid:EquipTool(tool)
-                    end
-                end
-            end
+            equipSlot(keyNumber)
         end
     end)
     janitor:Add(inputConnection)
+    
+    -- Mouse scroll input for cycling through weapons
+    local scrollConnection = UserInputService.InputChanged:Connect(function(input, gameProcessed)
+        if gameProcessed then
+            return
+        end
+        
+        if input.UserInputType == Enum.UserInputType.MouseWheel then
+            local scrollDirection = input.Position.Z -- Positive = scroll up, Negative = scroll down
+            
+            local currentSlotIndex = getEquippedSlotIndex()
+            local nextSlotIndex: number?
+            
+            if currentSlotIndex then
+                -- Find next occupied slot in the scroll direction
+                -- Scroll up (positive) = next slot (direction 1)
+                -- Scroll down (negative) = previous slot (direction -1)
+                local direction = if scrollDirection > 0 then 1 else -1
+                
+                -- Ensure we don't pick the same slot if only 1 weapon is available
+                -- And finding next slot should cycle correctly
+                nextSlotIndex = findNextOccupiedSlot(currentSlotIndex, direction)
+                
+                -- Only switch if we found a different valid slot
+                if nextSlotIndex and nextSlotIndex ~= currentSlotIndex then
+                    equipSlot(nextSlotIndex)
+                end
+            end
+            -- If nothing equipped, do nothing (user request)
+        end
+    end)
+    janitor:Add(scrollConnection)
 end
 
 --[[

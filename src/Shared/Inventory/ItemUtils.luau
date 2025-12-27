@@ -67,21 +67,46 @@ function ItemUtils.AreItemsStackable(item1: InventoryItem, item2: InventoryItem)
 end
 
 --[[
+    Recursively finds an item configuration by templateId in Config.Items.
+    Searches through all folders and returns the first Configuration element with matching name.
+    
+    @param templateId - The template name to find
+    @return Configuration? - The item configuration or nil
+]]
+function ItemUtils.FindItemConfig(templateId: string): Configuration?
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local config = ReplicatedStorage:FindFirstChild("Config")
+    if not config then return nil end
+    
+    local items = config:FindFirstChild("Items")
+    if not items then return nil end
+    
+    -- Recursive search function
+    local function searchRecursive(parent: Instance): Configuration?
+        for _, child in parent:GetChildren() do
+            if child:IsA("Configuration") and child.Name == templateId then
+                return child
+            elseif child:IsA("Folder") then
+                -- Recursively search folders
+                local found = searchRecursive(child)
+                if found then return found end
+            end
+        end
+        return nil
+    end
+    
+    return searchRecursive(items)
+end
+
+--[[
     Checks if an item template is marked as stackable.
-    Looks up Config/Items/{templateId} for the Stackable attribute.
+    Looks up Config/Items for the template's Stackable attribute (supports nested folders).
     
     @param templateId - The template to check
     @return boolean - True if stackable
 ]]
 function ItemUtils.IsStackable(templateId: string): boolean
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
-    local config = ReplicatedStorage:FindFirstChild("Config")
-    if not config then return false end
-    
-    local items = config:FindFirstChild("Items")
-    if not items then return false end
-    
-    local itemConfig = items:FindFirstChild(templateId)
+    local itemConfig = ItemUtils.FindItemConfig(templateId)
     if not itemConfig then return false end
     
     local stackable = itemConfig:GetAttribute("Stackable")

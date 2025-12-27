@@ -99,10 +99,23 @@ local function getItemConfig(templateId: string): Configuration?
     local items = config:FindFirstChild("Items")
     if not items then return nil end
     
-    local itemConfig = items:FindFirstChild(templateId)
-    if itemConfig and itemConfig:IsA("Configuration") then
-        itemConfigCache[templateId] = itemConfig :: Configuration
-        return itemConfig :: Configuration
+    -- Recursive search function for nested folders
+    local function searchRecursive(parent: Instance): Configuration?
+        for _, child in parent:GetChildren() do
+            if child:IsA("Configuration") and child.Name == templateId then
+                return child
+            elseif child:IsA("Folder") then
+                local found = searchRecursive(child)
+                if found then return found end
+            end
+        end
+        return nil
+    end
+    
+    local itemConfig = searchRecursive(items)
+    if itemConfig then
+        itemConfigCache[templateId] = itemConfig
+        return itemConfig
     end
     
     return nil

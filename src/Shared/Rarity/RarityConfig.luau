@@ -23,9 +23,10 @@ export type RarityVisualConfig = {
     
     -- Optional: Animation settings
     Animated: boolean?,
-    AnimationType: ("Pulse" | "Rainbow" | "Cycle")?,
+    AnimationType: ("Pulse" | "Rainbow" | "Cycle" | "RotatingGradient")?,
     AnimationSpeed: number?, -- Cycles per second
     AnimationColors: {Color3}?, -- For "Cycle" type
+    LightColor: Color3?, -- For "RotatingGradient" type (the lighter line color)
 }
 
 export type RarityConfigMap = {[string]: RarityVisualConfig}
@@ -45,9 +46,13 @@ local RarityConfig: RarityConfigMap = {
         Color = Color3.fromRGB(30, 255, 0),
     },
     
-    -- Epic: Purple
+    -- Epic: Dark purple with rotating lighter lines
     Epic = {
-        Color = Color3.fromRGB(163, 53, 238),
+        Color = Color3.fromRGB(90, 30, 130), -- Dark purple base
+        LightColor = Color3.fromRGB(230, 180, 255), -- Bright, almost white purple for the lines
+        Animated = true,
+        AnimationType = "RotatingGradient",
+        AnimationSpeed = 0.3, -- Slow rotation (0.3 rotations per second)
     },
     
     -- Legendary: Orange/Gold
@@ -73,32 +78,24 @@ local RarityConfig: RarityConfigMap = {
         AnimationSpeed = 1,
     },
     
-    -- Secret: Rainbow cycling
+    -- Secret: Black and white pulse
     Secret = {
-        Color = Color3.fromRGB(0, 255, 255), -- Fallback
+        Color = Color3.fromRGB(255, 255, 255), -- White base
+        Animated = true,
+        AnimationType = "Cycle",
+        AnimationSpeed = 1.5,
+        AnimationColors = {
+            Color3.fromRGB(0, 0, 0),       -- Black
+            Color3.fromRGB(255, 255, 255), -- White
+        },
+    },
+    
+    -- God: Rainbow cycling
+    God = {
+        Color = Color3.fromRGB(255, 215, 0), -- Gold fallback
         Animated = true,
         AnimationType = "Rainbow",
         AnimationSpeed = 0.5,
-    },
-    
-    -- God: Gold with intense animation
-    God = {
-        Color = Color3.fromRGB(255, 215, 0),
-        Gradient = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 150)),
-            ColorSequenceKeypoint.new(0.3, Color3.fromRGB(255, 215, 0)),
-            ColorSequenceKeypoint.new(0.6, Color3.fromRGB(255, 180, 0)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 150)),
-        }),
-        Animated = true,
-        AnimationType = "Cycle",
-        AnimationSpeed = 2,
-        AnimationColors = {
-            Color3.fromRGB(255, 255, 150),
-            Color3.fromRGB(255, 215, 0),
-            Color3.fromRGB(255, 180, 0),
-            Color3.fromRGB(255, 200, 50),
-        },
     },
 }
 

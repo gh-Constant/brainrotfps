@@ -20,14 +20,8 @@ return function(context, targetPlayer, resourceType, amount)
 	local resourceTypeLower = string.lower(resourceType)
 	
 	if resourceTypeLower == "level" or resourceTypeLower == "levels" then
-		-- Add levels by giving enough XP to level up that many times
+		-- Add levels by just setting level directly and resetting XP
 		local levelsToAdd = amount
-		local xpNeeded = 0
-		
-		for i = 1, levelsToAdd do
-			local targetLevel = playerData.Level + i - 1
-			xpNeeded = xpNeeded + playerData:GetExperienceForLevel(targetLevel) - (i == 1 and playerData.Experience or 0)
-		end
 		
 		-- Simpler approach: just set level directly and reset XP
 		local newLevel = playerData.Level + levelsToAdd

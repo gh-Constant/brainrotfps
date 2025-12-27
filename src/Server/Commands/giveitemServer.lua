@@ -7,7 +7,7 @@ local Server = ServerScriptService:WaitForChild("Rojo"):WaitForChild("Server")
 local InventoryManager = require(Server:WaitForChild("Inventory"))
 
 --[[
-    Gets item config from ReplicatedStorage/Config/Items
+    Gets item config from ReplicatedStorage/Config/Items (supports nested folders)
 ]]
 local function getItemConfig(itemName: string)
     local config = ReplicatedStorage:FindFirstChild("Config")
@@ -16,7 +16,20 @@ local function getItemConfig(itemName: string)
     local items = config:FindFirstChild("Items")
     if not items then return nil end
     
-    return items:FindFirstChild(itemName)
+    -- Recursive search for Configuration elements
+    local function searchRecursive(parent)
+        for _, child in parent:GetChildren() do
+            if child:IsA("Configuration") and child.Name == itemName then
+                return child
+            elseif child:IsA("Folder") then
+                local found = searchRecursive(child)
+                if found then return found end
+            end
+        end
+        return nil
+    end
+    
+    return searchRecursive(items)
 end
 
 return function(context, player, itemName)
