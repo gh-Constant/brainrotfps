@@ -12,6 +12,7 @@ local _Inventory = require(Shared:WaitForChild("Inventory")) -- Prefixed to sile
 local Mutations = require(Shared:WaitForChild("Mutations"))
 local BrainrotSpawner = require(ServerScriptService.Rojo.Server.Brainrot.BrainrotSpawner)
 local InventoryManager = require(ServerScriptService.Rojo.Server.Inventory)
+local SafezoneManager = require(ServerScriptService.Rojo.Server.SafezoneManager)
 
 local GrenadeService = {}
 
@@ -32,6 +33,11 @@ function GrenadeService.Init()
 end
 
 function GrenadeService.Launch(player: Player, origin: Vector3, direction: Vector3, strength: number)
+    -- Check Safezone
+    if SafezoneManager.IsInSafezone(player) then
+        return
+    end
+
 	local character = player.Character
 	if not character then return end
 	

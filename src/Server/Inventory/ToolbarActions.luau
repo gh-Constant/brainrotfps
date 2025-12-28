@@ -1,6 +1,6 @@
 --!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local HttpService = game:GetService("HttpService")
+
 
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
 local Shared = Rojo:WaitForChild("Shared")
@@ -81,12 +81,9 @@ function ToolbarActions.AssignToToolbar(player: Player, inventory: any, itemId: 
     local isStackable = Inventory.IsStackable(item.TemplateId)
     local stackItemIds: {string} = {}
     if isStackable then
-        for _, invItem in ipairs(inventory.Items) do
-            if invItem.TemplateId == item.TemplateId 
-                and invItem.Type == item.Type 
-                and invItem.Rarity == item.Rarity then
-                table.insert(stackItemIds, invItem.Id)
-            end
+        local stackItems = Inventory.ItemUtils.GetStackItems(inventory.Items, item)
+        for _, stackItem in ipairs(stackItems) do
+            table.insert(stackItemIds, stackItem.Id)
         end
     else
         stackItemIds = {itemId}
@@ -226,15 +223,8 @@ function ToolbarActions.SwapToolbarSlots(player: Player, inventory: any, slot1: 
              local count = nil
              if isStackable then
                  -- Count again to be safe
-                 local c = 0
-                 for _, invItem in ipairs(inventory.Items) do
-                    if invItem.TemplateId == item.TemplateId 
-                        and invItem.Type == item.Type 
-                        and invItem.Rarity == item.Rarity then
-                        c = c + 1
-                    end
-                end
-                count = c
+                 local stackItems = Inventory.ItemUtils.GetStackItems(inventory.Items, item)
+                 count = #stackItems
              end
              ToolbarUtils.SpawnToolInSlot(player, item, slot2, count)
         end
@@ -246,15 +236,8 @@ function ToolbarActions.SwapToolbarSlots(player: Player, inventory: any, slot1: 
              local isStackable = Inventory.IsStackable(item.TemplateId)
              local count = nil
              if isStackable then
-                 local c = 0
-                 for _, invItem in ipairs(inventory.Items) do
-                    if invItem.TemplateId == item.TemplateId 
-                        and invItem.Type == item.Type 
-                        and invItem.Rarity == item.Rarity then
-                        c = c + 1
-                    end
-                end
-                count = c
+                 local stackItems = Inventory.ItemUtils.GetStackItems(inventory.Items, item)
+                 count = #stackItems
              end
              ToolbarUtils.SpawnToolInSlot(player, item, slot1, count)
         end

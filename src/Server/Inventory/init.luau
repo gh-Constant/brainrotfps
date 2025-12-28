@@ -49,6 +49,7 @@ local InventoryManager = {}
 
 -- State
 local ActiveInventories: {[number]: InventoryData} = {}
+local ActiveIndices: {[number]: {ById: {[string]: InventoryItem}, ByTemplate: {[string]: {InventoryItem}}}} = {}
 local ActiveProfiles: {[number]: any} = {}
 local DupedItems: {[string]: boolean} = {} 
 local PlayerJanitors: {[Player]: typeof(Janitor.new())} = {}
@@ -103,6 +104,25 @@ function InventoryManager._detectDuplicates(player: Player, items: {InventoryIte
     end
 end
 
+local function buildIndex(items: {InventoryItem})
+    local byId = {}
+    local byTemplate = {}
+    
+    for _, item in ipairs(items) do
+        byId[item.Id] = item
+        
+        if not byTemplate[item.TemplateId] then
+            byTemplate[item.TemplateId] = {}
+        end
+        table.insert(byTemplate[item.TemplateId], item)
+    end
+    
+    return {
+        ById = byId,
+        ByTemplate = byTemplate,
+    }
+end
+
 --------------------------------------------------------------------------------
 -- Public API
 --------------------------------------------------------------------------------
@@ -137,10 +157,12 @@ function InventoryManager.LoadInventory(player: Player)
         profile.OnSessionEnd:Connect(function()
             ActiveInventories[userId] = nil
             ActiveProfiles[userId] = nil
+            ActiveIndices[userId] = nil
         end)
         
         ActiveInventories[userId] = profile.Data
         ActiveProfiles[userId] = profile
+        ActiveIndices[userId] = buildIndex(profile.Data.Items)
         PlayerJanitors[player] = Janitor.new()
         
         -- Dup detect
@@ -171,6 +193,7 @@ function InventoryManager.UnloadInventory(player: Player)
     RateLimitState[userId] = nil
     ActiveInventories[userId] = nil
     ActiveProfiles[userId] = nil
+    ActiveIndices[userId] = nil
 end
 
 local function freezeInventory(data: InventoryData): InventoryData
@@ -201,12 +224,14 @@ end
 
 function InventoryManager.AddItem(player: Player, templateId: string, itemType: ItemType, rarity: RarityType?, metadata: any): InventoryItem?
     local inventory = ActiveInventories[player.UserId]
-    return Actions.AddItem(player, inventory, templateId, itemType, rarity, metadata, DupedItems)
+    local index = ActiveIndices[player.UserId]
+    return Actions.AddItem(player, inventory, index, templateId, itemType, rarity, metadata, DupedItems)
 end
 
 function InventoryManager.RemoveItem(player: Player, itemId: string): boolean
     local inventory = ActiveInventories[player.UserId]
-    return Actions.RemoveItem(player, inventory, itemId, DupedItems, function(p, s)
+    local index = ActiveIndices[player.UserId]
+    return Actions.RemoveItem(player, inventory, index, itemId, DupedItems, function(p, s)
         return ToolbarActions.RemoveFromToolbar(p, inventory, s)
     end)
 end

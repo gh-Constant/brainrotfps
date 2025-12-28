@@ -41,9 +41,13 @@ end
 --[[
     Adds an item to a player's inventory.
 ]]
+--[[
+    Adds an item to a player's inventory.
+]]
 function Actions.AddItem(
     player: Player,
     inventory: any,
+    index: any?, -- Inventory index cache
     templateId: string,
     itemType: ItemType,
     rarity: RarityType?,
@@ -71,6 +75,15 @@ function Actions.AddItem(
     local item = Inventory.CreateItem(templateId, itemType, rarity, metadata)
     table.insert(inventory.Items, item)
     
+    -- Update Index
+    if index then
+        index.ById[item.Id] = item
+        if not index.ByTemplate[templateId] then
+            index.ByTemplate[templateId] = {}
+        end
+        table.insert(index.ByTemplate[templateId], item)
+    end
+    
     -- Register in global ItemRegistry
     task.spawn(function()
         ItemRegistry.RegisterItem(item.Id, player.UserId, templateId):catch(function(err)
@@ -96,63 +109,98 @@ end
 function Actions.RemoveItem(
     player: Player,
     inventory: any,
+    index: any?, -- Inventory index cache
     itemId: string,
     dupedItems: {[string]: boolean},
     removeFromToolbarCallback: (Player, number) -> boolean -- Callback to avoid circular dependency with ToolbarActions
 ): boolean
     if not inventory then return false end
     
-    local index = Inventory.ItemUtils.FindIndexById(inventory.Items, itemId)
-    if not index then return false end
+    local item: InventoryItem?
+    local arrayIndex: number?
     
-    local item = inventory.Items[index]
+    -- Optimized lookup
+    if index and index.ById[itemId] then
+        item = index.ById[itemId]
+        arrayIndex = table.find(inventory.Items, item)
+    else
+        -- Fallback linear search
+        arrayIndex = Inventory.ItemUtils.FindIndexById(inventory.Items, itemId)
+        if arrayIndex then
+            item = inventory.Items[arrayIndex]
+        end
+    end
+    
+    if not item or not arrayIndex then return false end
+    
     local isStackable = Inventory.IsStackable(item.TemplateId)
     
-    table.remove(inventory.Items, index)
+    table.remove(inventory.Items, arrayIndex)
+    
+    -- Update Index
+    if index then
+        index.ById[itemId] = nil
+        local tList = index.ByTemplate[item.TemplateId]
+        if tList then
+            local tIndex = table.find(tList, item)
+            if tIndex then
+                table.remove(tList, tIndex)
+            end
+        end
+    end
     
     -- Handle toolbar update for stackable items
     if isStackable then
         local foundSlot: number? = nil
-        local remainingCount = 0
         
-        -- Count remaining items
-        for _, invItem in ipairs(inventory.Items) do
-            if invItem.TemplateId == item.TemplateId 
-                and invItem.Type == item.Type 
-                and invItem.Rarity == item.Rarity then
-                remainingCount = remainingCount + 1
-            end
+        -- Get remaining items in stack
+        -- Optimized: Use index if available to narrow search
+        local stackItems = {}
+        if index and index.ByTemplate[item.TemplateId] then
+             -- Filter from cache (much smaller list)
+             for _, candidate in ipairs(index.ByTemplate[item.TemplateId]) do
+                 if Inventory.ItemUtils.AreItemsStackable(item, candidate) then
+                     table.insert(stackItems, candidate)
+                 end
+             end
+        else
+            -- Original scan
+            stackItems = Inventory.ItemUtils.GetStackItems(inventory.Items, item)
         end
         
+        local remainingCount = #stackItems
+        local newReferenceItem = stackItems[1]
+        
         -- Check toolbar
-        for slot, equippedId in pairs(inventory.ToolbarSlots) do
-            if equippedId then
-                local equippedItem = Inventory.FindById(inventory.Items, equippedId)
-                if equippedItem and equippedItem.TemplateId == item.TemplateId 
-                    and equippedItem.Type == item.Type 
-                    and equippedItem.Rarity == item.Rarity then
-                    foundSlot = slot
-                    break
-                elseif equippedId == itemId then
-                    foundSlot = slot
-                    break
+        -- Optimization: Quick check if we have any active toolbar slots
+        local hasToolbarSlots = false
+        for _, _ in pairs(inventory.ToolbarSlots) do hasToolbarSlots = true; break end
+        
+        if hasToolbarSlots then
+            for slot, equippedId in pairs(inventory.ToolbarSlots) do
+                if equippedId then
+                    -- Optimization: Look up equip via index if possible
+                    local equippedItem
+                    if index and index.ById[equippedId] then
+                        equippedItem = index.ById[equippedId]
+                    else
+                        equippedItem = Inventory.FindById(inventory.Items, equippedId)
+                    end
+                    
+                    if equippedItem and Inventory.ItemUtils.AreItemsStackable(equippedItem, item) then
+                        foundSlot = slot
+                        break
+                    elseif equippedId == itemId then
+                        -- Should catch if the specific ID was there (though inconsistent if stackable)
+                        foundSlot = slot
+                        break
+                    end
                 end
             end
         end
         
         if foundSlot then
             if remainingCount > 0 then
-                -- Update reference
-                local newReferenceItem: InventoryItem? = nil
-                for _, invItem in ipairs(inventory.Items) do
-                    if invItem.TemplateId == item.TemplateId 
-                        and invItem.Type == item.Type 
-                        and invItem.Rarity == item.Rarity then
-                        newReferenceItem = invItem
-                        break
-                    end
-                end
-                
                 if newReferenceItem then
                     inventory.ToolbarSlots[foundSlot] = newReferenceItem.Id
                 end

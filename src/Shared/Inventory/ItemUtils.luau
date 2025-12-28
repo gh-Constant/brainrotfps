@@ -243,6 +243,13 @@ end
     @param itemId - The item ID to find
     @return number? - The index or nil
 ]]
+--[[
+    Finds the index of an item by its unique ID.
+    
+    @param items - Array of inventory items
+    @param itemId - The item ID to find
+    @return number? - The index or nil
+]]
 function ItemUtils.FindIndexById(items: {InventoryItem}, itemId: string): number?
     for i, item in ipairs(items) do
         if item.Id == itemId then
@@ -250,6 +257,23 @@ function ItemUtils.FindIndexById(items: {InventoryItem}, itemId: string): number
         end
     end
     return nil
+end
+
+--[[
+    Finds all items that belong to the same stack as the reference item.
+    
+    @param items - Array of inventory items
+    @param referenceItem - The item to match against
+    @return {InventoryItem} - List of matching items
+]]
+function ItemUtils.GetStackItems(items: {InventoryItem}, referenceItem: InventoryItem): {InventoryItem}
+    local stack = {}
+    for _, item in ipairs(items) do
+        if ItemUtils.AreItemsStackable(referenceItem, item) then
+            table.insert(stack, item)
+        end
+    end
+    return stack
 end
 
 return ItemUtils
