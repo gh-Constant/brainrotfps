@@ -500,13 +500,23 @@ end
 --[[
     Equips a tool at the specified slot index.
 ]]
+local lastEquipTime = 0
+local EQUIP_DEBOUNCE = 0.1
+
 local function equipSlot(slotIndex: number)
+    -- Prevent spamming equip which causes network lag
+    local now = tick()
+    if now - lastEquipTime < EQUIP_DEBOUNCE then
+        return
+    end
+    
     local tool = slotOrder[slotIndex]
     if tool then
         local character = LocalPlayer.Character
         local humanoid = character and character:FindFirstChild("Humanoid") :: Humanoid?
         
         if humanoid then
+            lastEquipTime = now
             if equippedTool == tool then
                 humanoid:UnequipTools()
             else

@@ -161,15 +161,31 @@ end
 --[[
     Swaps items between two toolbar slots.
 ]]
+local ActionLocks: {[Player]: boolean} = {}
+
+--[[
+    Swaps items between two toolbar slots.
+]]
 function ToolbarActions.SwapToolbarSlots(player: Player, inventory: any, slot1: number, slot2: number): boolean
     if slot1 < 1 or slot1 > 9 or slot2 < 1 or slot2 > 9 then return false end
     if slot1 == slot2 then return false end
     if not inventory then return false end
     
+    -- Prevent race conditions / spam
+    if ActionLocks[player] then return false end
+    
     local itemId1 = inventory.ToolbarSlots[slot1]
     local itemId2 = inventory.ToolbarSlots[slot2]
     
     if not itemId1 and not itemId2 then return false end
+    
+    -- Lock
+    ActionLocks[player] = true
+    
+    -- Release lock after short delay to allow replication/processing to settle
+    task.delay(0.2, function()
+        ActionLocks[player] = nil
+    end)
     
     -- Helper to remove
     local function removeTool(itemId)

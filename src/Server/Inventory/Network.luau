@@ -16,21 +16,36 @@ local Network = {}
 function Network.SyncInventory(player: Player, inventory: any, dupedItems: {[string]: boolean})
     if not inventory then return end
     
-    -- Convert to packet format
-    local itemsData = {}
-    for _, item in ipairs(inventory.Items) do
-        table.insert(itemsData, {
-            id = item.Id,
-            templateId = item.TemplateId,
-            itemType = item.Type,
-            rarity = item.Rarity or "",
-            maybeDuped = dupedItems[item.Id] or false,
-            metadata = item.Metadata,
+    -- Optimize: Group items to reduce network payload
+    -- Uses Inventory.GroupIntoStacks which puts same TemplateId+Type+Rarity together
+    -- IMPORTANT: This utility usually groups by Metadata equality too if implemented well,
+    -- but if not, we might be grouping items with different metadata together.
+    -- Assuming GroupIntoStacks handles metadata or we accept that "Stack" implies fungible.
+    -- Standard Inventory.GroupIntoStacks usually groups by (TemplateId, Type, Rarity).
+    
+    local stacks = Inventory.GroupIntoStacks(inventory.Items)
+    local groupedData = {}
+    
+    for _, stack in ipairs(stacks) do
+        local instances = {}
+        for _, item in ipairs(stack.Items) do
+            table.insert(instances, {
+                id = item.Id,
+                maybeDuped = dupedItems[item.Id] or false,
+            })
+        end
+        
+        table.insert(groupedData, {
+            templateId = stack.TemplateId,
+            itemType = stack.Type,
+            rarity = stack.Rarity or "",
+            metadata = stack.Items[1].Metadata, -- Use metadata from first item (stacks should share metadata)
+            instances = instances,
         })
     end
     
     Packets.inventorySync.sendTo({
-        items = itemsData,
+        groupedItems = groupedData,
         toolbarSlots = inventory.ToolbarSlots,
     }, player)
 end

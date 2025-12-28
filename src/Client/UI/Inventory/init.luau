@@ -317,19 +317,27 @@ local function onInventorySync(data: any)
     toolbarSlots = {}
     dupedItems = {} -- Reset duped tracking
     
-    for _, itemData in data.items do
-        local item: InventoryItem = {
-            Id = itemData.id,
-            TemplateId = itemData.templateId,
-            Type = itemData.itemType :: Inventory.ItemType,
-            Rarity = if itemData.rarity ~= "" then itemData.rarity :: Inventory.RarityType? else nil,
-            Metadata = itemData.metadata,
-        }
-        table.insert(inventoryData, item)
+    -- [OPTIMIZED] Unpack grouped items from server
+    -- Server sends groups to save bandwidth, we expand them back to flat list for Client use
+    for _, group in data.groupedItems do
+        local templateId = group.templateId
+        local itemType = group.itemType :: Inventory.ItemType
+        local rarity = if group.rarity ~= "" then group.rarity :: Inventory.RarityType? else nil
+        local metadata = group.metadata
         
-        -- Track duped status
-        if itemData.maybeDuped then
-            dupedItems[itemData.id] = true
+        for _, instance in group.instances do
+            local item: InventoryItem = {
+                Id = instance.id,
+                TemplateId = templateId,
+                Type = itemType,
+                Rarity = rarity,
+                Metadata = metadata,
+            }
+            table.insert(inventoryData, item)
+            
+            if instance.maybeDuped then
+                dupedItems[instance.id] = true
+            end
         end
     end
     

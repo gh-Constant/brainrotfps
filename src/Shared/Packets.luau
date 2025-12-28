@@ -86,17 +86,23 @@ return ByteNet.defineNamespace("game", function()
 		
 		-- Inventory sync packet (Server -> Client)
 		-- Full inventory sync when player joins or major changes
+		-- Inventory sync packet (Server -> Client)
+		-- Full inventory sync when player joins or major changes
+		-- [OPTIMIZED] Groups stackable items to save bandwidth
 		inventorySync = ByteNet.definePacket({
 			value = ByteNet.struct({
-				items = ByteNet.array(ByteNet.struct({
-					id = ByteNet.string,
+				groupedItems = ByteNet.array(ByteNet.struct({
 					templateId = ByteNet.string,
 					itemType = ByteNet.string,
-					rarity = ByteNet.string, -- Empty string if no rarity
-					maybeDuped = ByteNet.optional(ByteNet.bool),
-                    metadata = ByteNet.optional(ByteNet.struct({
+					rarity = ByteNet.string,
+					metadata = ByteNet.optional(ByteNet.struct({
                         CustomColor = ByteNet.optional(ByteNet.string),
                         Mutations = ByteNet.optional(ByteNet.map(ByteNet.string, ByteNet.float64)), -- MutationName -> Count
+                    })),
+                    -- List of individual instances for this stack group
+                    instances = ByteNet.array(ByteNet.struct({
+                        id = ByteNet.string,
+                        maybeDuped = ByteNet.bool,
                     })),
 				})),
 				toolbarSlots = ByteNet.map(ByteNet.uint8, ByteNet.string), -- Slot -> ItemId
