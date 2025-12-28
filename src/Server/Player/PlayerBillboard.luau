@@ -56,6 +56,7 @@ end
 export type PlayerBillboardObject = typeof(setmetatable({}, PlayerBillboard)) & {
     Character: Model,
     Billboard: BillboardGui,
+    Highlight: Highlight, -- PVP Highlight
     PlayerNameLabel: TextLabel?,
     LevelLabel: TextLabel?,
     HealthLabel: TextLabel?,
@@ -129,6 +130,17 @@ function PlayerBillboard.new(character: Model, playerData: any): PlayerBillboard
     billboard.Adornee = billboardPart
     billboard.Parent = billboardPart
     
+    -- Create PVP Highlight
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "PVPHighlight"
+    highlight.Adornee = character
+    highlight.FillColor = Color3.fromRGB(255, 0, 0) -- Red
+    highlight.OutlineColor = Color3.fromRGB(255, 100, 100)
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.Enabled = false -- Disabled by default
+    highlight.Parent = character
+
     -- Hide billboard from the local player (only others can see it)
     local player = Players:GetPlayerFromCharacter(character)
     if player then
@@ -139,15 +151,20 @@ function PlayerBillboard.new(character: Model, playerData: any): PlayerBillboard
     if not base then
         warn("[PlayerBillboard] Billboard missing 'Base' frame")
         billboard:Destroy()
+        highlight:Destroy()
         return nil
     end
     
     local self = setmetatable({}, PlayerBillboard)
     self.Character = character
     self.Billboard = billboard
+    self.Highlight = highlight
     self._janitor = Janitor.new()
     self._playerData = playerData
     
+    -- Add highlight to Janitor for cleanup
+    self._janitor:Add(highlight)
+
     -- Find UI components
     -- Player Name
     local playerNameFrame = base:FindFirstChild("PlayerName") :: Frame?
@@ -240,6 +257,11 @@ end
 function PlayerBillboard:UpdatePVPStatus()
     local isPvPEnabled = self.Character:GetAttribute("IsPvPEnabled") == true
     
+    -- Toggle Highlight
+    if self.Highlight then
+        self.Highlight.Enabled = isPvPEnabled
+    end
+
     -- Toggle hostile/peaceful images
     if self.HostileImage then
         self.HostileImage.Visible = isPvPEnabled

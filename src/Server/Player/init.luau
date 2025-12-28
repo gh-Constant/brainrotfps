@@ -179,6 +179,11 @@ local function onPlayerAdded(player: Player)
     creditsValue.Name = "Credits"
     creditsValue.Value = 0
     creditsValue.Parent = leaderstats
+
+    local damageMultiplierValue = Instance.new("NumberValue")
+    damageMultiplierValue.Name = "DamageMultiplier"
+    damageMultiplierValue.Value = 1
+    damageMultiplierValue.Parent = leaderstats
     
     -- Start ProfileStore session
     local profile = PlayerProfileStore:StartSessionAsync(profileKey, {
@@ -343,6 +348,9 @@ local function onPlayerAdded(player: Player)
         -- Double Damage
         if MonetizationService.PerformPassCheck(player, ProductConfig.GamePasses.DoubleDamage.Id) then
             playerData.DamageMultiplier = 2
+            if damageMultiplierValue and damageMultiplierValue.Parent then
+                damageMultiplierValue.Value = 2
+            end
             print(string.format("[PlayerManager] %s owns 2x Damage!", player.Name))
         end
     end)
@@ -476,6 +484,13 @@ function PlayerManager.Init()
             print(string.format("[PlayerManager] Updated %s XP Multiplier to 2", player.Name))
         elseif passId == ProductConfig.GamePasses.DoubleDamage.Id then
             playerData.DamageMultiplier = 2
+            local leaderstats = player:FindFirstChild("leaderstats")
+            if leaderstats then
+                local damageMult = leaderstats:FindFirstChild("DamageMultiplier") :: NumberValue?
+                if damageMult then
+                    damageMult.Value = 2
+                end
+            end
             print(string.format("[PlayerManager] Updated %s Damage Multiplier to 2", player.Name))
         end
     end)

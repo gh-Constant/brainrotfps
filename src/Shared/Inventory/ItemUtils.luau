@@ -54,16 +54,36 @@ end
 
 --[[
     Checks if two items are stackable (same template, type, rarity, AND template is marked stackable).
+    Also checks if Mutations match.
     
     @param item1 - First item
     @param item2 - Second item
     @return boolean - True if items can be stacked together
 ]]
 function ItemUtils.AreItemsStackable(item1: InventoryItem, item2: InventoryItem): boolean
-    return ItemUtils.IsStackable(item1.TemplateId)
+    if not (ItemUtils.IsStackable(item1.TemplateId)
         and item1.TemplateId == item2.TemplateId
         and item1.Type == item2.Type
-        and item1.Rarity == item2.Rarity
+        and item1.Rarity == item2.Rarity) then
+        return false
+    end
+    
+    -- Check mutations deep equality
+    local mutations1 = item1.Metadata and item1.Metadata.Mutations
+    local mutations2 = item2.Metadata and item2.Metadata.Mutations
+    
+    if mutations1 == mutations2 then return true end -- both nil or same ref
+    if not mutations1 or not mutations2 then return false end -- one is nil
+    
+    -- Compare Mutation counts
+    for k, v in pairs(mutations1) do
+        if mutations2[k] ~= v then return false end
+    end
+    for k, v in pairs(mutations2) do
+        if mutations1[k] ~= v then return false end
+    end
+    
+    return true
 end
 
 --[[
@@ -115,11 +135,26 @@ end
 
 --[[
     Generates a stack key for grouping items.
-    Format: "TemplateId|Type|Rarity"
+    Format: "TemplateId|Type|Rarity|MutationHash"
 ]]
 function ItemUtils.GetStackKey(item: InventoryItem): string
     local rarityStr = item.Rarity or "None"
-    return string.format("%s|%s|%s", item.TemplateId, item.Type, rarityStr)
+    
+    -- Generate simple hash for mutations
+    local mutationHash = ""
+    if item.Metadata and item.Metadata.Mutations then
+        local keys = {}
+        for k in pairs(item.Metadata.Mutations) do
+            table.insert(keys, k)
+        end
+        table.sort(keys)
+        
+        for _, k in ipairs(keys) do
+            mutationHash = mutationHash .. k .. ":" .. tostring(item.Metadata.Mutations[k]) .. ";"
+        end
+    end
+    
+    return string.format("%s|%s|%s|%s", item.TemplateId, item.Type, rarityStr, mutationHash)
 end
 
 --[[

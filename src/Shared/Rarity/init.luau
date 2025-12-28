@@ -5,7 +5,10 @@
 ]]
 
 local RarityConfig = require(script.RarityConfig)
-local RarityVisual = require(script.RarityVisual)
+-- RarityVisual was replaced by ColorSystem, redirecting for backward compatibility
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("Rojo"):WaitForChild("Shared")
+local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
 
 -- Re-export types
 export type RarityVisualConfig = RarityConfig.RarityVisualConfig
@@ -13,14 +16,14 @@ export type RarityVisualConfig = RarityConfig.RarityVisualConfig
 return {
     -- Modules
     Config = RarityConfig,
-    Visual = RarityVisual,
+    Visual = ColorSystem,
     
     -- Convenience re-exports
     GetColor = RarityConfig.GetColor,
     GetConfig = RarityConfig.GetConfig,
     IsAnimated = RarityConfig.IsAnimated,
-    ApplyToFrame = RarityVisual.ApplyToFrame,
-    ApplyToHighlight = RarityVisual.ApplyToHighlight,
-    CreateHighlight = RarityVisual.CreateHighlight,
-    StopAnimation = RarityVisual.StopAnimation,
+    ApplyToFrame = ColorSystem.ApplyToFrame,
+    ApplyToHighlight = ColorSystem.ApplyToHighlight,
+    CreateHighlight = ColorSystem.CreateHighlight,
+    StopAnimation = ColorSystem.StopAnimation,
 }

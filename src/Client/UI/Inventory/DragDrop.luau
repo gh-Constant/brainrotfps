@@ -116,12 +116,21 @@ end
 
 --[[
     Checks if a point is inside a frame's bounds.
+    Accounts for GuiInset (top bar offset) since UIDragDetector gives screen position
+    while AbsolutePosition is relative to the GUI area below the top bar.
 ]]
-local function isPointInFrame(point: Vector2, frame: Frame): boolean
+local function isPointInFrame(point: Vector2, frame: GuiObject): boolean
+    local GuiService = game:GetService("GuiService")
+    local guiInset = GuiService:GetGuiInset()
+    
+    -- Adjust point for GuiInset (mouse position includes inset, AbsolutePosition doesn't)
+    local adjustedPoint = Vector2.new(point.X, point.Y - guiInset.Y)
+    
     local pos = frame.AbsolutePosition
     local size = frame.AbsoluteSize
-    return point.X >= pos.X and point.X <= pos.X + size.X
-        and point.Y >= pos.Y and point.Y <= pos.Y + size.Y
+    
+    return adjustedPoint.X >= pos.X and adjustedPoint.X <= pos.X + size.X
+        and adjustedPoint.Y >= pos.Y and adjustedPoint.Y <= pos.Y + size.Y
 end
 
 --[[
@@ -137,17 +146,26 @@ local function findHoveredToolbarSlot(mousePosition: Vector2): (Frame?, number?)
 end
 
 --[[
-    Highlights a slot during hover.
+    Highlights a slot during hover using EXISTING BorderStroke.
+    Changes color to green (valid), red (invalid), or white (default).
 ]]
 local function highlightSlot(slot: Frame, highlight: boolean, valid: boolean?)
-    local stroke = slot:FindFirstChildWhichIsA("UIStroke")
+    -- Find the existing BorderStroke - DO NOT create one
+    local stroke = slot:FindFirstChild("BorderStroke") :: UIStroke?
+    if not stroke then
+        -- Fallback: try any UIStroke
+        stroke = slot:FindFirstChildWhichIsA("UIStroke") :: UIStroke?
+    end
+    
     if stroke then
         if highlight then
-            stroke.Color = valid ~= false and CONFIG.DropHighlightColor or CONFIG.InvalidDropColor
-            stroke.Thickness = 3
+            if valid == true then
+                stroke.Color = Color3.fromRGB(100, 255, 100) -- Green for valid
+            else
+                stroke.Color = Color3.fromRGB(255, 100, 100) -- Red for invalid
+            end
         else
-            stroke.Color = Color3.fromRGB(70, 70, 80)
-            stroke.Thickness = 1
+            stroke.Color = Color3.fromRGB(255, 255, 255) -- White default
         end
     end
 end

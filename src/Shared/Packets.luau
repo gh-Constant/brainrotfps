@@ -56,6 +56,7 @@ return ByteNet.defineNamespace("game", function()
 				config = ByteNet.struct({
 					image = ByteNet.optional(ByteNet.string),
 					color = ByteNet.optional(ByteNet.array(ByteNet.uint8)), -- RGB array
+                    customColor = ByteNet.optional(ByteNet.string),
 					size = ByteNet.optional(ByteNet.array(ByteNet.float32)), -- {scaleX, offsetX, scaleY, offsetY}
 					trailEnabled = ByteNet.optional(ByteNet.bool),
 					trailColor = ByteNet.optional(ByteNet.array(ByteNet.uint8)), -- RGB array
@@ -93,6 +94,10 @@ return ByteNet.defineNamespace("game", function()
 					itemType = ByteNet.string,
 					rarity = ByteNet.string, -- Empty string if no rarity
 					maybeDuped = ByteNet.optional(ByteNet.bool),
+                    metadata = ByteNet.optional(ByteNet.struct({
+                        CustomColor = ByteNet.optional(ByteNet.string),
+                        Mutations = ByteNet.optional(ByteNet.map(ByteNet.string, ByteNet.float64)), -- MutationName -> Count
+                    })),
 				})),
 				toolbarSlots = ByteNet.map(ByteNet.uint8, ByteNet.string), -- Slot -> ItemId
 			}),
@@ -110,6 +115,10 @@ return ByteNet.defineNamespace("game", function()
 					itemType = ByteNet.string,
 					rarity = ByteNet.string,
 					maybeDuped = ByteNet.optional(ByteNet.bool),
+                    metadata = ByteNet.optional(ByteNet.struct({
+                        CustomColor = ByteNet.optional(ByteNet.string),
+                        Mutations = ByteNet.optional(ByteNet.map(ByteNet.string, ByteNet.float64)), -- MutationName -> Count
+                    })),
 				}),
 			}),
 			reliabilityType = "reliable",

@@ -3,5 +3,12 @@ return {
 	Aliases = {"kill", "die"};
 	Description = "Kill yourself instantly.";
 	Group = "Admin";
-	Args = {};
+	Args = {
+        {
+            Type = "player",
+            Name = "target",
+            Description = "The player to kill (optional)",
+            Optional = true,
+        }
+    };
 }

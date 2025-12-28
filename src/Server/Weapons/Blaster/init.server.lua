@@ -24,6 +24,38 @@ local events = ServerScriptService.Blaster.Events
 local taggedEvent = events.Tagged
 local eliminatedEvent = events.Eliminated
 
+-- Mutation System
+local Mutations = require(Shared:WaitForChild("Mutations"))
+local HttpService = game:GetService("HttpService")
+
+local function getMutationStats(blaster: Tool)
+    local stats = {
+        DamageMultiplier = 1,
+        FireRateMultiplier = 1,
+    }
+    
+    local mutationsJson = blaster:GetAttribute("Mutations")
+    if mutationsJson then
+        local success, mutations = pcall(function()
+            return HttpService:JSONDecode(mutationsJson)
+        end)
+        
+        if success and mutations then
+            for name, count in pairs(mutations) do
+                local mutationData = Mutations.GetMutation(name)
+                if mutationData and mutationData.MultiplierModifier then
+                    -- MultiplierModifier is percentage (e.g. 5 = 5%)
+                    -- We add the percentage for each stack
+                    local percentBonus = (mutationData.MultiplierModifier * count) / 100
+                    stats.DamageMultiplier = stats.DamageMultiplier + percentBonus
+                    stats.FireRateMultiplier = stats.FireRateMultiplier + percentBonus
+                end
+            end
+        end
+    end
+    return stats
+end
+
 -- Send damage indicator to the shooter client
 local function sendDamageIndicator(player: Player, position: Vector3, damage: number, didDamage: boolean, target: Model?)
 	Packets.damageIndicator.sendTo({
@@ -72,15 +104,15 @@ local function onShootEvent(
 	local range = blaster:GetAttribute(Constants.RANGE_ATTRIBUTE)
 	local rayRadius = blaster:GetAttribute(Constants.RAY_RADIUS_ATTRIBUTE)
 
-	-- Get damage based on player level instead of weapon attribute
-	local damage = getPlayerLevel(player) * 3
+	-- Get base damage based on player level
+	local baseDamage = 10 + getPlayerLevel(player) * 1 -- 1 damage per level
 	
-	-- Apply Damage Multiplier
+	local mutationStats = getMutationStats(blaster)
+	baseDamage = baseDamage * mutationStats.DamageMultiplier
+	
 	local PlayerManager = require(script.Parent.Parent.Player)
 	local playerData = PlayerManager.GetPlayerData(player)
-	if playerData then
-		damage = damage * playerData.DamageMultiplier
-	end
+	local damageMultiplier = if playerData then playerData.DamageMultiplier else 1
 	
 	local ammo = blaster:GetAttribute(Constants.AMMO_ATTRIBUTE)
 	blaster:SetAttribute(Constants.AMMO_ATTRIBUTE, ammo - 1)
@@ -127,17 +159,18 @@ local function onShootEvent(
 			local modelPosition = model:GetPivot().Position
 			local distance = (modelPosition - origin.Position).Magnitude
 			rayResult.position = origin.Position + rayDirection.Unit * distance
-		end
 
-		-- USE CUSTOM HEALTH SYSTEM WITH ATTRIBUTES
-		if model then
 			if model:GetAttribute("IsDead") then
 				continue
 			end
 
+			-- Determine final damage: Multiplier only applies to mobs (NOT players)
+			local targetPlayer = Players:GetPlayerFromCharacter(model)
+			local finalDamage = if targetPlayer then baseDamage else baseDamage * damageMultiplier
+
 			local currentHP = model:GetAttribute("Health") or 0
 			local healthComponent = Health.Get(model)
-			healthComponent:TakeDamage(damage, player)
+			healthComponent:TakeDamage(finalDamage, player)
 
 			local newHP = model:GetAttribute("Health") or 0
 			local didDamage = newHP < currentHP
@@ -155,12 +188,12 @@ local function onShootEvent(
 			end
 			
 			-- Send damage indicator to shooter client (with target model for highlight)
-			sendDamageIndicator(player, indicatorPos, damage, didDamage, model)
+			sendDamageIndicator(player, indicatorPos, finalDamage, didDamage, model)
 
-			taggedEvent:Fire(player, taggedHumanoid, damage)
+			taggedEvent:Fire(player, taggedHumanoid, finalDamage)
 
 			if newHP <= 0 and currentHP > 0 then
-				eliminatedEvent:Fire(player, taggedHumanoid, damage)
+				eliminatedEvent:Fire(player, taggedHumanoid, finalDamage)
 			end
 		end
 	end

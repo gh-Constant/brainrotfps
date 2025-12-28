@@ -52,9 +52,11 @@ local function updateStats()
         creditsLabel.Text = "Credits: " .. formatNumber(creditsValue)
     end
     
-    -- Update Damage (3x Level)
+    -- Update Damage (3x Level * Multiplier)
     if damageLabel then
-        local damage = level * 3
+        local multiplierValue = leaderstats:FindFirstChild("DamageMultiplier")
+        local multiplier = multiplierValue and multiplierValue.Value or 1
+        local damage = level * 3 * multiplier
         damageLabel.Text = "Damage: " .. formatNumber(damage)
     end
 end
@@ -85,16 +87,20 @@ function StatsDisplay.Init(context: any)
         end
         return leaderstats
     end):andThen(function(leaderstats)
-        local levelValue = leaderstats:WaitForChild("Level", 5)
-        local goldValue = leaderstats:WaitForChild("Gold", 5)
-        local creditsValue = leaderstats:WaitForChild("Credits", 5)
+        -- Wait for critical values
+        local levelValue = leaderstats:WaitForChild("Level", 10)
+        local goldValue = leaderstats:WaitForChild("Gold", 10)
+        local creditsValue = leaderstats:WaitForChild("Credits", 10)
+        local damageMultiplierValue = leaderstats:WaitForChild("DamageMultiplier", 10)
         
+        -- Initial Update
         updateStats()
         
         -- Use Janitor for value connections
         if levelValue then valueJanitor:Add(levelValue.Changed:Connect(updateStats)) end
         if goldValue then valueJanitor:Add(goldValue.Changed:Connect(updateStats)) end
         if creditsValue then valueJanitor:Add(creditsValue.Changed:Connect(updateStats)) end
+        if damageMultiplierValue then valueJanitor:Add(damageMultiplierValue.Changed:Connect(updateStats)) end
         
         -- Link to leaderstats for automatic cleanup
         valueJanitor:LinkToInstance(leaderstats)

@@ -26,7 +26,11 @@ export type InventoryItem = {
     TemplateId: string,
     Type: ItemType,
     Rarity: RarityType?,
-    Metadata: {[string]: any}?,
+    Metadata: {
+        CustomColor: string?,
+        Mutations: {[string]: number}?, -- MutationName -> Count
+        [string]: any,
+    }?,
 }
 
 --[[

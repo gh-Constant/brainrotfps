@@ -47,7 +47,7 @@ type RarityType = Inventory.RarityType
 type Signal = typeof(Signal.new())
 
 -- ProfileStore configuration (separate from player data for modularity)
-local STORE_NAME = "InventoryData_v3"
+local STORE_NAME = "InventoryData_v4"
 local DATA_TEMPLATE: InventoryData = {
     Items = {},
     ToolbarSlots = {},
@@ -100,6 +100,7 @@ local function syncInventoryToClient(player: Player)
             itemType = item.Type,
             rarity = item.Rarity or "",
             maybeDuped = DupedItems[item.Id] or false,
+            metadata = item.Metadata,
         })
     end
     
@@ -121,6 +122,7 @@ local function sendInventoryUpdate(player: Player, action: string, item: Invento
             itemType = item.Type,
             rarity = item.Rarity or "",
             maybeDuped = DupedItems[item.Id] or false,
+            metadata = item.Metadata,
         },
     }, player)
 end
@@ -201,6 +203,16 @@ function InventoryManager.LoadInventory(player: Player)
         -- Setup profile
         profile:Reconcile()
         profile:AddUserId(userId)
+        
+        -- Fix ToolbarSlots string keys (JSON deserialization issue)
+        local fixedToolbarSlots = {}
+        for k, v in pairs(profile.Data.ToolbarSlots) do
+            local numKey = tonumber(k)
+            if numKey then
+                fixedToolbarSlots[numKey] = v
+            end
+        end
+        profile.Data.ToolbarSlots = fixedToolbarSlots
         
         -- Handle session end
         profile.OnSessionEnd:Connect(function()
@@ -288,6 +300,12 @@ function InventoryManager.SpawnToolbarTools(player: Player)
                             toolClone:SetAttribute("StackCount", stackCount)
                             toolClone:SetAttribute("StackTemplateId", item.TemplateId)
                             toolClone:SetAttribute("IsStackable", true)
+                        end
+                        
+                        -- Apply Mutations/Metadata
+                        if item.Metadata and item.Metadata.Mutations then
+                            local HttpService = game:GetService("HttpService")
+                            toolClone:SetAttribute("Mutations", HttpService:JSONEncode(item.Metadata.Mutations))
                         end
                         
                         toolClone.Parent = backpack
@@ -632,6 +650,12 @@ function InventoryManager.AssignToToolbar(player: Player, itemId: string, slot: 
                             toolClone:SetAttribute("StackTemplateId", item.TemplateId)
                             toolClone:SetAttribute("IsStackable", true)
                         end
+                        
+                        -- Apply Mutations/Metadata
+                        if item.Metadata and item.Metadata.Mutations then
+                            local HttpService = game:GetService("HttpService")
+                            toolClone:SetAttribute("Mutations", HttpService:JSONEncode(item.Metadata.Mutations))
+                        end
                         toolClone.Parent = backpack
                         log(string.format("[InventoryManager] Spawned %s in %s's backpack (slot %d, stack: %d)", 
                             item.TemplateId, player.Name, slot, #stackItemIds))
@@ -713,6 +737,13 @@ function InventoryManager.SwapToolbarSlots(player: Player, slot1: number, slot2:
         local toolClone = toolTemplate:Clone()
         toolClone:SetAttribute("InventoryItemId", itemId)
         toolClone:SetAttribute("ToolbarSlot", slot)
+        
+        -- Apply Mutations/Metadata
+        if item.Metadata and item.Metadata.Mutations then
+            local HttpService = game:GetService("HttpService")
+            toolClone:SetAttribute("Mutations", HttpService:JSONEncode(item.Metadata.Mutations))
+        end
+        
         toolClone.Parent = backpack
     end
     

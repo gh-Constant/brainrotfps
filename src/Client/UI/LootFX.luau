@@ -26,6 +26,7 @@ local SoundService = game:GetService("SoundService")
 
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
 local Packets = require(Rojo:WaitForChild("Shared"):WaitForChild("Packets"))
+local ColorSystem = require(Rojo:WaitForChild("Shared"):WaitForChild("Inventory"):WaitForChild("ColorSystem"))
 
 -- Get pickup sound reference
 local function getPickupSound(): Sound?
@@ -137,7 +138,7 @@ end
 -- TEMPLATE CREATION
 -- ==========================================================
 
-local function createCoinTemplate(imageId: string, color: Color3, trailColor: Color3): Part
+local function createCoinTemplate(imageId: string, color: Color3, trailColor: Color3, gradient: ColorSequence?): Part
 	local coinPart = Instance.new("Part")
 	coinPart.Name = "LootFXCoin"
 	coinPart.Shape = Enum.PartType.Ball
@@ -166,7 +167,17 @@ local function createCoinTemplate(imageId: string, color: Color3, trailColor: Co
 	img.Image = imageId
 	img.ImageColor3 = color
 	img.ScaleType = Enum.ScaleType.Fit
+	img.ScaleType = Enum.ScaleType.Fit
 	img.Parent = bbGui
+	
+	if gradient then
+		local uiGradient = Instance.new("UIGradient")
+		uiGradient.Color = gradient
+		uiGradient.Parent = img
+		
+		-- Use white for image if gradient is applied so gradient shows true colors
+		img.ImageColor3 = Color3.new(1, 1, 1)
+	end
 	
 	-- Trail attachments
 	local attach0 = Instance.new("Attachment")
@@ -210,6 +221,7 @@ export type LootConfig = {
 	targetPart: BasePart?,
 	image: string?,
 	color: { number }?, -- RGB array
+    customColor: string?,
 	trailColor: { number }?, -- RGB array
 	trailEnabled: boolean?,
 	count: number?,
@@ -225,7 +237,19 @@ function LootFX.SpawnLoot(config: LootConfig)
 	
 	-- Parse colors
 	local color = Color3.fromRGB(255, 255, 255)
-	if config.color then
+    local useColorSystem = false
+    local gradient: ColorSequence? = nil
+    
+    if config.customColor and config.customColor ~= "" then
+        local colorConfig = ColorSystem.GetColorConfig(config.customColor)
+        if colorConfig then
+            color = colorConfig.Color
+            gradient = colorConfig.Gradient
+            useColorSystem = true
+        end
+    end
+    
+	if not useColorSystem and config.color then
 		color = Color3.fromRGB(config.color[1], config.color[2], config.color[3])
 	end
 	
@@ -239,7 +263,7 @@ function LootFX.SpawnLoot(config: LootConfig)
 	
 	-- Create template
 	local imageId = config.image or ""
-	local coinTemplate = createCoinTemplate(imageId, color, trailColor)
+	local coinTemplate = createCoinTemplate(imageId, color, trailColor, gradient)
 	
 	-- Get effects folder
 	local fxFolder = getEffectsFolder()
@@ -424,6 +448,7 @@ function LootFX.Init()
 			position = position,
 			image = data.config.image,
 			color = data.config.color,
+            customColor = data.config.customColor,
 			trailColor = data.config.trailColor,
 			trailEnabled = data.config.trailEnabled,
 			count = data.config.count or 5,

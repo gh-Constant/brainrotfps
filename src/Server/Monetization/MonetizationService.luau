@@ -78,16 +78,25 @@ end
     @return boolean
 ]]
 function MonetizationService.PerformPassCheck(player: Player, passId: number): boolean
-    local success, owns = pcall(function()
-        return MarketplaceService:UserOwnsGamePassAsync(player.UserId, passId)
-    end)
-    
-    if success then
-        return owns
-    else
-        warn(string.format("[MonetizationService] Failed to check pass %d for %s", passId, player.Name))
-        return false
+    local RETRY_COUNT = 3
+    local RETRY_DELAY = 1
+
+    for i = 1, RETRY_COUNT do
+        local success, owns = pcall(function()
+            return MarketplaceService:UserOwnsGamePassAsync(player.UserId, passId)
+        end)
+        
+        if success then
+            return owns
+        else
+            warn(string.format("[MonetizationService] Failed to check pass %d for %s (Attempt %d/%d)", passId, player.Name, i, RETRY_COUNT))
+            if i < RETRY_COUNT then
+                task.wait(RETRY_DELAY)
+            end
+        end
     end
+    
+    return false
 end
 
 return MonetizationService

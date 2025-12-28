@@ -8,6 +8,17 @@
     - Toggle visibility from inventory button
     - Syncs with server via ByteNet
     - ViewportFrame 3D model display
+    
+    New UI Hierarchy:
+    Inventory [ScreenGui]
+    └── Hub [Frame]
+        ├── ItemSlots [Frame]
+        │   └── ListLayout [Frame] (Slot1..Slot9)
+        ├── Base [Frame]
+        │   ├── Close [ImageButton]
+        │   ├── Panel [ScrollingFrame] (main inventory grid)
+        │   └── NavBar, InfoPanel (not implemented yet)
+        └── UIScale, UIAspectRatioConstraint
 ]]
 
 local Players = game:GetService("Players")
@@ -22,7 +33,8 @@ local Signal = require(Packages:WaitForChild("signal"))
 
 local Inventory = require(Shared:WaitForChild("Inventory"))
 local Packets = require(Shared:WaitForChild("Packets"))
-local RarityVisual = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityVisual"))
+local RarityConfig = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig"))
+local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
 local ItemSlot = require(script.ItemSlot)
 local DragDrop = require(script.DragDrop)
 
@@ -53,7 +65,7 @@ local InventoryUI = {}
 
 -- State
 local isOpen = false
-local inventoryFrame: Frame? = nil
+local hubFrame: Frame? = nil
 local slotsContainer: ScrollingFrame? = nil
 local itemSlots: {ItemSlot.ItemSlot} = {}
 local inventoryData: {InventoryItem} = {}
@@ -62,23 +74,11 @@ local dupedItems: {[string]: boolean} = {} -- itemId -> maybeDuped
 local toolbarSlotFrames: {Frame} = {}
 local screenGui: ScreenGui? = nil
 local janitor: Janitor = Janitor.new()
-local slotTemplate: Frame? = nil -- Added slot template
-
--- Info Panel State
-local infoTitle: TextLabel? = nil
-local infoIcon: ImageLabel? = nil
-local infoDesc: TextLabel? = nil
-local infoItemId: TextLabel? = nil -- Item ID display
-local consumeButton: GuiButton? = nil -- Consume button
-local _infoStats: Frame? = nil
-local _selectedItem: ItemSlotData? = nil
+local slotTemplate: GuiObject? = nil -- Slot template from Config
 
 -- Events
 InventoryUI.OnItemClicked = Signal.new()
 InventoryUI.OnToggled = Signal.new()
-
--- UI Constants
--- (Removed as we are using existing UI)
 
 --------------------------------------------------------------------------------
 -- Private Functions
@@ -91,7 +91,7 @@ local updateIntegratedToolbar
     Gets the display name for an item.
     Checks Config for "DisplayName" attribute, falls back to templateId.
 ]]
-local function getDisplayName(templateId: string): string
+local function _getDisplayName(templateId: string): string
     local config = ReplicatedStorage:FindFirstChild("Config")
     if config then
         local items = config:FindFirstChild("Items")
@@ -121,72 +121,7 @@ local function getDisplayName(templateId: string): string
     return templateId
 end
 
---[[
-    Consumes an item (removes one from stack).
-]]
-local function consumeItem(itemData: ItemSlotData)
-    local itemId = itemData.ItemIds[1]
-    if not itemId then
-        warn("[Inventory] Cannot consume item: no item ID")
-        return
-    end
-    
-    log(string.format("[Inventory] Consuming item: %s (ID: %s)", itemData.TemplateId, itemId))
-    
-    -- Send consume packet to server (removes one item from inventory)
-    Packets.inventoryAction.send({ 
-        action = "Consume", 
-        itemId = itemId,
-    })
-end
 
---[[
-    Updates the Info Panel with item details.
-]]
-local function updateInfoPanel(itemData: ItemSlotData?)
-    if not infoTitle or not infoIcon or not infoDesc then return end
-    
-    if not itemData then
-        -- Default/Empty State
-        infoTitle.Text = "Select an Item"
-        infoIcon.Image = "rbxassetid://6031763426" -- Default icon
-        infoDesc.Text = "Click on an item to see more details."
-        infoIcon.ImageTransparency = 0.5
-        _selectedItem = nil
-        -- Reset title color to default
-        RarityVisual.ApplyToText(infoTitle, nil)
-        return
-    end
-    
-    -- Populate Data
-    infoTitle.Text = getDisplayName(itemData.TemplateId)
-    infoIcon.Image = "rbxassetid://6031763426" -- Placeholder
-    infoIcon.ImageTransparency = 0
-    
-    -- Apply rarity color effect to the title
-    RarityVisual.ApplyToText(infoTitle, itemData.Rarity)
-    
-    -- Generate description based on type/rarity
-    local desc = string.format("Type: <font color='#88ccff'>%s</font>\n", itemData.Type)
-    desc = desc .. string.format("Rarity: <font color='#ccaaff'>%s</font>\n", itemData.Rarity or "Common")
-    
-    if itemData.Count > 1 then
-        desc = desc .. string.format("Count: <b>%d</b>\n", itemData.Count)
-    end
-    
-    infoDesc.Text = desc
-    _selectedItem = itemData
-    
-    -- Update Item ID display
-    if infoItemId then
-        infoItemId.Text = itemData.ItemIds[1] or ""
-    end
-    
-    -- Update Consume button visibility
-    if consumeButton then
-        consumeButton.Visible = (itemData.Type == "Consumable")
-    end
-end
 
 --[[
     Converts inventory items to slot display data.
@@ -245,7 +180,9 @@ local function getItemsForDisplay(): {ItemSlotData}
             ItemIds = itemIds,
             IsEquipped = equippedSlot ~= nil,
             EquippedSlot = equippedSlot,
+            EquippedSlot = equippedSlot,
             MaybeDuped = anyDuped,
+            Metadata = stack.Items[1].Metadata,
         })
     end
     
@@ -260,7 +197,9 @@ local function getItemsForDisplay(): {ItemSlotData}
             ItemIds = {item.Id},
             IsEquipped = equippedSlot ~= nil,
             EquippedSlot = equippedSlot,
+            EquippedSlot = equippedSlot,
             MaybeDuped = dupedItems[item.Id] or false,
+            Metadata = item.Metadata,
         })
     end
     
@@ -287,7 +226,7 @@ local function refreshDisplay()
     -- Create more slots if needed
     while #itemSlots < requiredSlots do
         -- Pass the stored slotTemplate if available
-        local slot = ItemSlot.new(slotsContainer, slotTemplate)
+        local slot = ItemSlot.new(slotsContainer, slotTemplate :: any)
         slot.Frame.LayoutOrder = #itemSlots + 1
         
         -- Click handler
@@ -303,8 +242,8 @@ local function refreshDisplay()
         end)
         
         -- Delete handler
-        slot.OnDeleteClicked:Connect(function(itemData)
-            local itemId = itemData.ItemIds[1]
+        slot.OnDeleteClicked:Connect(function(slotItemData)
+            local itemId = slotItemData.ItemIds[1]
             if itemId then
                 log("[InventoryUI] Deleting item: " .. itemId)
                 Packets.inventoryAction.send({
@@ -324,6 +263,8 @@ local function refreshDisplay()
             local data = itemData[i]
             slot:SetData(data)
             slot.Frame.Visible = true
+            
+
             
             -- Make draggable (remove old detector first)
             local oldDetector = slot.Frame:FindFirstChild("ItemDragDetector")
@@ -367,7 +308,7 @@ local function onInventorySync(data: any)
             TemplateId = itemData.templateId,
             Type = itemData.itemType :: Inventory.ItemType,
             Rarity = if itemData.rarity ~= "" then itemData.rarity :: Inventory.RarityType? else nil,
-            Metadata = nil,
+            Metadata = itemData.metadata,
         }
         table.insert(inventoryData, item)
         
@@ -382,6 +323,14 @@ local function onInventorySync(data: any)
     end
     
     refreshDisplay()
+    
+    -- Sync integrated toolbar immediately
+    updateIntegratedToolbar()
+    
+    -- Refresh main HUD toolbar
+    if Toolbar and Toolbar.Refresh then
+        Toolbar.Refresh()
+    end
 end
 
 --[[
@@ -399,7 +348,7 @@ local function onInventoryUpdate(data: any)
             TemplateId = itemData.templateId,
             Type = itemData.itemType :: Inventory.ItemType,
             Rarity = if itemData.rarity ~= "" then itemData.rarity :: Inventory.RarityType? else nil,
-            Metadata = nil,
+            Metadata = itemData.metadata,
         }
         table.insert(inventoryData, item)
         
@@ -423,6 +372,9 @@ local function onInventoryUpdate(data: any)
     -- Refresh hotbar to reflect changes (e.g. removed items)
     task.delay(0.2, function()
         updateIntegratedToolbar()
+        if Toolbar and Toolbar.Refresh then
+            Toolbar.Refresh()
+        end
     end)
 end
 
@@ -502,58 +454,37 @@ updateIntegratedToolbar = function()
     for i, slotFrame in ipairs(toolbarSlotFrames) do
         local data = toolbarData[i]
         
-        -- Clear existing content (except hotkey label and border/corner)
-        -- We only clear specific types we created to avoid destroying user's layout elements?
-        -- For now, sticking to the current logic but ensuring new elements are on TOP.
-        for _, child in slotFrame:GetChildren() do
-            if child.Name ~= "Hotkey" and not child:IsA("UICorner") and not child:IsA("UIStroke") and not child:IsA("UIGradient") then
-                child:Destroy()
-            end
-        end
+        -- All elements are directly on the slot frame now
+        -- No "Background" child check needed as per user request
+        
+        -- Get sub-elements
+        local toolIcon = slotFrame:FindFirstChild("ToolIcon") :: ImageLabel?
+        local hotkeyLabel = slotFrame:FindFirstChild("HotkeyLabel") :: TextLabel?
+        local quantityLabel = slotFrame:FindFirstChild("QuantityLabel") :: TextLabel?
+        local nameLabel = slotFrame:FindFirstChild("ToolNameLabel") :: TextLabel?
+        local eventsLabel = slotFrame:FindFirstChild("EventsLabel") :: TextLabel?
         
         if data and data.Tool then
             local tool = data.Tool
             
-            -- Create icon for the tool
-            local icon = Instance.new("ImageLabel")
-            icon.Name = "ToolIcon"
-            icon.Size = UDim2.fromScale(0.7, 0.7)
-            icon.Position = UDim2.fromScale(0.5, 0.5)
-            icon.AnchorPoint = Vector2.new(0.5, 0.5)
-            icon.BackgroundTransparency = 1
-            
-            -- Handle TextureId
-            local textureId = tool.TextureId
-            if textureId and textureId ~= "" and not string.find(textureId, "://") then
-                textureId = "rbxassetid://" .. textureId
+            -- Update icon
+            if toolIcon then
+                local textureId = tool.TextureId
+                if textureId and textureId ~= "" and not string.find(textureId, "://") then
+                    textureId = "rbxassetid://" .. textureId
+                end
+                toolIcon.Image = if textureId and textureId ~= "" then textureId else "rbxassetid://6031763426"
+                toolIcon.Visible = true
             end
-            icon.Image = if textureId and textureId ~= "" then textureId else "rbxassetid://6031763426"
             
-            icon.ScaleType = Enum.ScaleType.Fit
-            icon.ZIndex = 50 -- Ensure it renders above background
-            icon.Parent = slotFrame
+            -- Update name
+            if nameLabel then
+                local toolDisplayName = tool:GetAttribute("DisplayName")
+                nameLabel.Text = if toolDisplayName and toolDisplayName ~= "" then toolDisplayName else tool.Name
+                nameLabel.Visible = true
+            end
             
-            -- Add tool name label (Tiny)
-            local nameLabel = Instance.new("TextLabel")
-            nameLabel.Name = "ToolName"
-            nameLabel.Size = UDim2.fromScale(1, 0.2)
-            nameLabel.Position = UDim2.fromScale(0.5, 0.85)
-            nameLabel.AnchorPoint = Vector2.new(0.5, 0)
-            nameLabel.BackgroundTransparency = 1
-            nameLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-            nameLabel.TextScaled = true
-            nameLabel.Font = Enum.Font.GothamBold
-            
-            -- Check for DisplayName attribute on the tool itself, fallback to Name
-            local toolDisplayName = tool:GetAttribute("DisplayName")
-            nameLabel.Text = if toolDisplayName and toolDisplayName ~= "" then toolDisplayName else tool.Name
-            
-            nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-            nameLabel.ZIndex = 51
-            nameLabel.Parent = slotFrame
-            
-            -- Show stack count using existing QuantityLabel from template
-            local quantityLabel = slotFrame:FindFirstChild("QuantityLabel") :: TextLabel?
+            -- Show stack count
             if quantityLabel then
                 local stackCount = tool:GetAttribute("StackCount")
                 if stackCount and stackCount > 1 then
@@ -565,48 +496,122 @@ updateIntegratedToolbar = function()
                 end
             end
             
-            -- Mark if it's from inventory (green badge = can be moved)
-            if data.InventoryItemId then
-                local inventoryBadge = Instance.new("Frame")
-                inventoryBadge.Name = "InventoryBadge"
-                inventoryBadge.Size = UDim2.fromScale(0.15, 0.15)
-                inventoryBadge.SizeConstraint = Enum.SizeConstraint.RelativeXX
-                inventoryBadge.Position = UDim2.fromScale(0.85, 0.05)
-                inventoryBadge.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
-                inventoryBadge.BorderSizePixel = 0
-                inventoryBadge.ZIndex = 52
-                inventoryBadge.Parent = slotFrame
+            -- Update EventsLabel
+            if eventsLabel then
+                local foundMutations = nil
                 
-                local badgeCorner = Instance.new("UICorner")
-                badgeCorner.CornerRadius = UDim.new(1, 0)
-                badgeCorner.Parent = inventoryBadge
-                
-                -- Make this toolbar slot draggable (to remove from toolbar)
-                if screenGui then
-                    DragDrop.MakeToolbarSlotDraggable(
-                        slotFrame,
-                        i,
-                        data.InventoryItemId,
-                        tool.Name,
-                        screenGui
-                    )
+                -- Check inventory data first
+                if data.InventoryItemId then
+                    for _, invItem in inventoryData do
+                        if invItem.Id == data.InventoryItemId then
+                            if invItem.Metadata and invItem.Metadata.Mutations then
+                                foundMutations = invItem.Metadata.Mutations
+                            end
+                            break
+                        end
+                    end
                 end
-            else
-                -- Red badge = cannot be moved (not from inventory)
-                local lockedBadge = Instance.new("Frame")
-                lockedBadge.Name = "LockedBadge"
-                lockedBadge.Size = UDim2.fromScale(0.15, 0.15)
-                lockedBadge.SizeConstraint = Enum.SizeConstraint.RelativeXX
-                lockedBadge.Position = UDim2.fromScale(0.85, 0.05)
-                lockedBadge.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
-                lockedBadge.BorderSizePixel = 0
-                lockedBadge.ZIndex = 52
-                lockedBadge.Parent = slotFrame
                 
-                local badgeCorner = Instance.new("UICorner")
-                badgeCorner.CornerRadius = UDim.new(1, 0)
-                badgeCorner.Parent = lockedBadge
+                -- Fallback to tool attribute
+                if not foundMutations then
+                    local mutJson = tool:GetAttribute("Mutations") :: string?
+                    if mutJson and mutJson ~= "" then
+                         local HttpService = game:GetService("HttpService")
+                         pcall(function()
+                             foundMutations = HttpService:JSONDecode(mutJson)
+                         end)
+                    end
+                end
+
+                 if foundMutations then
+                     local count = 0
+                     for _ in pairs(foundMutations) do
+                         count = count + 1
+                     end
+                     if count > 0 then
+                        eventsLabel.Text = tostring(count) .. " " .. (count == 1 and "Event" or "Events")
+                        eventsLabel.Visible = true
+                     else
+                        eventsLabel.Text = ""
+                        eventsLabel.Visible = false
+                     end
+                 else
+                     eventsLabel.Text = ""
+                     eventsLabel.Visible = false
+                 end
             end
+
+            -- Apply rarity visuals
+            local rarity: string? = nil
+            local customColor: string? = nil
+            
+            if data.InventoryItemId then
+                -- Find the item in inventoryData to get its actual rarity
+                for _, invItem in inventoryData do
+                    if invItem.Id == data.InventoryItemId then
+                        rarity = invItem.Rarity :: string?
+                        if invItem.Metadata and invItem.Metadata.CustomColor then
+                            customColor = invItem.Metadata.CustomColor
+                        end
+                        break
+                    end
+                end
+            end
+            -- Fallback to tool attribute if no inventory item found
+            if not rarity or rarity == "" then
+                rarity = tool:GetAttribute("Rarity") :: string?
+            end
+            if not customColor or customColor == "" then
+                customColor = tool:GetAttribute("CustomColor") :: string?
+            end
+            
+            local style = customColor
+            if not style or style == "" then
+                style = RarityConfig.RarityToStyle[rarity]
+            end
+            
+            -- Apply visuals to Frame (Background Gradient + Stroke)
+            ColorSystem.ApplyToBackground(slotFrame, style)
+            ColorSystem.ApplyToFrame(slotFrame, style, {StrokeThickness = 2})
+            
+            -- Make this toolbar slot draggable (to remove from toolbar) if from inventory
+            if screenGui and data.InventoryItemId then
+                DragDrop.MakeToolbarSlotDraggable(
+                    slotFrame,
+                    i,
+                    data.InventoryItemId,
+                    tool.Name,
+                    screenGui
+                )
+            end
+        else
+            -- Empty slot
+            if toolIcon then
+                toolIcon.Image = ""
+                toolIcon.Visible = false
+            end
+            if nameLabel then
+                nameLabel.Text = ""
+                nameLabel.Visible = false
+            end
+            if quantityLabel then
+                quantityLabel.Text = ""
+                quantityLabel.Visible = false
+            end
+            if eventsLabel then
+                eventsLabel.Text = ""
+                eventsLabel.Visible = false
+            end
+            
+            -- Reset gradient to default
+            ColorSystem.ApplyToBackground(slotFrame, nil)
+            ColorSystem.ApplyToFrame(slotFrame, nil)
+        end
+        
+        -- Always show hotkey
+        if hotkeyLabel then
+            hotkeyLabel.Text = tostring(i)
+            hotkeyLabel.Visible = true
         end
     end
 end
@@ -627,8 +632,8 @@ function InventoryUI.Toggle(open: boolean?)
     
     isOpen = open
     
-    if inventoryFrame then
-        inventoryFrame.Visible = isOpen
+    if hubFrame then
+        hubFrame.Visible = isOpen
     end
     
     -- Hide/show main toolbar when inventory opens/closes
@@ -702,25 +707,36 @@ end
 --[[
     Initializes the inventory UI by binding to existing instances.
     
+    New Hierarchy:
+    Inventory [ScreenGui]
+    └── Hub [Frame]
+        ├── ItemSlots [Frame]
+        │   └── ListLayout [Frame] (Slot1..Slot9)
+        ├── Base [Frame]
+        │   ├── Close [ImageButton]
+        │   └── Panel [ScrollingFrame]
+        └── UIScale
+    
     @param context - ClientContext with PlayerGui
 ]]
 function InventoryUI.Init(context: any)
     local playerGui = context.PlayerGui :: PlayerGui
     
-    -- Find existing UI
-    local existingScreenGui = playerGui:WaitForChild("InventoryUI", 10)
+    -- Find existing UI (new hierarchy: "Inventory" instead of "InventoryUI")
+    local existingScreenGui = playerGui:WaitForChild("Inventory", 10)
     if not existingScreenGui then
-        warn("[InventoryUI] Failed to find InventoryUI in PlayerGui")
+        warn("[InventoryUI] Failed to find Inventory ScreenGui in PlayerGui")
         return
     end
     screenGui = existingScreenGui :: ScreenGui
     
-    inventoryFrame = screenGui:WaitForChild("InventoryPanel") :: Frame
-    inventoryFrame.Visible = false -- Start hidden
+    -- Hub is the main frame
+    hubFrame = screenGui:WaitForChild("Hub") :: Frame
+    hubFrame.Visible = false -- Start hidden
     
-    -- Bind Content Area
-    local contentArea = inventoryFrame:WaitForChild("ContentArea")
-    slotsContainer = contentArea:WaitForChild("GridContainer") :: ScrollingFrame
+    -- Bind Panel (main inventory grid)
+    local base = hubFrame:WaitForChild("Base") :: Frame
+    slotsContainer = base:WaitForChild("Panel") :: ScrollingFrame
     
     -- Load slot template from Config
     local Config = ReplicatedStorage:WaitForChild("Config", 5)
@@ -730,7 +746,7 @@ function InventoryUI.Init(context: any)
             local templates = inventoryConfig:WaitForChild("Templates", 2)
             if templates then
                 local tmpl = templates:WaitForChild("ItemSlot", 2)
-                if tmpl and tmpl:IsA("Frame") then
+                if tmpl and tmpl:IsA("ImageLabel") then
                     slotTemplate = tmpl
                     log("[InventoryUI] Loaded ItemSlot template from Config.Inventory.Templates")
                 end
@@ -739,85 +755,127 @@ function InventoryUI.Init(context: any)
     end
     
     if not slotTemplate then
-        warn("[InventoryUI] Failed to load ItemSlot template from Config! Checking Container fallback...")
-        -- Fallback: Check for slot template in ScanList
-        local existingTemplate = slotsContainer:FindFirstChild("ItemSlot") 
-                              or slotsContainer:FindFirstChildWhichIsA("Frame")
+        warn("[InventoryUI] Failed to load ItemSlot template from Config! Checking Panel fallback...")
+        -- Fallback: Check for slot template in Panel
+        local existingTemplate = slotsContainer:FindFirstChild("Template") 
+                              or slotsContainer:FindFirstChildWhichIsA("ImageLabel")
                               
-        if existingTemplate and existingTemplate:IsA("Frame") then
-            log("[InventoryUI] Found slot template in container: " .. existingTemplate.Name)
+        if existingTemplate and existingTemplate:IsA("ImageLabel") then
+            log("[InventoryUI] Found slot template in Panel: " .. existingTemplate.Name)
             slotTemplate = existingTemplate:Clone()
+            existingTemplate.Visible = false
         end
     end
     
-    -- Clean up container (remove placeholders)
+    -- Clean up container (remove placeholders except Template)
     for _, child in slotsContainer:GetChildren() do
-        if child:IsA("Frame") then
+        if child:IsA("ImageLabel") and child.Name ~= "Template" then
+            child:Destroy()
+        elseif child:IsA("Frame") then
             child:Destroy()
         end
     end
     
-    -- Bind Info Panel
-    local infoPanel = contentArea:WaitForChild("InfoPanel")
-    infoTitle = infoPanel:WaitForChild("ItemName") :: TextLabel
-    infoDesc = infoPanel:WaitForChild("Description") :: TextLabel
-    infoItemId = infoPanel:FindFirstChild("ItemID") :: TextLabel? -- Optional ItemID display
-    
-    local iconContainer = infoPanel:WaitForChild("IconContainer")
-    infoIcon = iconContainer:WaitForChild("Icon") :: ImageLabel
-    
-    -- Bind Consume Button
-    consumeButton = infoPanel:FindFirstChild("Consume") :: GuiButton?
-    if consumeButton then
-        consumeButton.Visible = false -- Start hidden
-        consumeButton.Activated:Connect(function()
-            if _selectedItem then
-                consumeItem(_selectedItem)
-            end
-        end)
-        log("[InventoryUI] Found Consume button")
-    else
-        warn("[InventoryUI] Consume button not found in InfoPanel")
-    end
-    
-    -- Bind Close Button (New Path: Header.Close.CloseButton)
-    local header = inventoryFrame:WaitForChild("Header")
-    local closeContainer = header:FindFirstChild("Close") -- Look for "Close" container first
-    local closeBtn
-    
-    if closeContainer then
-        closeBtn = closeContainer:WaitForChild("TextButton") :: TextButton
-    else
-        -- Fallback if user didn't nest it yet or changed mind
-        closeBtn = header:WaitForChild("CloseButton") :: TextButton
-    end
-    
+    -- Bind Close Button (Base.Close)
+    local closeBtn = base:FindFirstChild("Close") :: GuiButton?
     if closeBtn then
-        closeBtn.MouseButton1Click:Connect(function()
+        closeBtn.Activated:Connect(function()
             InventoryUI.Toggle(false)
         end)
+        log("[InventoryUI] Connected to Close button")
+    else
+        warn("[InventoryUI] Close button not found at Hub.Base.Close")
     end
     
-    -- Bind Toolbar Area
-    local toolbarArea = inventoryFrame:WaitForChild("ToolbarArea")
+    -- Bind Integrated Toolbar Area (ItemSlots.ListLayout)
+    local itemSlotsArea = hubFrame:WaitForChild("ItemSlots") :: Frame
+    local listLayout = itemSlotsArea:WaitForChild("ListLayout") :: Frame
     
-    -- Find toolbar slots (TSlot1..TSlot9)
-    -- Assuming they are direct children of ToolbarArea or in a container.
-    -- If user cloned checking direct usage is safer if we loop
+    -- Load hotbar slot template from Config
+    local hotbarSlotTemplate: GuiObject? = nil
+    -- Config already loaded above
+    if Config then
+        local inventoryConfig = Config:WaitForChild("Inventory", 2)
+        if inventoryConfig then
+            local templates = inventoryConfig:WaitForChild("Templates", 2)
+            if templates then
+                local tmpl = templates:FindFirstChild("HOTBAR_SlotTemplate") 
+                          or templates:FindFirstChild("ToolHotbarTemplate")
+                if tmpl then
+                    hotbarSlotTemplate = tmpl :: GuiObject
+                    log("[InventoryUI] Loaded HOTBAR_SlotTemplate from Config.Inventory.Templates")
+                end
+            end
+        end
+    end
+    
+    if not hotbarSlotTemplate then
+        warn("[InventoryUI] Failed to load HOTBAR_SlotTemplate from Config!")
+    end
+    
+    -- Clone template 9 times into ListLayout
     toolbarSlotFrames = {}
     for i = 1, 9 do
-        local slotName = "TSlot" .. i
-        -- Check direct child first
-        local slot = toolbarArea:FindFirstChild(slotName)
-        if slot then
-            table.insert(toolbarSlotFrames, slot)
+        local slotClone: GuiObject
+        
+        if hotbarSlotTemplate then
+            slotClone = hotbarSlotTemplate:Clone()
         else
-            warn("[InventoryUI] Toolbar slot not found:", slotName)
+            -- Fallback: create minimal frame
+            slotClone = Instance.new("Frame")
+            slotClone.Size = UDim2.fromOffset(80, 80)
+            slotClone.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
         end
+        
+        slotClone.Name = "Slot" .. i
+        slotClone.LayoutOrder = i
+        slotClone.Parent = listLayout
+        
+        -- Everything is inside Background
+        local background = slotClone:FindFirstChild("Background") :: GuiObject?
+        if background then
+            -- Set up hotkey label
+            local hotkeyLabel = background:FindFirstChild("HotkeyLabel") :: TextLabel?
+            if hotkeyLabel then
+                hotkeyLabel.Text = tostring(i)
+                hotkeyLabel.Visible = true
+            end
+            
+            -- Clear initial icon/name
+            local toolIcon = background:FindFirstChild("ToolIcon") :: ImageLabel?
+            if toolIcon then
+                toolIcon.Image = ""
+                toolIcon.Visible = false
+            end
+            
+            local nameLabel = background:FindFirstChild("ToolNameLabel") :: TextLabel?
+            if nameLabel then
+                nameLabel.Text = ""
+                nameLabel.Visible = false
+            end
+            
+            -- Reset background gradient to default
+            local gradient = background:FindFirstChild("UIGradient") :: UIGradient?
+            if gradient then
+                gradient.Color = ColorSequence.new(Color3.fromRGB(40, 40, 50))
+            end
+            
+            -- Reset border stroke to white
+            local borderStroke = background:FindFirstChild("BorderStroke") :: UIStroke?
+            if not borderStroke then
+                borderStroke = background:FindFirstChildWhichIsA("UIStroke") :: UIStroke?
+            end
+            if borderStroke then
+                borderStroke.Color = Color3.fromRGB(255, 255, 255)
+            end
+        end
+        
+        table.insert(toolbarSlotFrames, slotClone :: Frame)
     end
     
     if #toolbarSlotFrames > 0 then
         DragDrop.RegisterToolbarSlots(toolbarSlotFrames)
+        log("[InventoryUI] Created and registered " .. #toolbarSlotFrames .. " toolbar slots from template")
     end
     
     -- Get Toolbar reference (from context if available, or require it)
@@ -878,21 +936,21 @@ function InventoryUI.Init(context: any)
         end)
     end))
     
-    -- Handle item selection
+    -- Handle item selection (info panel disabled for now)
     janitor:Add(InventoryUI.OnItemClicked:Connect(function(itemData: ItemSlotData)
         log("[InventoryUI] Item clicked: " .. itemData.TemplateId)
-        updateInfoPanel(itemData)
+        -- Info panel implementation removed for now
     end))
     
     -- Connect to inventory button (Async to avoid blocking Init)
     task.spawn(function()
-        local base = playerGui:WaitForChild("Base", 10)
-        if not base then
+        local baseUI = playerGui:WaitForChild("Base", 10)
+        if not baseUI then
             warn("[InventoryUI] Base UI not found in PlayerGui")
             return
         end
 
-        local hid = base:WaitForChild("HID", 10)
+        local hid = baseUI:WaitForChild("HID", 10)
         if not hid then return end
         
         local left = hid:WaitForChild("Left", 10)
@@ -913,7 +971,7 @@ function InventoryUI.Init(context: any)
         end
     end)
     
-    log("[InventoryUI] Initialized (Existing UI)!")
+    log("[InventoryUI] Initialized with new Inventory/Hub hierarchy!")
 end
 
 --[[
@@ -922,8 +980,8 @@ end
 function InventoryUI.Destroy()
     DragDrop.Cleanup()
     janitor:Destroy()
-    if inventoryFrame then
-        inventoryFrame:Destroy()
+    if hubFrame then
+        hubFrame:Destroy()
     end
 end
 

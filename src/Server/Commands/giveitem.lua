@@ -17,5 +17,11 @@ return {
             Name = "item",
             Description = "The item to give (from Config/Items)",
         },
+        {
+            Type = "string",
+            Name = "mutations",
+            Description = "Optional mutations (format: Mutation1:Count,Mutation2:Count)",
+            Optional = true,
+        },
     },
 }

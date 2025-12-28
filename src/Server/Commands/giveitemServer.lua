@@ -32,7 +32,7 @@ local function getItemConfig(itemName: string)
     return searchRecursive(items)
 end
 
-return function(context, player, itemName)
+return function(context, player, itemName, mutationString)
     -- Check if item exists in config
     local itemConfig = getItemConfig(itemName)
     if not itemConfig then
@@ -48,8 +48,24 @@ return function(context, player, itemName)
     -- Get rarity from config
     local rarity = itemConfig:GetAttribute("Rarity")
     
+    -- Parse mutations
+    local metadata = nil
+    if mutationString then
+         local mutations = {}
+         for part in string.gmatch(mutationString, "([^,]+)") do
+             local name, count = string.match(part, "([^:]+):(%d+)")
+             if not name then
+                  -- Assume count 1 if not specified? Or just name
+                  name = part
+                  count = 1
+             end
+             mutations[name] = tonumber(count) or 1
+         end
+         metadata = { Mutations = mutations }
+    end
+    
     -- Add item
-    local item = InventoryManager.AddItem(player, itemName, itemType, rarity)
+    local item = InventoryManager.AddItem(player, itemName, itemType, rarity, metadata)
     
     if item then
         local rarityStr = rarity and (" [" .. rarity .. "]") or ""

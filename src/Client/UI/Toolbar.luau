@@ -17,7 +17,10 @@ local StarterGui = game:GetService("StarterGui")
 
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
 local Packages = Rojo:WaitForChild("Packages")
+local Shared = Rojo:WaitForChild("Shared")
 local Janitor = require(Packages:WaitForChild("janitor"))
+local RarityConfig = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig"))
+local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -63,10 +66,22 @@ local function createSlotFrame(index: number): Frame
     slot.LayoutOrder = index
     slot.Visible = true
     
-    -- Update hotkey label if it exists
+    -- Update hotkey label (directly on slot, no Background)
     local hotkeyLabel = slot:FindFirstChild("HotkeyLabel") :: TextLabel?
     if hotkeyLabel then
         hotkeyLabel.Text = tostring(index)
+    end
+    
+    -- Ensure ClickButton exists for interaction
+    local clickButton = slot:FindFirstChild("ClickButton") :: TextButton?
+    if not clickButton then
+        clickButton = Instance.new("TextButton")
+        clickButton.Name = "ClickButton"
+        clickButton.BackgroundTransparency = 1
+        clickButton.Size = UDim2.fromScale(1, 1)
+        clickButton.Text = ""
+        clickButton.ZIndex = 10 -- Ensure it's on top
+        clickButton.Parent = slot
     end
     
     return slot
@@ -77,16 +92,17 @@ end
 ]]
 local function updateSlotEquipState(slot: ToolSlot, isEquipped: boolean)
     local frame = slot.Frame
+    
+    -- BorderStroke is directly on slot (no Background)
     local stroke = frame:FindFirstChild("BorderStroke") :: UIStroke?
     
     if stroke then
         if isEquipped then
-            stroke.Color = CONFIG.EquippedBorderColor
-            stroke.Thickness = CONFIG.EquippedBorderThickness
+            stroke.Color = Color3.fromRGB(100, 255, 100) -- Green when selected
         else
-            stroke.Color = CONFIG.BorderColor
-            stroke.Thickness = CONFIG.BorderThickness
+            stroke.Color = Color3.fromRGB(255, 255, 255) -- White when not selected
         end
+        -- Don't change thickness
     end
 end
 
@@ -97,6 +113,7 @@ local function updateSlotDisplay(slot: ToolSlot)
     local frame = slot.Frame
     local tool = slot.Tool
     
+    -- All elements are directly on slot (no Background child)
     local toolIcon = frame:FindFirstChild("ToolIcon") :: ImageLabel?
     local nameLabel = frame:FindFirstChild("ToolNameLabel") :: TextLabel?
     
@@ -107,13 +124,17 @@ local function updateSlotDisplay(slot: ToolSlot)
         else
             toolIcon.Image = "rbxassetid://6031763426" -- Default tool icon
         end
+        toolIcon.Visible = true
     end
     
     if nameLabel then
-        nameLabel.Text = tool.Name
+        -- Use DisplayName attribute if available
+        local displayName = tool:GetAttribute("DisplayName") :: string?
+        nameLabel.Text = if displayName and displayName ~= "" then displayName else tool.Name
+        nameLabel.Visible = true
     end
     
-    -- Show stack count using existing QuantityLabel from template
+    -- Show stack count using existing QuantityLabel
     local quantityLabel = frame:FindFirstChild("QuantityLabel") :: TextLabel?
     if quantityLabel then
         local stackCount = tool:GetAttribute("StackCount") :: number?
@@ -123,6 +144,81 @@ local function updateSlotDisplay(slot: ToolSlot)
         else
             quantityLabel.Text = ""
             quantityLabel.Visible = false
+        end
+    end
+    
+    -- Apply rarity visuals using ColorSystem
+    local rarity: string? = nil
+    local customColor: string? = nil
+    
+    -- Try to get rarity/customColor from inventory data using InventoryItemId
+    local inventoryItemId = tool:GetAttribute("InventoryItemId") :: string?
+    if inventoryItemId then
+        -- Access inventory module to get actual item rarity
+        local Client = script.Parent
+        local InventoryModule = Client:FindFirstChild("Inventory")
+        if InventoryModule then
+            local InventoryUI = require(InventoryModule)
+            local inventory = InventoryUI.GetInventory()
+            if inventory then
+                for _, invItem in inventory do
+                    if invItem.Id == inventoryItemId then
+                        rarity = invItem.Rarity :: string?
+                        if invItem.Metadata and invItem.Metadata.CustomColor then
+                            customColor = invItem.Metadata.CustomColor
+                        end
+                        break
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Fallback to tool attributes
+    if not rarity or rarity == "" then
+        rarity = tool:GetAttribute("Rarity") :: string?
+    end
+    if not customColor or customColor == "" then
+        customColor = tool:GetAttribute("CustomColor") :: string?
+    end
+    
+    local style = customColor
+    if not style or style == "" then
+            style = RarityConfig.RarityToStyle[rarity]
+    end
+    
+    ColorSystem.ApplyToBackground(frame, style)
+    ColorSystem.ApplyToFrame(frame, style, {StrokeThickness = 2})
+
+    -- Update EventsLabel (Mutations)
+    local eventsLabel = frame:FindFirstChild("EventsLabel") :: TextLabel?
+    if eventsLabel then
+        local mutationsJson = tool:GetAttribute("Mutations") :: string?
+        if mutationsJson then
+             local HttpService = game:GetService("HttpService")
+              local success, mutations = pcall(function()
+                  return HttpService:JSONDecode(mutationsJson)
+              end)
+
+              if success and mutations then
+                   local count = 0
+                   for _ in pairs(mutations) do
+                       count = count + 1
+                   end
+                   if count > 0 then
+                        eventsLabel.Text = tostring(count) .. " " .. (count == 1 and "Event" or "Events")
+                        eventsLabel.Visible = true
+                   else
+                        eventsLabel.Text = ""
+                        eventsLabel.Visible = false
+                   end
+              else
+                 eventsLabel.Text = ""
+                 eventsLabel.Visible = false
+              end
+        else
+            eventsLabel.Text = ""
+            eventsLabel.Visible = false
         end
     end
 end
@@ -551,6 +647,16 @@ end
 ]]
 function Toolbar.GetEquippedTool(): Tool?
     return equippedTool
+end
+
+--[[
+    Refreshes all toolbar slots.
+    Useful when inventory data changes that affects visuals (like rarity colors).
+]]
+function Toolbar.Refresh()
+    for _, slot in pairs(toolSlots) do
+        updateSlotDisplay(slot)
+    end
 end
 
 --[[

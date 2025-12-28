@@ -79,8 +79,8 @@ local BASE_EXPERIENCE = 100
 
 
 -- Health settings
--- Level 1 = 100 HP, Level 2 = 200 HP, etc.
-local BASE_HEALTH = 100
+-- Level 1 = 500 HP, Level 2 = 600 HP, etc. (100 per level)
+local BASE_HEALTH = 500
 
 -- Module
 local PlayerClass = {}
@@ -194,8 +194,8 @@ function PlayerClass:GetMaxHealthForLevel(level: number): number
         level = 1
     end
     
-    -- Linear scaling: Level 1 = 100 HP, Level 2 = 200 HP, etc.
-    return BASE_HEALTH * level
+    -- Linear scaling: Level 1 = 500 HP, Level 2 = 600 HP, etc. (100 per level)
+    return BASE_HEALTH + (level - 1) * 100
 end
 
 --[[
