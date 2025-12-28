@@ -99,10 +99,9 @@ return ByteNet.defineNamespace("game", function()
                         CustomColor = ByteNet.optional(ByteNet.string),
                         Mutations = ByteNet.optional(ByteNet.map(ByteNet.string, ByteNet.float64)), -- MutationName -> Count
                     })),
-                    -- List of individual instances for this stack group
+					-- List of individual instances for this stack group
                     instances = ByteNet.array(ByteNet.struct({
                         id = ByteNet.string,
-                        maybeDuped = ByteNet.bool,
                     })),
 				})),
 				toolbarSlots = ByteNet.map(ByteNet.uint8, ByteNet.string), -- Slot -> ItemId
@@ -129,7 +128,6 @@ return ByteNet.defineNamespace("game", function()
 					templateId = ByteNet.string,
 					itemType = ByteNet.string,
 					rarity = ByteNet.string,
-					maybeDuped = ByteNet.optional(ByteNet.bool),
                     metadata = ByteNet.optional(ByteNet.struct({
                         CustomColor = ByteNet.optional(ByteNet.string),
                         Mutations = ByteNet.optional(ByteNet.map(ByteNet.string, ByteNet.float64)), -- MutationName -> Count

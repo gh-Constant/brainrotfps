@@ -149,7 +149,7 @@ function InventoryManager.LoadInventory(player: Player)
         end)
         
         -- Initial Sync
-        Network.SyncInventory(player, profile.Data, DupedItems)
+        Network.SyncInventory(player, profile.Data)
         
         -- Spawn Tools
         task.defer(function()
@@ -173,8 +173,30 @@ function InventoryManager.UnloadInventory(player: Player)
     ActiveProfiles[userId] = nil
 end
 
+local function freezeInventory(data: InventoryData): InventoryData
+    -- Create safe snapshot
+    local snapshot = table.clone(data)
+    
+    -- Freeze items list
+    local items = table.clone(data.Items)
+    for i, item in ipairs(items) do
+        -- Freeze individual items to prevent property mutation
+        items[i] = table.freeze(table.clone(item))
+    end
+    snapshot.Items = table.freeze(items)
+    
+    -- Freeze toolbar
+    snapshot.ToolbarSlots = table.freeze(table.clone(data.ToolbarSlots))
+    
+    return table.freeze(snapshot)
+end
+
 function InventoryManager.GetInventory(player: Player): InventoryData?
-    return ActiveInventories[player.UserId]
+    local data = ActiveInventories[player.UserId]
+    if not data then return nil end
+    
+    -- Return read-only proxy to prevent direct mutation
+    return freezeInventory(data)
 end
 
 function InventoryManager.AddItem(player: Player, templateId: string, itemType: ItemType, rarity: RarityType?, metadata: any): InventoryItem?

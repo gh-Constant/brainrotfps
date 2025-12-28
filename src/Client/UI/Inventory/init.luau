@@ -334,10 +334,6 @@ local function onInventorySync(data: any)
                 Metadata = metadata,
             }
             table.insert(inventoryData, item)
-            
-            if instance.maybeDuped then
-                dupedItems[instance.id] = true
-            end
         end
     end
     
