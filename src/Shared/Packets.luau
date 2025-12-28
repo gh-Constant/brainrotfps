@@ -103,6 +103,15 @@ return ByteNet.defineNamespace("game", function()
 			}),
 			reliabilityType = "reliable",
 		}),
+
+		-- Toolbar update packet (Server -> Client)
+		-- Lightweight update for toolbar changes only
+		toolbarUpdate = ByteNet.definePacket({
+			value = ByteNet.struct({
+				toolbarSlots = ByteNet.map(ByteNet.uint8, ByteNet.string), -- Slot -> ItemId
+			}),
+			reliabilityType = "reliable",
+		}),
 		
 		-- Inventory update packet (Server -> Client)
 		-- Partial update for adding/removing single items

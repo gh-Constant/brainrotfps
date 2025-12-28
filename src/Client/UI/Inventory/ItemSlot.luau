@@ -263,247 +263,203 @@ end
     @param data - The item stack data, or nil to clear
 ]]
 function ItemSlotModule:SetData(data: ItemSlotData?)
-    -- Cleanup previous
-    self._janitor:Cleanup()
+    if not data then
+        self._janitor:Cleanup()
+        self.Data = nil
+        
+        -- Reset visuals for empty slot
+        local toolIcon = self.Frame:FindFirstChild("ToolIcon") :: ImageLabel?
+        if toolIcon then toolIcon.Visible = false end
+        
+        local viewport = self.Frame:FindFirstChild("ViewportFrame") :: ViewportFrame?
+        if viewport then viewport.Visible = false end
+        
+        local quantityLabel = self.Frame:FindFirstChild("QuantityLabel") :: TextLabel?
+        if quantityLabel then quantityLabel.Visible = false end
+        
+        local nameLabel = self.Frame:FindFirstChild("NameLabel") :: TextLabel?
+        if nameLabel then nameLabel.Visible = false end
+        
+        local deleteButton = self.Frame:FindFirstChild("DeleteButton") :: TextButton?
+        if deleteButton then deleteButton.Visible = false end
+        
+        local eventsLabel = self.Frame:FindFirstChild("EventsLabel") :: TextLabel?
+        if eventsLabel then eventsLabel.Visible = false end
+        
+        local toolBarPosLabel = self.Frame:FindFirstChild("ToolBarPos") :: TextLabel?
+        if toolBarPosLabel then toolBarPosLabel.Visible = false end
+        
+        local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
+        ColorSystem.ApplyToBackground(self.Frame, nil)
+        ColorSystem.ApplyToFrame(self.Frame, nil)
+        
+        return
+    end
     
-    if self._rotationConnection then
-        self._rotationConnection:Disconnect()
-        self._rotationConnection = nil
+    -- Check for reuse
+    local isReuse = false
+    if self.Data and self.Data.TemplateId == data.TemplateId then
+        isReuse = true
+        -- Check if style changed (rarity/custom color)
+        local newStyle = data.Metadata and data.Metadata.CustomColor 
+        if not newStyle then
+             local RarityConfig = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig"))
+             newStyle = RarityConfig.RarityToStyle[data.Rarity]
+        end
+        local oldStyle = self.Data.Metadata and self.Data.Metadata.CustomColor
+        if not oldStyle then
+             local RarityConfig = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig"))
+             oldStyle = RarityConfig.RarityToStyle[self.Data.Rarity]
+        end
+        
+        if newStyle ~= oldStyle then
+            isReuse = false -- Force rebuild visuals
+        end
+    end
+
+    if isReuse then
+        -- Only clean up connection listeners, keep visuals
+        self._janitor:Remove("DeleteButton")
+    else
+        self._janitor:Cleanup()
     end
     
     self.Data = data
     
-    -- Find existing template elements (DO NOT CREATE)
+    -- Cache element lookups
     local toolIcon = self.Frame:FindFirstChild("ToolIcon") :: ImageLabel?
     local viewport = self.Frame:FindFirstChild("ViewportFrame") :: ViewportFrame?
-    local gradient = self.Frame:FindFirstChild("UIGradient") :: UIGradient?
     local quantityLabel = self.Frame:FindFirstChild("QuantityLabel") :: TextLabel?
     local nameLabel = self.Frame:FindFirstChild("NameLabel") :: TextLabel?
     local deleteButton = self.Frame:FindFirstChild("DeleteButton") :: TextButton?
+    local eventsLabel = self.Frame:FindFirstChild("EventsLabel") :: TextLabel?
+    local toolBarPosLabel = self.Frame:FindFirstChild("ToolBarPos") :: TextLabel?
     
-    -- Clear viewport model if exists
-    if viewport then
-        local worldModel = viewport:FindFirstChild("WorldModel") :: WorldModel?
-        if worldModel then
-            for _, child in worldModel:GetChildren() do
-                child:Destroy()
-            end
-        end
-    end
-    
-    -- Clear highlight
-    if self._highlight then
-        Rarity.StopAnimation(self._highlight)
-        self._highlight:Destroy()
-        self._highlight = nil
-    end
-    
-    -- Handle empty slot
-    if not data then
-        if toolIcon then
-            toolIcon.Image = ""
-            toolIcon.Visible = false
-        end
-        if viewport then
-            viewport.Visible = false
-        end
-        if quantityLabel then
-            quantityLabel.Text = ""
-            quantityLabel.Visible = false
-        end
-        if nameLabel then
-            nameLabel.Text = ""
-            nameLabel.Visible = false
-        end
-        if deleteButton then
-            deleteButton.Visible = false
-        end
-        -- Hide ToolBarPos for empty slots
-        if toolBarPosLabel then
-            toolBarPosLabel.Text = ""
-            toolBarPosLabel.Visible = false
-        end
-        local eventsLabel = self.Frame:FindFirstChild("EventsLabel") :: TextLabel?
-        if eventsLabel then
-            eventsLabel.Text = ""
-            eventsLabel.Visible = false
-        end
-        -- Reset gradient to default
-        local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
-        ColorSystem.ApplyToBackground(self.Frame, nil)
-        return
-    end
-    
-    log("[ItemSlot] SetData for: " .. data.TemplateId .. " Type: " .. data.Type .. " Count: " .. tostring(data.Count))
-    
-            -- Apply visuals
-    local style = data.Metadata and data.Metadata.CustomColor
-    if not style then
-       local RarityConfig = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig"))
-       style = RarityConfig.RarityToStyle[data.Rarity]
-    end
-    
-    local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
-    ColorSystem.ApplyToBackground(self.Frame, style)
-    
-    -- Update quantity using existing QuantityLabel
+    -- Update Lightweight UI (Labels)
     if quantityLabel then
         if data.Count > 1 then
             quantityLabel.Text = "x" .. tostring(data.Count)
             quantityLabel.Visible = true
         else
-            quantityLabel.Text = ""
             quantityLabel.Visible = false
         end
     end
     
-    -- Update name using existing NameLabel
     if nameLabel then
-        local itemConfig = getItemConfig(data.TemplateId)
         local displayName = data.TemplateId
+        local itemConfig = getItemConfig(data.TemplateId)
         if itemConfig then
-            local dn = itemConfig:GetAttribute("DisplayName") :: string?
-            if dn and dn ~= "" then
-                displayName = dn
-            end
+            local dn = itemConfig:GetAttribute("DisplayName")
+            if dn and dn ~= "" then displayName = dn end
         end
         nameLabel.Text = displayName
         nameLabel.Visible = true
     end
     
-    -- Update EventsLabel (Mutations)
-    local eventsLabel = self.Frame:FindFirstChild("EventsLabel") :: TextLabel?
     if eventsLabel then
+        local count = 0
         if data.Metadata and data.Metadata.Mutations then
-            local mutations = data.Metadata.Mutations
-            local count = 0
-            for _ in pairs(mutations) do
-                count = count + 1
-            end
-            
-            if count > 0 then
-                eventsLabel.Text = tostring(count) .. " " .. (count == 1 and "Event" or "Events")
-                eventsLabel.Visible = true
-            else
-                eventsLabel.Text = ""
-                eventsLabel.Visible = false
-            end
+            for _ in pairs(data.Metadata.Mutations) do count = count + 1 end
+        end
+        if count > 0 then
+            eventsLabel.Text = tostring(count) .. " " .. (count == 1 and "Event" or "Events")
+            eventsLabel.Visible = true
         else
-            eventsLabel.Text = ""
             eventsLabel.Visible = false
         end
     end
     
-    -- Update ToolBarPos label - only show if equipped in hotbar
-    local toolBarPosLabel = self.Frame:FindFirstChild("ToolBarPos") :: TextLabel?
     if toolBarPosLabel then
         if data.IsEquipped and data.EquippedSlot then
             toolBarPosLabel.Text = tostring(data.EquippedSlot)
             toolBarPosLabel.Visible = true
         else
-            toolBarPosLabel.Text = ""
             toolBarPosLabel.Visible = false
         end
     end
     
-    -- Setup delete button
     if deleteButton then
         deleteButton.Visible = true
-        local clickConn = deleteButton.MouseButton1Click:Connect(function()
+        self._janitor:Add(deleteButton.MouseButton1Click:Connect(function()
             self.OnDeleteClicked:Fire(data)
-        end)
-        self._janitor:Add(clickConn)
+        end), "Disconnect", "DeleteButton")
     end
-    
-    -- Try to load 3D model (for Tools or items with ToolModel attribute)
-    local itemModel = findItemModel(data.TemplateId)
-    
-    if itemModel and viewport then
-        local modelClone = cloneModelForDisplay(itemModel)
-        
-        if modelClone then
-            -- Setup viewport
-            local worldModel = viewport:FindFirstChild("WorldModel") :: WorldModel?
-            if not worldModel then
-                worldModel = Instance.new("WorldModel")
-                worldModel.Name = "WorldModel"
-                worldModel.Parent = viewport
-            end
-            
-            modelClone.Parent = worldModel
-            self._model = modelClone
-            
-            -- Setup camera
-            local camera = viewport:FindFirstChild("Camera") or viewport:FindFirstChildWhichIsA("Camera")
-            if not camera then
-                camera = Instance.new("Camera")
-                camera.Name = "Camera"
-                camera.Parent = viewport
-                viewport.CurrentCamera = camera :: Camera
-            end
-            
-            local cf, size = modelClone:GetBoundingBox()
-            local maxSize = math.max(size.X, size.Y, size.Z)
-            local distance = maxSize * 0.5;
-            
-            (camera :: Camera).CFrame = CFrame.new(cf.Position + Vector3.new(distance, distance * 0.3, distance), cf.Position)
-           -- Visuals
-    local style = data.Metadata and data.Metadata.CustomColor
-    if not style then
-       local RarityConfig = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig"))
-       style = RarityConfig.RarityToStyle[data.Rarity]
-    end
-    
-    local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
-    ColorSystem.ApplyToFrame(self.Frame, style, {StrokeThickness = 2})
 
-    -- 3D Highlight
-    if worldModel and worldModel:FindFirstChild("Highlight") then
-        local highlight = worldModel.Highlight
-        ColorSystem.ApplyToHighlight(highlight, style)
-    else
-        -- Create if missing (though CreateItem usually adds it)
-         if modelClone then
-            local highlight = ColorSystem.CreateHighlight(style)
-            highlight.Parent = modelClone
-         end
-    end
-            local startTime = os.clock()
-            local rotationConn = RunService.RenderStepped:Connect(function()
-                if modelClone and camera then
-                    local elapsed = os.clock() - startTime
-                    local angle = elapsed * ROTATION_SPEED * math.pi * 2
-                    local rotatedCF = cf * CFrame.Angles(0, angle, 0);
-                    (camera :: Camera).CFrame = CFrame.new(rotatedCF.Position + Vector3.new(distance, distance * 0.3, distance), rotatedCF.Position)
-                end
-            end)
-            self._rotationConnection = rotationConn
-            self._janitor:Add(rotationConn)
+    -- Update Heavy UI (if not reused)
+    if not isReuse then
+        local style = data.Metadata and data.Metadata.CustomColor
+        if not style then
+           local RarityConfig = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig"))
+           style = RarityConfig.RarityToStyle[data.Rarity]
+        end
+        
+        local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
+        ColorSystem.ApplyToBackground(self.Frame, style)
+        ColorSystem.ApplyToFrame(self.Frame, style, {StrokeThickness = 2})
+        
+        -- Model Setup
+        local itemModel = findItemModel(data.TemplateId)
+        if itemModel and viewport then
+            if toolIcon then toolIcon.Visible = false end
             
-            viewport.Visible = true
-            if toolIcon then
-                toolIcon.Visible = false
+            local modelClone = cloneModelForDisplay(itemModel)
+            if modelClone then
+                local worldModel = viewport:FindFirstChild("WorldModel") :: WorldModel?
+                if not worldModel then
+                    worldModel = Instance.new("WorldModel"); worldModel.Name = "WorldModel"; worldModel.Parent = viewport
+                end
+                
+                modelClone.Parent = worldModel
+                self._model = modelClone
+                self._janitor:Add(modelClone, "Destroy", "Model")
+                
+                -- Highlight
+                ColorSystem.ApplyToHighlight(nil, style) -- Helper to create/apply? No, API is ApplyToHighlight(highlight, style)
+                -- The original code did:
+                -- if worldModel.Highlight then ColorSystem.ApplyToHighlight... else CreateHighlight...
+                -- But CreateHighlight is not standard in ColorSystem based on usage elsewhere?
+                -- Checking original code: 
+                -- "local highlight = ColorSystem.CreateHighlight(style)"
+                -- "ColorSystem.ApplyToHighlight(highlight, style)"
+                
+                local highlight = worldModel:FindFirstChild("Highlight")
+                if not highlight then
+                     highlight = ColorSystem.CreateHighlight(style)
+                     highlight.Parent = worldModel
+                end
+                ColorSystem.ApplyToHighlight(highlight, style)
+                
+                -- Camera
+                local camera = viewport:FindFirstChild("Camera")
+                if not camera then
+                    camera = Instance.new("Camera"); camera.Parent = viewport; viewport.CurrentCamera = camera
+                end
+                
+                local cf, size = modelClone:GetBoundingBox()
+                local maxSize = math.max(size.X, size.Y, size.Z)
+                local distance = maxSize * 0.5
+                
+                local startTime = os.clock()
+                local rotationConn = RunService.RenderStepped:Connect(function()
+                    if not self.Frame.Visible then return end -- Optimization
+                    if modelClone and camera then
+                        local elapsed = os.clock() - startTime
+                        local angle = elapsed * ROTATION_SPEED * math.pi * 2
+                        local rotatedCF = cf * CFrame.Angles(0, angle, 0);
+                        (camera :: Camera).CFrame = CFrame.new(rotatedCF.Position + Vector3.new(distance, distance * 0.3, distance), rotatedCF.Position)
+                    end
+                end)
+                self._janitor:Add(rotationConn, "Disconnect", "RotationLoop")
+                
+                viewport.Visible = true
+            else
+                 -- Fallback
+                 if viewport then viewport.Visible = false end
+                 if toolIcon then toolIcon.Image = getItemImage(data.TemplateId); toolIcon.Visible = true end
             end
         else
-            -- Model clone failed, use image fallback
-            if viewport then
-                viewport.Visible = false
-            end
-            if toolIcon then
-                local img = getItemImage(data.TemplateId)
-                toolIcon.Image = img
-                toolIcon.Visible = img ~= ""
-            end
-        end
-    else
-        -- No 3D model, use existing ToolIcon ImageLabel
-        if viewport then
-            viewport.Visible = false
-        end
-        if toolIcon then
-            local img = getItemImage(data.TemplateId)
-            toolIcon.Image = img
-            toolIcon.Visible = img ~= ""
+            if viewport then viewport.Visible = false end
+            if toolIcon then toolIcon.Image = getItemImage(data.TemplateId); toolIcon.Visible = true end
         end
     end
     

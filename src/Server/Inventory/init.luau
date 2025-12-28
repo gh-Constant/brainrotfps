@@ -111,6 +111,18 @@ local function syncInventoryToClient(player: Player)
 end
 
 --[[
+    Sends a lightweight toolbar update to a client.
+]]
+local function sendToolbarUpdate(player: Player)
+    local inventory = ActiveInventories[player.UserId]
+    if not inventory then return end
+    
+    Packets.toolbarUpdate.sendTo({
+        toolbarSlots = inventory.ToolbarSlots,
+    }, player)
+end
+
+--[[
     Sends an inventory update (add/remove) to a client.
 ]]
 local function sendInventoryUpdate(player: Player, action: string, item: InventoryItem)
@@ -519,6 +531,7 @@ function InventoryManager.RemoveItem(player: Player, itemId: string): boolean
     
     -- Sync to client
     sendInventoryUpdate(player, "Remove", item)
+    sendToolbarUpdate(player)
     
     return true
 end
@@ -666,7 +679,7 @@ function InventoryManager.AssignToToolbar(player: Player, itemId: string, slot: 
     end
     
     -- Sync to client
-    syncInventoryToClient(player)
+    sendToolbarUpdate(player)
     
     return true
 end
@@ -761,7 +774,7 @@ function InventoryManager.SwapToolbarSlots(player: Player, slot1: number, slot2:
     
     log(string.format("[InventoryManager] Swapped toolbar slots %d <-> %d for %s", slot1, slot2, player.Name))
     
-    syncInventoryToClient(player)
+    sendToolbarUpdate(player)
     return true
 end
 
@@ -778,9 +791,12 @@ function InventoryManager.RemoveFromToolbar(player: Player, slot: number): boole
     local inventory = ActiveInventories[player.UserId]
     if not inventory then return false end
     
-    local itemId = inventory.ToolbarSlots[slot]
+    -- Support both number and string keys
+    local itemId = inventory.ToolbarSlots[slot] or inventory.ToolbarSlots[tostring(slot)] 
+    
     if itemId then
         inventory.ToolbarSlots[slot] = nil
+        inventory.ToolbarSlots[tostring(slot)] = nil
         
         -- Remove Tool from Backpack
         local backpack = player:FindFirstChild("Backpack")
@@ -793,7 +809,7 @@ function InventoryManager.RemoveFromToolbar(player: Player, slot: number): boole
             end
         end
         
-        -- Also check character (if tool is equipped)
+        -- Remove Tool from Character
         local character = player.Character
         if character then
             for _, tool in character:GetChildren() do
@@ -804,7 +820,7 @@ function InventoryManager.RemoveFromToolbar(player: Player, slot: number): boole
             end
         end
         
-        syncInventoryToClient(player)
+        sendToolbarUpdate(player)
         return true
     end
     

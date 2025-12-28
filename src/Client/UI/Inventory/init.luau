@@ -260,33 +260,48 @@ local function refreshDisplay()
     -- Update slot data and make draggable
     for i, slot in itemSlots do
         if i <= requiredSlots then
-            local data = itemData[i]
-            slot:SetData(data)
-            slot.Frame.Visible = true
+            local newData = itemData[i]
+            local currentData = slot.Data
             
-
-            
-            -- Make draggable (remove old detector first)
-            local oldDetector = slot.Frame:FindFirstChild("ItemDragDetector")
-            if oldDetector then
-                oldDetector:Destroy()
+            -- Smart Diff: Check if data actually changed to avoid expensive SetData
+            local changed = true
+            if currentData 
+                and currentData.TemplateId == newData.TemplateId 
+                and currentData.Count == newData.Count
+                and currentData.IsEquipped == newData.IsEquipped
+                and currentData.MaybeDuped == newData.MaybeDuped
+                and #currentData.ItemIds == #newData.ItemIds
+                and currentData.ItemIds[1] == newData.ItemIds[1] then
+                 
+                 changed = false
             end
             
-            -- Add drag capability if we have a screenGui
-            if screenGui and data then
-                -- Each slot now has exactly one item (no stacking)
-                local itemId = data.ItemIds[1] or ""
+            if changed then
+                slot:SetData(newData)
                 
-                local dragData: DragDrop.DragData = {
-                    ItemId = itemId,
-                    TemplateId = data.TemplateId,
-                    Type = data.Type,
-                    Rarity = data.Rarity,
-                    SourceSlot = slot.Frame,
-                    SourceToolbarSlot = data.EquippedSlot, -- Pass equipped slot for move operations
-                }
-                DragDrop.MakeDraggable(slot.Frame, dragData, screenGui)
+                -- Make draggable (remove old detector first)
+                local oldDetector = slot.Frame:FindFirstChild("ItemDragDetector")
+                if oldDetector then
+                    oldDetector:Destroy()
+                end
+                
+                -- Add drag capability if we have a screenGui
+                if screenGui and newData then
+                    local itemId = newData.ItemIds[1] or ""
+                    
+                    local dragData: DragDrop.DragData = {
+                        ItemId = itemId,
+                        TemplateId = newData.TemplateId,
+                        Type = newData.Type,
+                        Rarity = newData.Rarity,
+                        SourceSlot = slot.Frame,
+                        SourceToolbarSlot = newData.EquippedSlot, -- Pass equipped slot for move operations
+                    }
+                    DragDrop.MakeDraggable(slot.Frame, dragData, screenGui)
+                end
             end
+            
+            slot.Frame.Visible = true
         else
             slot:SetData(nil)
             slot.Frame.Visible = false
@@ -376,6 +391,27 @@ local function onInventoryUpdate(data: any)
             Toolbar.Refresh()
         end
     end)
+end
+
+--[[
+    Handles incoming toolbar update (lightweight).
+]]
+local function onToolbarUpdate(data: any)
+    toolbarSlots = {}
+    for slot, itemId in pairs(data.toolbarSlots) do
+        toolbarSlots[slot] = itemId
+    end
+    
+    log("[InventoryUI] Toolbar updated via lightweight packet")
+    
+    -- Refresh hotbar (integrated and HUD)
+    updateIntegratedToolbar()
+    if Toolbar and Toolbar.Refresh then
+        Toolbar.Refresh()
+    end
+    
+    -- Smart refresh of inventory grid (will mostly be skipped due to diffing)
+    refreshDisplay()
 end
 
 --[[
@@ -892,6 +928,7 @@ function InventoryUI.Init(context: any)
     -- Setup packet listeners
     Packets.inventorySync.listen(onInventorySync)
     Packets.inventoryUpdate.listen(onInventoryUpdate)
+    Packets.toolbarUpdate.listen(onToolbarUpdate)
     
     -- Handle drag & drop to toolbar
     janitor:Add(DragDrop.OnItemDropped:Connect(function(result: DragDrop.DropResult)
