@@ -60,6 +60,7 @@ export type Player = {
     GetExperienceForLevel: (self: Player, level: number) -> number,
     GetExperienceProgress: (self: Player) -> (number, number),
     GetMaxHealthForLevel: (self: Player, level: number) -> number,
+    ResetProgress: (self: Player) -> (),
     Destroy: (self: Player) -> (),
 }
 

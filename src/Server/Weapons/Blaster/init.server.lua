@@ -31,7 +31,7 @@ local HttpService = game:GetService("HttpService")
 local function getMutationStats(blaster: Tool)
     local stats = {
         DamageMultiplier = 1,
-        FireRateMultiplier = 1,
+        -- FireRateMultiplier = 1, -- Unused: Rate of fire is modified directly on the tool attribute by ToolbarUtils
     }
     
     local mutationsJson = blaster:GetAttribute("Mutations")
@@ -45,10 +45,10 @@ local function getMutationStats(blaster: Tool)
                 local mutationData = Mutations.GetMutation(name)
                 if mutationData and mutationData.MultiplierModifier then
                     -- MultiplierModifier is percentage (e.g. 5 = 5%)
-                    -- We add the percentage for each stack
+                    -- Currently no damage buff from mutations
+                    -- Fire Rate buff is applied in ToolbarUtils directly to the rateOfFire attribute
                     local percentBonus = (mutationData.MultiplierModifier * count) / 100
-                    stats.DamageMultiplier = stats.DamageMultiplier + percentBonus
-                    stats.FireRateMultiplier = stats.FireRateMultiplier + percentBonus
+                    -- stats.DamageMultiplier = stats.DamageMultiplier + percentBonus
                 end
             end
         end
@@ -105,7 +105,7 @@ local function onShootEvent(
 	local rayRadius = blaster:GetAttribute(Constants.RAY_RADIUS_ATTRIBUTE)
 
 	-- Get base damage based on player level
-	local baseDamage = 10 + getPlayerLevel(player) * 1 -- 1 damage per level
+	local baseDamage = 9 + getPlayerLevel(player) * 1 -- 1 damage per level
 	
 	local mutationStats = getMutationStats(blaster)
 	baseDamage = baseDamage * mutationStats.DamageMultiplier

@@ -333,17 +333,7 @@ local function onPlayerAdded(player: Player)
     
     -- Check GamePasses (async)
     task.spawn(function()
-        -- Double Gold
-        if MonetizationService.PerformPassCheck(player, ProductConfig.GamePasses.DoubleGold.Id) then
-            playerData.GoldMultiplier = 2
-            print(string.format("[PlayerManager] %s owns 2x Gold!", player.Name))
-        end
-        
-        -- Double XP
-        if MonetizationService.PerformPassCheck(player, ProductConfig.GamePasses.DoubleExperience.Id) then
-            playerData.ExperienceMultiplier = 2
-            print(string.format("[PlayerManager] %s owns 2x Experience!", player.Name))
-        end
+        -- Double XP and Double Gold are now handled by BuffService
         
         -- Double Damage
         if MonetizationService.PerformPassCheck(player, ProductConfig.GamePasses.DoubleDamage.Id) then
@@ -476,13 +466,7 @@ function PlayerManager.Init()
         local playerData = ActivePlayers[player.UserId]
         if not playerData then return end
         
-        if passId == ProductConfig.GamePasses.DoubleGold.Id then
-            playerData.GoldMultiplier = 2
-            print(string.format("[PlayerManager] Updated %s Gold Multiplier to 2", player.Name))
-        elseif passId == ProductConfig.GamePasses.DoubleExperience.Id then
-            playerData.ExperienceMultiplier = 2
-            print(string.format("[PlayerManager] Updated %s XP Multiplier to 2", player.Name))
-        elseif passId == ProductConfig.GamePasses.DoubleDamage.Id then
+        if passId == ProductConfig.GamePasses.DoubleDamage.Id then
             playerData.DamageMultiplier = 2
             local leaderstats = player:FindFirstChild("leaderstats")
             if leaderstats then

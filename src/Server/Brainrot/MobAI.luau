@@ -88,7 +88,10 @@ function MobAI.new(model)
 	}, MobAI)
 	
 	-- Load animations
-	local animFolder = model:FindFirstChild("Animations")
+	-- Load animations from ReplicatedStorage
+	local brainrotAnimations = ReplicatedStorage:FindFirstChild("BrainrotAnimations")
+	local animFolder = brainrotAnimations and brainrotAnimations:FindFirstChild(model.Name)
+	
 	if animFolder then
 		local animator = humanoid:FindFirstChildWhichIsA("Animator") or Instance.new("Animator", humanoid)
 		

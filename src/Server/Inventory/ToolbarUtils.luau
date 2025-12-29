@@ -45,9 +45,33 @@ function ToolbarUtils.CreateToolInstance(item: Inventory.InventoryItem, slot: nu
     end
     
     -- Mutations
+    -- Mutations
     if item.Metadata and item.Metadata.Mutations then
-        for mutation, level in pairs(item.Metadata.Mutations) do
-            tool:SetAttribute("Mutation", mutation) 
+        -- Serialize for other scripts (StatsDisplay, Server logic)
+        local success, json = pcall(function()
+            return HttpService:JSONEncode(item.Metadata.Mutations)
+        end)
+        if success then
+            tool:SetAttribute("Mutations", json)
+        end
+        
+        -- Apply FireRate multiplier to the tool attribute
+        local Mutations = require(Shared:WaitForChild("Mutations"))
+        local firerateMult = 1
+        
+        for name, count in pairs(item.Metadata.Mutations) do
+            local mutationData = Mutations.GetMutation(name)
+            if mutationData and mutationData.MultiplierModifier then
+                -- Mutation Logic: Double efficiency for Fire Rate
+                local percentBonus = (mutationData.MultiplierModifier * count) / 100
+                firerateMult = firerateMult + (percentBonus * 2)
+            end
+        end
+        
+        local baseFirerate = tool:GetAttribute("rateOfFire")
+        if baseFirerate and typeof(baseFirerate) == "number" then
+            local newFirerate = math.round(baseFirerate * firerateMult)
+            tool:SetAttribute("rateOfFire", newFirerate)
         end
     end
     

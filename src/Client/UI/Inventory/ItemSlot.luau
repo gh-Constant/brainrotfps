@@ -167,12 +167,19 @@ local function getItemImage(templateId: string): string
     
     local image = itemConfig:GetAttribute("Image") :: string?
     if image and image ~= "" then
+        if not string.find(image, "://") then
+             image = "rbxassetid://" .. image
+        end
         return image
     end
     
     local tool = getToolFromConfig(itemConfig)
     if tool then
-        return tool.TextureId
+        local textureId = tool.TextureId
+        if textureId and textureId ~= "" and not string.find(textureId, "://") then
+             textureId = "rbxassetid://" .. textureId
+        end
+        return textureId
     end
     
     return ""
@@ -333,7 +340,7 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
     local toolIcon = self.Frame:FindFirstChild("ToolIcon") :: ImageLabel?
     local viewport = self.Frame:FindFirstChild("ViewportFrame") :: ViewportFrame?
     local quantityLabel = self.Frame:FindFirstChild("QuantityLabel") :: TextLabel?
-    local nameLabel = self.Frame:FindFirstChild("NameLabel") :: TextLabel?
+    local nameLabel = (self.Frame:FindFirstChild("NameLabel") or self.Frame:FindFirstChild("ToolNameLabel")) :: TextLabel?
     local deleteButton = self.Frame:FindFirstChild("DeleteButton") :: TextButton?
     local eventsLabel = self.Frame:FindFirstChild("EventsLabel") :: TextLabel?
     local toolBarPosLabel = self.Frame:FindFirstChild("ToolBarPos") :: TextLabel?
@@ -345,10 +352,13 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
         rarityLabel.Text = rarity
         rarityLabel.Visible = true
         
-        local style = data.Metadata and data.Metadata.CustomTextColor
-        if not style then
-             style = data.Metadata and data.Metadata.CustomColor
+        -- Style Priority: Config Attribute > Rarity
+        local style = nil
+        local itemConfig = getItemConfig(data.TemplateId)
+        if itemConfig then
+            style = itemConfig:GetAttribute("CustomTextColor")
         end
+        
         if not style then
              style = RarityConfig.GetTextStyle(rarity)
         end
@@ -407,7 +417,13 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
 
     -- Update Heavy UI (if not reused)
     if not isReuse then
-        local style = data.Metadata and data.Metadata.CustomColor
+        -- Style Priority: Config Attribute > Rarity
+        local style = nil
+        local itemConfig = getItemConfig(data.TemplateId)
+        if itemConfig then
+            style = itemConfig:GetAttribute("CustomColor")
+        end
+        
         if not style then
            style = RarityConfig.GetBackgroundStyle(data.Rarity)
         end
@@ -433,14 +449,6 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
                 self._janitor:Add(modelClone, "Destroy", "Model")
                 
                 -- Highlight
-                ColorSystem.ApplyToHighlight(nil, style) -- Helper to create/apply? No, API is ApplyToHighlight(highlight, style)
-                -- The original code did:
-                -- if worldModel.Highlight then ColorSystem.ApplyToHighlight... else CreateHighlight...
-                -- But CreateHighlight is not standard in ColorSystem based on usage elsewhere?
-                -- Checking original code: 
-                -- "local highlight = ColorSystem.CreateHighlight(style)"
-                -- "ColorSystem.ApplyToHighlight(highlight, style)"
-                
                 local highlight = worldModel:FindFirstChild("Highlight")
                 if not highlight then
                      highlight = ColorSystem.CreateHighlight(style)

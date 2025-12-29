@@ -20,7 +20,6 @@ local config = ReplicatedStorage:WaitForChild("Config")
 local brainrotConfig = config:WaitForChild("Brainrots")
 local zonesConfig = brainrotConfig:WaitForChild("Zones")
 local MobAI = require(Server:WaitForChild("Brainrot"):WaitForChild("MobAI"))
-local MobDisplay = require(Server:WaitForChild("Brainrot"):WaitForChild("MobDisplay"))
 local Mutations = require(Shared:WaitForChild("Mutations"))
 
 local BrainrotSpawner = {}
@@ -267,8 +266,8 @@ local function spawnBrainrot(group: ZoneGroup)
 		warn("[BrainrotSpawner] Failed to create AI for: " .. brainrot.Name)
 	end
 
-	-- Setup Mob Display (UI)
-	local mobDisplay = MobDisplay.new(brainrot)
+	-- Setup Mob Display (UI) handled by Client via Tag
+	CollectionService:AddTag(brainrot, "BrainrotMob")
 
 	health.Died:Connect(function(instigator)
 		-- Log kill info if enabled
@@ -438,9 +437,7 @@ local function spawnBrainrot(group: ZoneGroup)
 			mobAI:Destroy()
 		end
 		
-		if mobDisplay then
-			mobDisplay:Destroy()
-		end
+
 		
 		local index = table.find(group.spawnedBrainrots, brainrot)
 		if index then
@@ -658,8 +655,8 @@ function BrainrotSpawner.SpawnBrainrotWithMutation(zoneName: string, mobName: st
 		mobAI:Start()
 	end
 	
-	-- Setup Mob Display (UI)
-	local mobDisplay = MobDisplay.new(brainrot)
+	-- Setup Mob Display (UI) handled by Client via Tag
+	CollectionService:AddTag(brainrot, "BrainrotMob")
 	
 	-- Death and cleanup handlers (same as spawnBrainrot)
 	health.Died:Connect(function(instigator)
@@ -713,7 +710,6 @@ function BrainrotSpawner.SpawnBrainrotWithMutation(zoneName: string, mobName: st
 	
 	brainrot.Destroying:Connect(function()
 		if mobAI then mobAI:Destroy() end
-		if mobDisplay then mobDisplay:Destroy() end
 		local index = table.find(group.spawnedBrainrots, brainrot)
 		if index then table.remove(group.spawnedBrainrots, index) end
 	end)

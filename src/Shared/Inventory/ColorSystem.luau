@@ -16,6 +16,10 @@ local Shared = Rojo:WaitForChild("Shared")
 -- Using the file provided by user which likely points to the package
 local ezVisuals = require(Packages:WaitForChild("ezvisualz"))
 
+-- Custom synced effects for synchronized animations
+local ZebraSynced = require(script.Parent.ZebraSynced)
+local RainbowSynced = require(script.Parent.RainbowSynced)
+
 export type ColorVisualConfig = {
     -- Basic color (required)
     Color: Color3,
@@ -156,13 +160,6 @@ local Styles: ColorSystemMap = {
         StrokePreset = nil,
     },
     
-    -- Uncommon: Green (Using existing logic or new?)
-    VibrantGreen = {
-        Color = Color3.fromRGB(30, 255, 0),
-        StrokePreset = "GreenOutline",
-        BackgroundPreset = "Matrix", -- Maybe too fancy? 
-    },
-    
     -- Epic: Dark purple
     AmethystVoid = {
         Color = Color3.fromRGB(90, 30, 130), 
@@ -192,7 +189,7 @@ local Styles: ColorSystemMap = {
         BackgroundPreset = "Zebra",
         TextPreset = "Zebra",
         StrokePreset = nil,
-        Speed = 0.2, -- Reduced speed to fix "buggy" look
+        Speed = 0.4, -- 2x faster for Secret rarity
         Animated = true,
     },
     
@@ -243,7 +240,55 @@ local Styles: ColorSystemMap = {
         Color = Color3.fromRGB(50, 255, 50),
         StrokePreset = "GreenOutline",
         Speed = 0.2,
-    }
+    },
+    
+    -- ===========================================
+    -- VIBRANT COLOR STYLES (for potions/custom items)
+    -- ===========================================
+    
+    -- Vibrant Red
+    VibrantRed = {
+        Color = Color3.fromRGB(255, 50, 50),
+        Gradient = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(60, 15, 15)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(200, 30, 30)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 80, 80))
+        }),
+        GradientRotation = -90,
+    },
+    
+    -- Vibrant Green
+    VibrantGreen = {
+        Color = Color3.fromRGB(50, 255, 80),
+        Gradient = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(15, 60, 20)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(30, 200, 60)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 255, 130))
+        }),
+        GradientRotation = -90,
+    },
+    
+    -- Vibrant Blue
+    VibrantBlue = {
+        Color = Color3.fromRGB(50, 150, 255),
+        Gradient = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(15, 30, 80)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(40, 120, 220)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 180, 255))
+        }),
+        GradientRotation = -90,
+    },
+    
+    -- Vibrant Yellow
+    VibrantYellow = {
+        Color = Color3.fromRGB(255, 230, 50),
+        Gradient = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(80, 60, 10)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(230, 180, 30)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 240, 120))
+        }),
+        GradientRotation = -90,
+    },
 }
 
 -- Load dynamic styles from Config
@@ -402,8 +447,18 @@ local function ApplyToText(textLabel: TextLabel, styleName: string?)
     if config.TextPreset or config.BackgroundPreset then
         -- Many gradient presets work on TextLabels too if they apply UIGradient
         local preset = config.TextPreset or config.BackgroundPreset
-        local effect = ezVisuals.new(textLabel, preset, config.Speed, config.Size, false, config.Color)
-        RegisterEffect(textLabel, "Text", effect)
+        
+        -- Use custom synced effects to ensure all animated rarity texts animate in sync
+        if preset == "Zebra" then
+            local effect = ZebraSynced(textLabel, config.Speed, config.Size)
+            RegisterEffect(textLabel, "Text", effect)
+        elseif preset == "Rainbow" then
+            local effect = RainbowSynced(textLabel, config.Speed, config.Size)
+            RegisterEffect(textLabel, "Text", effect)
+        else
+            local effect = ezVisuals.new(textLabel, preset, config.Speed, config.Size, false, config.Color)
+            RegisterEffect(textLabel, "Text", effect)
+        end
     end
 end
 
@@ -426,6 +481,13 @@ local function ApplyToHighlight(highlight: Highlight, styleName: string?)
         highlight.FillColor = Color3.fromRGB(100, 100, 100)
         return
      end
+     
+     -- Check if config has Color property
+     if not config.Color then
+        highlight.FillColor = Color3.fromRGB(100, 100, 100)
+        return
+     end
+     
      highlight.FillColor = config.Color
      highlight.OutlineColor = config.Color
 end

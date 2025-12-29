@@ -60,7 +60,7 @@ function Actions.AddItem(
     end
     
     -- Security: Check inventory size limit
-    local maxSize = inventory.MaxSize or 50
+    local maxSize = inventory.MaxSize or 100000000000
     if #inventory.Items >= maxSize then
         warn(string.format("[Actions] Inventory full for %s (%d/%d items)", player.Name, #inventory.Items, maxSize))
         return nil

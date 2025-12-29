@@ -76,33 +76,7 @@ else
 				warn("No RootPart or FakeRootPart found in " .. obj.Name .. ". HumanoidRootPart not created.")
 			end
 
-			-- Setup Billboard Part if it doesn't exist
-			local billboardPart = clone:FindFirstChild("Billboard")
-			if not billboardPart then
-				billboardPart = Instance.new("Part")
-				billboardPart.Name = "Billboard"
-				billboardPart.Transparency = 1
-				billboardPart.CanCollide = false
-				billboardPart.CanTouch = false
-				billboardPart.CanQuery = false
-				billboardPart.Massless = true
-				billboardPart.Size = Vector3.new(1, 1, 1)
-				billboardPart.Parent = clone
 
-				-- Position it above the model
-				local modelPivot = clone:GetPivot()
-				local modelSize = clone:GetExtentsSize()
-				billboardPart.CFrame = modelPivot * CFrame.new(0, (modelSize.Y / 2), 0)
-
-				-- Weld to HumanoidRootPart
-				local hrp = clone:FindFirstChild("HumanoidRootPart")
-				if hrp and hrp:IsA("BasePart") then
-					local weld = Instance.new("WeldConstraint")
-					weld.Part0 = hrp
-					weld.Part1 = billboardPart
-					weld.Parent = billboardPart
-				end
-			end
 
 			local humanoid = clone:FindFirstChildOfClass("Humanoid")
 			if not humanoid then
@@ -147,6 +121,41 @@ else
 					descendant.Anchored = false
 					descendant.Massless = false
 				end
+			end
+
+			-- Setup/Fix Billboard Part
+			local billboardPart = clone:FindFirstChild("Billboard")
+			if not billboardPart then
+				billboardPart = Instance.new("Part")
+				billboardPart.Name = "Billboard"
+				billboardPart.Parent = clone
+			end
+
+			billboardPart.Transparency = 1
+			billboardPart.CanCollide = false
+			billboardPart.CanTouch = false
+			billboardPart.CanQuery = false
+			billboardPart.Massless = true
+			billboardPart.Size = Vector3.new(1, 1, 1)
+			
+			-- Position it above the model (a little higher than top)
+			local modelPivot = clone:GetPivot()
+			local modelSize = clone:GetExtentsSize()
+			billboardPart.CFrame = modelPivot * CFrame.new(0, (modelSize.Y / 2) + 5, 0)
+			
+			-- Clear existing welds on Billboard and weld to HRP
+			for _, child in ipairs(billboardPart:GetChildren()) do
+				if child:IsA("WeldConstraint") or child:IsA("Weld") or child:IsA("ManualWeld") then
+					child:Destroy()
+				end
+			end
+
+			local hrp = clone:FindFirstChild("HumanoidRootPart")
+			if hrp and hrp:IsA("BasePart") then
+				local weld = Instance.new("WeldConstraint")
+				weld.Part0 = hrp
+				weld.Part1 = billboardPart
+				weld.Parent = billboardPart
 			end
 
 			local vfxPart = Instance.new("Part")

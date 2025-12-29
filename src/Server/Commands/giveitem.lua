@@ -1,5 +1,5 @@
 -- giveitem command definition
--- Usage: giveitem <player> <itemName>
+-- Usage: giveitem <player> <itemName> [count] [mutations]
 -- Type and Rarity are read from Config/Items automatically
 return {
     Name = "giveitem",
@@ -16,6 +16,13 @@ return {
             Type = "itemName",
             Name = "item",
             Description = "The item to give (from Config/Items)",
+        },
+        {
+            Type = "number",
+            Name = "count",
+            Description = "Number of items to give (default: 1)",
+            Optional = true,
+            Default = 1,
         },
         {
             Type = "string",

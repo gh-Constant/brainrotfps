@@ -147,12 +147,35 @@ local function updateSlotDisplay(slot: ToolSlot)
         end
     end
     
+    -- Helper to get item config (similar to ItemSlot)
+    local function getItemConfig(templateId: string): Configuration?
+        local config = ReplicatedStorage:FindFirstChild("Config")
+        if not config then return nil end
+        local items = config:FindFirstChild("Items")
+        if not items then return nil end
+        
+        local function searchRecursive(parent: Instance): Configuration?
+            for _, child in parent:GetChildren() do
+                if child.Name == templateId and child:IsA("Configuration") then
+                    return child
+                elseif child:IsA("Folder") then
+                    local found = searchRecursive(child)
+                    if found then return found end
+                end
+            end
+            return nil
+        end
+        return searchRecursive(items)
+    end
+
     -- Apply rarity visuals using ColorSystem
     local rarity: string? = nil
     local customColor: string? = nil
     
-    -- Try to get rarity/customColor from inventory data using InventoryItemId
+    -- Try to get rarity/customColor/TemplateId from inventory data
     local inventoryItemId = tool:GetAttribute("InventoryItemId") :: string?
+    local invTemplateId = nil
+    
     if inventoryItemId then
         -- Access inventory module to get actual item rarity
         local Client = script.Parent
@@ -164,9 +187,7 @@ local function updateSlotDisplay(slot: ToolSlot)
                 for _, invItem in inventory do
                     if invItem.Id == inventoryItemId then
                         rarity = invItem.Rarity :: string?
-                        if invItem.Metadata and invItem.Metadata.CustomColor then
-                            customColor = invItem.Metadata.CustomColor
-                        end
+                        invTemplateId = invItem.TemplateId
                         break
                     end
                 end
@@ -178,6 +199,15 @@ local function updateSlotDisplay(slot: ToolSlot)
     if not rarity or rarity == "" then
         rarity = tool:GetAttribute("Rarity") :: string?
     end
+    
+    -- Check Config for CustomColor (Highest Priority)
+    local templateId = invTemplateId or (tool:GetAttribute("TemplateId") :: string?) or tool.Name
+    local itemConfig = getItemConfig(templateId)
+    if itemConfig then
+        customColor = itemConfig:GetAttribute("CustomColor") :: string?
+    end
+
+    -- Tool attribute fallback (Lowest Priority)
     if not customColor or customColor == "" then
         customColor = tool:GetAttribute("CustomColor") :: string?
     end
@@ -228,10 +258,13 @@ local function updateSlotDisplay(slot: ToolSlot)
         rarityLabel.Text = rarity or "Common"
         rarityLabel.Visible = true
         
-        local textStyle = customColor -- Use custom color for text too if available
+        local textStyle = nil
+        if itemConfig then
+             textStyle = itemConfig:GetAttribute("CustomTextColor") :: string?
+        end
+        
         if not textStyle then
-             -- Check for specific custom text color attribute? Not standardized in Toolbar yet
-             -- but we can respect CustomTextColor if added to tool
+             -- Check for specific custom text color attribute on tool (fallback)
              textStyle = tool:GetAttribute("CustomTextColor") :: string?
         end
         
@@ -585,13 +618,49 @@ local function setupHotkeyInput()
     end)
     janitor:Add(inputConnection)
     
-    -- Mouse scroll input for cycling through weapons
+    -- Mouse scroll input for cycling through weapons (only for Gun type)
     local scrollConnection = UserInputService.InputChanged:Connect(function(input, gameProcessed)
         if gameProcessed then
             return
         end
         
         if input.UserInputType == Enum.UserInputType.MouseWheel then
+            -- Only allow scroll switching if equipped tool is ItemType "Gun"
+            if equippedTool then
+                -- Check ItemType from Config
+                local config = ReplicatedStorage:FindFirstChild("Config")
+                if config then
+                    local items = config:FindFirstChild("Items")
+                    if items then
+                        local templateId = equippedTool:GetAttribute("TemplateId") or equippedTool.Name
+                        
+                        -- Search for item config
+                        local function searchRecursive(parent: Instance): Configuration?
+                            for _, child in parent:GetChildren() do
+                                if child.Name == templateId and child:IsA("Configuration") then
+                                    return child
+                                elseif child:IsA("Folder") then
+                                    local found = searchRecursive(child)
+                                    if found then return found end
+                                end
+                            end
+                            return nil
+                        end
+                        
+                        local itemConfig = searchRecursive(items)
+                        if itemConfig then
+                            local itemType = itemConfig:GetAttribute("ItemType")
+                            if itemType ~= "Gun" then
+                                return -- Don't allow scroll for non-Gun items
+                            end
+                        end
+                    end
+                end
+            else
+                -- Nothing equipped, do nothing
+                return
+            end
+            
             local scrollDirection = input.Position.Z -- Positive = scroll up, Negative = scroll down
             
             local currentSlotIndex = getEquippedSlotIndex()
@@ -612,7 +681,6 @@ local function setupHotkeyInput()
                     equipSlot(nextSlotIndex)
                 end
             end
-            -- If nothing equipped, do nothing (user request)
         end
     end)
     janitor:Add(scrollConnection)

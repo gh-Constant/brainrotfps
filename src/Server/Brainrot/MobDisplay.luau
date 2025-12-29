@@ -6,29 +6,13 @@ local Rojo = ReplicatedStorage:WaitForChild("Rojo")
 local Shared = Rojo:WaitForChild("Shared")
 local MoneyLib = require(Shared:WaitForChild("MoneyLib"))
 local Mutations = require(Shared:WaitForChild("Mutations"))
+local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
 
 local MobDisplay = {}
 MobDisplay.__index = MobDisplay
 
 -- Rarity Config Cache
-local RarityConfig: Folder? = nil
 
-local function getRarityColor(rarityName: string): Color3?
-	if not RarityConfig then
-		local config = ReplicatedStorage:FindFirstChild("Config")
-		if config then
-			RarityConfig = config:FindFirstChild("Rarity")
-		end
-	end
-	
-	if RarityConfig then
-		local color = RarityConfig:GetAttribute(rarityName)
-		if typeof(color) == "Color3" then
-			return color
-		end
-	end
-	return nil
-end
 
 export type MobDisplayObject = typeof(setmetatable({}, MobDisplay)) & {
 	Model: Model,
@@ -135,11 +119,8 @@ function MobDisplay:UpdateInfo()
 		local rarityName = if typeof(rarity) == "string" then rarity else "Common"
 		self.RarityLabel.Text = rarityName
 		
-		-- Update Rarity Color
-		local rarityColor = getRarityColor(rarityName)
-		if rarityColor then
-			self.RarityLabel.TextColor3 = rarityColor
-		end
+		-- Update Rarity Color using ColorSystem
+		ColorSystem.ApplyToText(self.RarityLabel, "Rarity_" .. rarityName)
 	end
 	
 	-- Initial health update

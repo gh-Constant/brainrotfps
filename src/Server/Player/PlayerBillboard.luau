@@ -138,6 +138,7 @@ function PlayerBillboard.new(character: Model, playerData: any): PlayerBillboard
     highlight.OutlineColor = Color3.fromRGB(255, 100, 100)
     highlight.FillTransparency = 0.5
     highlight.OutlineTransparency = 0
+    highlight.DepthMode = Enum.HighlightDepthMode.Occluded
     highlight.Enabled = false -- Disabled by default
     highlight.Parent = character
 
@@ -256,13 +257,14 @@ end
 
 function PlayerBillboard:UpdatePVPStatus()
     local isPvPEnabled = self.Character:GetAttribute("IsPvPEnabled") == true
+    local isInCombat = self.Character:GetAttribute("InCombat") == true
     
-    -- Toggle Highlight
+    -- Highlight only enabled when IN COMBAT (and PVP is enabled, logically implied but check combat directly)
     if self.Highlight then
-        self.Highlight.Enabled = isPvPEnabled
+        self.Highlight.Enabled = isInCombat
     end
 
-    -- Toggle hostile/peaceful images
+    -- Toggle hostile/peaceful images (Based on PVP Mode)
     if self.HostileImage then
         self.HostileImage.Visible = isPvPEnabled
     end
@@ -287,12 +289,13 @@ function PlayerBillboard:UpdatePVPStatus()
     end
 end
 
+
 function PlayerBillboard:SetupListeners()
     -- Listen for attribute changes
     self._janitor:Add(self.Character.AttributeChanged:Connect(function(attribute)
         if attribute == "Health" or attribute == "MaxHealth" then
             self:UpdateHealth()
-        elseif attribute == "IsPvPEnabled" then
+        elseif attribute == "IsPvPEnabled" or attribute == "InCombat" then
             self:UpdatePVPStatus()
         elseif attribute == "Level" then
             self:UpdateLevel()

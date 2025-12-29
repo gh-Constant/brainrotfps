@@ -36,11 +36,11 @@ type ItemType = Inventory.ItemType
 type RarityType = Inventory.RarityType
 
 -- ProfileStore
-local STORE_NAME = "InventoryData_v4"
+local STORE_NAME = "InventoryData_eEv5"
 local DATA_TEMPLATE: InventoryData = {
     Items = {},
     ToolbarSlots = {},
-    MaxSize = 50,
+    MaxSize = 100000000000,
 }
 
 local InventoryProfileStore = ProfileStore.New(STORE_NAME, DATA_TEMPLATE)

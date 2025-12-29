@@ -12,12 +12,14 @@ local CmdrSetup = require(script.CmdrSetup)
 local BrainrotSpawner = require(script.Brainrot.BrainrotSpawner)
 local InventoryManager = require(script.Inventory)
 local GrenadeService = require(script.Weapons.GrenadeService)
+local BuffService = require(script.Buffs.BuffService)
 
 print("[Server] Server initialized!")
 
 -- Initialize systems
 InventoryManager.Init()  -- Initialize first for packet listeners
 PlayerManager.Init()     -- Handles data, death, ragdoll, VFX
+BuffService.Init()       -- Handles XP/Gold buffs (Must be after PlayerManager)
 SafezoneManager.Init()   -- Handles safezones
 CmdrSetup.Init()         -- Handles Cmdr command console
 BrainrotSpawner.Init()   -- Handles brainrot spawning in zones

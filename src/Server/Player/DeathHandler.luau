@@ -197,7 +197,9 @@ function DeathHandler.HandleRespawn(player: Player)
     -- Restore visibility
     for _, descendant in character:GetDescendants() do
         if descendant:IsA("BasePart") then
-            descendant.Transparency = descendant.Name == "HumanoidRootPart" and 1 or 0
+            -- HumanoidRootPart and BillboardAnchor should stay invisible
+            local keepInvisible = descendant.Name == "HumanoidRootPart" or descendant.Name == "BillboardAnchor"
+            descendant.Transparency = if keepInvisible then 1 else 0
             
             -- Only enable CanCollide for non-accessory parts
             local isAccessory = descendant:FindFirstAncestorOfClass("Accessory") ~= nil

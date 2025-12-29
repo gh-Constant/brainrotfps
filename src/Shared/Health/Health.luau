@@ -116,6 +116,11 @@ function Health.new(instance: Instance, maxHealth: number?): HealthObject
                     continue
                 end
                 
+                -- Skip if in combat
+                if self.Instance:GetAttribute("InCombat") then
+                    continue
+                end
+                
                 local currentHealth = self.Instance:GetAttribute(ATTR_HEALTH) or 0
                 local currentMaxHealth = self.Instance:GetAttribute(ATTR_MAX_HEALTH) or 100
                 

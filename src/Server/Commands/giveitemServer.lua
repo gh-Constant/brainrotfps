@@ -32,7 +32,7 @@ local function getItemConfig(itemName: string)
     return searchRecursive(items)
 end
 
-return function(context, player, itemName, mutationString)
+return function(context, player, itemName, count, mutationString)
     -- Check if item exists in config
     local itemConfig = getItemConfig(itemName)
     if not itemConfig then
@@ -48,30 +48,42 @@ return function(context, player, itemName, mutationString)
     -- Get rarity from config
     local rarity = itemConfig:GetAttribute("Rarity")
     
+    -- Default count to 1 if not provided
+    local itemCount = count or 1
+    if itemCount < 1 then itemCount = 1 end
+    if itemCount > 100 then itemCount = 100 end -- Cap at 100 to prevent abuse
+    
     -- Parse mutations
     local metadata = nil
     if mutationString then
          local mutations = {}
          for part in string.gmatch(mutationString, "([^,]+)") do
-             local name, count = string.match(part, "([^:]+):(%d+)")
+             local name, mutCount = string.match(part, "([^:]+):(%d+)")
              if not name then
                   -- Assume count 1 if not specified? Or just name
                   name = part
-                  count = 1
+                  mutCount = 1
              end
-             mutations[name] = tonumber(count) or 1
+             mutations[name] = tonumber(mutCount) or 1
          end
          metadata = { Mutations = mutations }
     end
     
-    -- Add item
-    local item = InventoryManager.AddItem(player, itemName, itemType, rarity, metadata)
+    -- Add items
+    local successCount = 0
+    for i = 1, itemCount do
+        local item = InventoryManager.AddItem(player, itemName, itemType, rarity, metadata)
+        if item then
+            successCount = successCount + 1
+        end
+    end
     
-    if item then
+    if successCount > 0 then
         local rarityStr = rarity and (" [" .. rarity .. "]") or ""
         return string.format(
-            "Gave %s: %s (%s)%s",
+            "Gave %s: %dx %s (%s)%s",
             player.Name,
+            successCount,
             itemName,
             itemType,
             rarityStr

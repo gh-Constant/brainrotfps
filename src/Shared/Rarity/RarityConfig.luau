@@ -50,14 +50,27 @@ local RarityStyles: {[string]: RarityVisuals} = {
         BackgroundStyle = "Mythic",
         TextStyle = "NeonMagenta",
     },
-    Secret = {
-        BackgroundStyle = "Secret",
-        TextStyle = "Zebra",
-    },
     God = {
         BackgroundStyle = "God",
         TextStyle = "RainbowFlow",
     },
+    Secret = {
+        BackgroundStyle = "Secret",
+        TextStyle = "Zebra",
+    },
+}
+
+-- Ordered list of rarities from least rare (index 1) to most rare (last index)
+-- Used for sorting items - higher index = rarer
+local RarityOrder: {string} = {
+    "Common",
+    "Uncommon",
+    "Rare",
+    "Epic",
+    "Legendary",
+    "Mythic",
+    "God",
+    "Secret",
 }
 
 --[[
@@ -164,6 +177,7 @@ end
 return {
     -- Export the underlying mapping for reference if needed
     RarityStyles = RarityStyles,
+    RarityOrder = RarityOrder, -- Ordered list from least rare to most rare
     
     -- New API
     GetRarityVisuals = GetRarityVisuals,

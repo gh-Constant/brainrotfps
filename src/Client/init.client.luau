@@ -14,6 +14,8 @@ local UI = require(script.UI)
 local CmdrClientSetup = require(script.CmdrClientSetup)
 local SystemLoader = require(script.SystemLoader)
 local GrenadeController = require(script.Weapons.GrenadeController)
+local BuffController = require(script.UI.Buffs.BuffController)
+local MobDisplayController = require(script:WaitForChild("Brainrot"):WaitForChild("MobDisplayController"))
 
 -- Note: Core GUI is disabled in ReplicatedFirst/LoadingScreen
 
@@ -108,6 +110,24 @@ systemLoader:RegisterSystem({
     Priority = 5,
     Init = function(context)
         GrenadeController.Init(context)
+    end,
+})
+
+-- System: Buff Controller
+systemLoader:RegisterSystem({
+    Name = BuffController.Name,
+    Priority = 6,
+    Init = function(context)
+        BuffController.Init(context)
+    end,
+})
+
+-- System: Mob Display Controller
+systemLoader:RegisterSystem({
+    Name = "MobDisplay",
+    Priority = 7,
+    Init = function(_context)
+        MobDisplayController.Start()
     end,
 })
 

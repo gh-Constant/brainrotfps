@@ -31,6 +31,9 @@ local function formatNumber(value: number): string
     return MoneyLib.HandleMoney(value)
 end
 
+local Mutations = require(Rojo:WaitForChild("Shared"):WaitForChild("Mutations"))
+local HttpService = game:GetService("HttpService")
+
 local function updateStats()
     local leaderstats = player:FindFirstChild("leaderstats")
     if not leaderstats then return end
@@ -52,12 +55,60 @@ local function updateStats()
         creditsLabel.Text = "Credits: " .. formatNumber(creditsValue)
     end
     
-    -- Update Damage (3x Level * Multiplier)
+    -- Update Damage (Base(9+Level) * GlobalMult * MutationMult)
     if damageLabel then
         local multiplierValue = leaderstats:FindFirstChild("DamageMultiplier")
-        local multiplier = multiplierValue and multiplierValue.Value or 1
-        local damage = level * 3 * multiplier
-        damageLabel.Text = "Damage: " .. formatNumber(damage)
+        local globalMultiplier = multiplierValue and multiplierValue.Value or 1
+        
+        local mutationDamageMult = 1
+        local mutationFirerateMult = 1
+        
+        local currentTool = player.Character and player.Character:FindFirstChildWhichIsA("Tool")
+        local isGun = false
+        local baseFirerate = 0
+        local bullets = 1
+        
+        if currentTool then
+            -- Check for weapon stats directly on tool
+            baseFirerate = currentTool:GetAttribute("rateOfFire")
+            bullets = currentTool:GetAttribute("raysPerShot") or 1
+            
+            if baseFirerate and baseFirerate > 0 then
+                isGun = true
+            end
+            
+            local mutationsJson = currentTool:GetAttribute("Mutations")
+            -- Note: FireRate is now pre-calculated in the tool attribute by ToolbarUtils.
+            -- We do NOT add the multiplier again here to avoid double counting.
+            -- DamageMultiplier is currently 1 (no mutation buff).
+            
+            -- If we re-add damage mutations, we would calculate mutationDamageMult here.
+             if mutationsJson then
+                 local success, mutations = pcall(function()
+                    return HttpService:JSONDecode(mutationsJson)
+                end)
+                if success and mutations then
+                    for name, count in pairs(mutations) do
+                         local mutationData = Mutations.GetMutation(name)
+                        if mutationData and mutationData.MultiplierModifier then
+                             -- Placeholder for future damage logic
+                        end
+                    end
+                end
+            end
+        end
+
+        local totalDamage = (9 + level) * globalMultiplier * mutationDamageMult
+        
+        if isGun then
+            -- baseFirerate is already the boosted value from tool attribute
+            local finalFirerate = baseFirerate 
+            local shotsPerSecond = finalFirerate / 60
+            local dps = math.floor(totalDamage * shotsPerSecond * bullets)
+            damageLabel.Text = "DPS: " .. formatNumber(dps)
+        else
+            damageLabel.Text = "Damage: " .. formatNumber(totalDamage)
+        end
     end
 end
 
@@ -109,6 +160,42 @@ function StatsDisplay.Init(context: any)
     end)
     
     print("[StatsDisplay] Initialized with Janitor and Promise!")
+    
+    -- Character/Tool tracking
+    local charJanitor = Janitor.new()
+    
+    local function setupCharacter(char)
+        charJanitor:Cleanup()
+        
+        charJanitor:Add(char.ChildAdded:Connect(function(child)
+            if child:IsA("Tool") then
+                updateStats()
+                -- Listen for mutation changes on the tool
+                charJanitor:Add(child:GetAttributeChangedSignal("Mutations"):Connect(updateStats), "Disconnect")
+            end
+        end))
+        
+        charJanitor:Add(char.ChildRemoved:Connect(function(child)
+            if child:IsA("Tool") then
+                updateStats()
+            end
+        end))
+        
+        -- Check start tool if any
+        local tool = char:FindFirstChildWhichIsA("Tool")
+        if tool then
+             charJanitor:Add(tool:GetAttributeChangedSignal("Mutations"):Connect(updateStats), "Disconnect")
+        end
+        updateStats()
+    end
+    
+    player.CharacterAdded:Connect(setupCharacter)
+    if player.Character then
+        setupCharacter(player.Character)
+    end
+    player.CharacterRemoving:Connect(function()
+        charJanitor:Cleanup()
+    end)
 end 
 
 return StatsDisplay
