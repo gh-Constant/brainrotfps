@@ -289,6 +289,9 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
         local toolBarPosLabel = self.Frame:FindFirstChild("ToolBarPos") :: TextLabel?
         if toolBarPosLabel then toolBarPosLabel.Visible = false end
         
+        local rarityLabel = self.Frame:FindFirstChild("RarityLabel") :: TextLabel?
+        if rarityLabel then rarityLabel.Visible = false end
+        
         local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
         ColorSystem.ApplyToBackground(self.Frame, nil)
         ColorSystem.ApplyToFrame(self.Frame, nil)
@@ -303,13 +306,13 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
         -- Check if style changed (rarity/custom color)
         local newStyle = data.Metadata and data.Metadata.CustomColor 
         if not newStyle then
-             local RarityConfig = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig"))
-             newStyle = RarityConfig.RarityToStyle[data.Rarity]
+             local RarityConfigReuse = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig"))
+             newStyle = RarityConfigReuse.GetBackgroundStyle(data.Rarity)
         end
         local oldStyle = self.Data.Metadata and self.Data.Metadata.CustomColor
         if not oldStyle then
-             local RarityConfig = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig"))
-             oldStyle = RarityConfig.RarityToStyle[self.Data.Rarity]
+             local RarityConfigReuse = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig"))
+             oldStyle = RarityConfigReuse.GetBackgroundStyle(self.Data.Rarity)
         end
         
         if newStyle ~= oldStyle then
@@ -334,8 +337,25 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
     local deleteButton = self.Frame:FindFirstChild("DeleteButton") :: TextButton?
     local eventsLabel = self.Frame:FindFirstChild("EventsLabel") :: TextLabel?
     local toolBarPosLabel = self.Frame:FindFirstChild("ToolBarPos") :: TextLabel?
+    local rarityLabel = self.Frame:FindFirstChild("RarityLabel") :: TextLabel?
     
     -- Update Lightweight UI (Labels)
+    if rarityLabel then
+        local rarity = data.Rarity or "Common"
+        rarityLabel.Text = rarity
+        rarityLabel.Visible = true
+        
+        local style = data.Metadata and data.Metadata.CustomTextColor
+        if not style then
+             style = data.Metadata and data.Metadata.CustomColor
+        end
+        if not style then
+             style = RarityConfig.GetTextStyle(rarity)
+        end
+        
+        local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
+        ColorSystem.ApplyToText(rarityLabel, style)
+    end
     if quantityLabel then
         if data.Count > 1 then
             quantityLabel.Text = "x" .. tostring(data.Count)
@@ -389,13 +409,12 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
     if not isReuse then
         local style = data.Metadata and data.Metadata.CustomColor
         if not style then
-           local RarityConfig = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig"))
-           style = RarityConfig.RarityToStyle[data.Rarity]
+           style = RarityConfig.GetBackgroundStyle(data.Rarity)
         end
         
         local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
         ColorSystem.ApplyToBackground(self.Frame, style)
-        ColorSystem.ApplyToFrame(self.Frame, style, {StrokeThickness = 2})
+
         
         -- Model Setup
         local itemModel = findItemModel(data.TemplateId)

@@ -12,11 +12,16 @@ return function(registry)
                 if zones then
                     local zone = zones:FindFirstChild(zoneName)
                     if zone then
-                        for _, mob in zone:GetChildren() do
-                            if mob:IsA("Model") then
-                                table.insert(mobNames, mob.Name)
+                        local function searchRecursive(parent)
+                            for _, child in parent:GetChildren() do
+                                if child:IsA("Model") then
+                                    table.insert(mobNames, child.Name)
+                                elseif child:IsA("Folder") then
+                                    searchRecursive(child)
+                                end
                             end
                         end
+                        searchRecursive(zone)
                     end
                 end
             end
@@ -36,12 +41,17 @@ return function(registry)
                 if zones then
                     for _, zone in zones:GetChildren() do
                         if zone:IsA("Folder") then
-                            for _, mob in zone:GetChildren() do
-                                if mob:IsA("Model") and not seenNames[mob.Name] then
-                                    seenNames[mob.Name] = true
-                                    table.insert(mobNames, mob.Name)
+                            local function searchRecursive(parent)
+                                for _, child in parent:GetChildren() do
+                                    if child:IsA("Model") and not seenNames[child.Name] then
+                                        seenNames[child.Name] = true
+                                        table.insert(mobNames, child.Name)
+                                    elseif child:IsA("Folder") then
+                                        searchRecursive(child)
+                                    end
                                 end
                             end
+                            searchRecursive(zone)
                         end
                     end
                 end

@@ -75,6 +75,8 @@ local toolbarSlotFrames: {Frame} = {}
 local screenGui: ScreenGui? = nil
 local janitor: Janitor = Janitor.new()
 local slotTemplate: GuiObject? = nil -- Slot template from Config
+local infoPanel: any? = nil -- InfoPanel instance
+local InfoPanel = require(script.InfoPanel)
 
 -- Events
 InventoryUI.OnItemClicked = Signal.new()
@@ -237,6 +239,30 @@ local function refreshDisplay()
                 local data = itemSlots[index] and itemSlots[index].Data
                 if data then
                     InventoryUI.OnItemClicked:Fire(data)
+                    if infoPanel then
+                        -- Find full inventory item data to pass to InfoPanel
+                        local fullItem = nil
+                        for _, item in inventoryData do
+                            if item.Id == data.ItemIds[1] then
+                                fullItem = item
+                                break
+                            end
+                        end
+                         
+                        -- If it's a stack, we might need to construct a robust item representation
+                        if not fullItem then
+                             -- Construct temporary item from slot data for display
+                             fullItem = {
+                                 Id = data.ItemIds[1] or "",
+                                 TemplateId = data.TemplateId,
+                                 Type = data.Type :: any,
+                                 Rarity = data.Rarity :: any,
+                                 Metadata = data.Metadata
+                             }
+                        end
+                        
+                        infoPanel:Update(fullItem)
+                    end
                 end
             end
         end)
@@ -536,7 +562,7 @@ updateIntegratedToolbar = function()
                 end
             end
             
-            -- Update EventsLabel
+             -- Update EventsLabel
             if eventsLabel then
                 local foundMutations = nil
                 
@@ -581,6 +607,48 @@ updateIntegratedToolbar = function()
                  end
             end
 
+            -- Update RarityLabel
+            local rarityLabel = slotFrame:FindFirstChild("RarityLabel") :: TextLabel?
+            if rarityLabel then
+                -- Rarity lookup logic (copied from color logic below)
+                local rarity: string? = nil
+                local customColor: string? = nil
+                
+                if data.InventoryItemId then
+                    for _, invItem in inventoryData do
+                        if invItem.Id == data.InventoryItemId then
+                            rarity = invItem.Rarity :: string?
+                            if invItem.Metadata and invItem.Metadata.CustomTextColor then
+                                 customColor = invItem.Metadata.CustomTextColor
+                            elseif invItem.Metadata and invItem.Metadata.CustomColor then
+                                customColor = invItem.Metadata.CustomColor
+                            end
+                            break
+                        end
+                    end
+                end
+                
+                if not rarity or rarity == "" then
+                    rarity = tool:GetAttribute("Rarity") :: string?
+                end
+                if not customColor or customColor == "" then
+                    customColor = tool:GetAttribute("CustomTextColor") :: string?
+                end
+                if not customColor or customColor == "" then
+                    customColor = tool:GetAttribute("CustomColor") :: string?
+                end
+                
+                rarityLabel.Text = rarity or "Common"
+                rarityLabel.Visible = true
+                
+                local textStyle = customColor
+                if not textStyle then
+                     textStyle = RarityConfig.GetTextStyle(rarity or "Common")
+                end
+                
+                ColorSystem.ApplyToText(rarityLabel, textStyle)
+            end
+
             -- Apply rarity visuals
             local rarity: string? = nil
             local customColor: string? = nil
@@ -607,12 +675,12 @@ updateIntegratedToolbar = function()
             
             local style = customColor
             if not style or style == "" then
-                style = RarityConfig.RarityToStyle[rarity]
+                style = RarityConfig.GetBackgroundStyle(rarity)
             end
             
             -- Apply visuals to Frame (Background Gradient + Stroke)
             ColorSystem.ApplyToBackground(slotFrame, style)
-            ColorSystem.ApplyToFrame(slotFrame, style, {StrokeThickness = 2})
+
             
             -- Make this toolbar slot draggable (to remove from toolbar) if from inventory
             if screenGui and data.InventoryItemId then
@@ -643,9 +711,19 @@ updateIntegratedToolbar = function()
                 eventsLabel.Visible = false
             end
             
-            -- Reset gradient to default
+            local rarityLabel = slotFrame:FindFirstChild("RarityLabel") :: TextLabel?
+            if rarityLabel then
+                rarityLabel.Visible = false
+            end
+            
             ColorSystem.ApplyToBackground(slotFrame, nil)
-            ColorSystem.ApplyToFrame(slotFrame, nil)
+            
+            -- Remove drag detector if it exists
+            local dragDetector = slotFrame:FindFirstChild("ToolbarDragDetector")
+            if dragDetector then
+                dragDetector:Destroy()
+            end
+
         end
         
         -- Always show hotkey
@@ -778,6 +856,14 @@ function InventoryUI.Init(context: any)
     local base = hubFrame:WaitForChild("Base") :: Frame
     slotsContainer = base:WaitForChild("Panel") :: ScrollingFrame
     
+    -- Initialize InfoPanel
+    local infoPanelFrame = base:WaitForChild("InfoPanel", 5)
+    if infoPanelFrame then
+        infoPanel = InfoPanel.new(infoPanelFrame)
+    else
+        warn("[InventoryUI] InfoPanel frame not found in Hub.Base")
+    end
+    
     -- Load slot template from Config
     local Config = ReplicatedStorage:WaitForChild("Config", 5)
     if Config then
@@ -786,7 +872,7 @@ function InventoryUI.Init(context: any)
             local templates = inventoryConfig:WaitForChild("Templates", 2)
             if templates then
                 local tmpl = templates:WaitForChild("ItemSlot", 2)
-                if tmpl and tmpl:IsA("ImageLabel") then
+                if tmpl then
                     slotTemplate = tmpl
                     log("[InventoryUI] Loaded ItemSlot template from Config.Inventory.Templates")
                 end

@@ -100,7 +100,7 @@ local function updateSlotEquipState(slot: ToolSlot, isEquipped: boolean)
         if isEquipped then
             stroke.Color = Color3.fromRGB(100, 255, 100) -- Green when selected
         else
-            stroke.Color = Color3.fromRGB(255, 255, 255) -- White when not selected
+            stroke.Color = CONFIG.BorderColor -- Default border color
         end
         -- Don't change thickness
     end
@@ -184,11 +184,11 @@ local function updateSlotDisplay(slot: ToolSlot)
     
     local style = customColor
     if not style or style == "" then
-            style = RarityConfig.RarityToStyle[rarity]
+        style = RarityConfig.GetBackgroundStyle(rarity)
     end
     
     ColorSystem.ApplyToBackground(frame, style)
-    ColorSystem.ApplyToFrame(frame, style, {StrokeThickness = 2})
+
 
     -- Update EventsLabel (Mutations)
     local eventsLabel = frame:FindFirstChild("EventsLabel") :: TextLabel?
@@ -220,6 +220,26 @@ local function updateSlotDisplay(slot: ToolSlot)
             eventsLabel.Text = ""
             eventsLabel.Visible = false
         end
+    end
+
+    -- Update RarityLabel
+    local rarityLabel = frame:FindFirstChild("RarityLabel") :: TextLabel?
+    if rarityLabel then
+        rarityLabel.Text = rarity or "Common"
+        rarityLabel.Visible = true
+        
+        local textStyle = customColor -- Use custom color for text too if available
+        if not textStyle then
+             -- Check for specific custom text color attribute? Not standardized in Toolbar yet
+             -- but we can respect CustomTextColor if added to tool
+             textStyle = tool:GetAttribute("CustomTextColor") :: string?
+        end
+        
+        if not textStyle then
+             textStyle = RarityConfig.GetTextStyle(rarity or "Common")
+        end
+        
+        ColorSystem.ApplyToText(rarityLabel, textStyle)
     end
 end
 

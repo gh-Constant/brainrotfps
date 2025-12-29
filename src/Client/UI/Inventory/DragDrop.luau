@@ -165,7 +165,7 @@ local function highlightSlot(slot: Frame, highlight: boolean, valid: boolean?)
                 stroke.Color = Color3.fromRGB(255, 100, 100) -- Red for invalid
             end
         else
-            stroke.Color = Color3.fromRGB(255, 255, 255) -- White default
+            stroke.Color = Color3.fromRGB(80, 80, 90) -- Default dark gray (matching Toolbar config)
         end
     end
 end

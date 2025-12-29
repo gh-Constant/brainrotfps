@@ -77,7 +77,6 @@ local function getMaxPerZone(): number
 end
 
 local function getZoneModels(zoneName: string): { Model }
-	
 	local zoneFolder = zonesConfig:FindFirstChild(zoneName)
 	if not zoneFolder then
 		warn("[BrainrotSpawner] Zone folder not found: " .. zoneName)
@@ -85,12 +84,18 @@ local function getZoneModels(zoneName: string): { Model }
 	end
 	
 	local models: { Model } = {}
-	for _, child in zoneFolder:GetChildren() do
-		if child:IsA("Model") then
-			table.insert(models, child)
+	
+	local function searchRecursive(parent: Instance)
+		for _, child in parent:GetChildren() do
+			if child:IsA("Model") then
+				table.insert(models, child)
+			elseif child:IsA("Folder") then
+				searchRecursive(child)
+			end
 		end
 	end
 	
+	searchRecursive(zoneFolder)
 	return models
 end
 
@@ -565,12 +570,19 @@ function BrainrotSpawner.SpawnBrainrotWithMutation(zoneName: string, mobName: st
 	end
 	
 	local template: Model? = nil
-	for _, child in zoneFolder:GetChildren() do
-		if child:IsA("Model") and child.Name == mobName then
-			template = child
-			break
+	local function findRecursive(parent: Instance)
+		for _, child in parent:GetChildren() do
+			if child:IsA("Model") and child.Name == mobName then
+				template = child
+				return true
+			elseif child:IsA("Folder") then
+				if findRecursive(child) then return true end
+			end
 		end
+		return false
 	end
+	
+	findRecursive(zoneFolder)
 	
 	if not template then
 		warn("[BrainrotSpawner] Mob not found in zone: " .. mobName)
