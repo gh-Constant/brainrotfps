@@ -149,6 +149,7 @@ return ByteNet.defineNamespace("game", function()
 			reliabilityType = "reliable",
 		}),
 
+
 		-- Throw grenade packet (Client -> Server)
 		throwGrenade = ByteNet.definePacket({
 			value = ByteNet.struct({
@@ -159,6 +160,21 @@ return ByteNet.defineNamespace("game", function()
 				dirY = ByteNet.float32,
 				dirZ = ByteNet.float32,
 				strength = ByteNet.float32,
+			}),
+			reliabilityType = "reliable",
+		}),
+
+		-- Request Index Data (Client -> Server)
+		requestIndexData = ByteNet.definePacket({
+			value = ByteNet.struct({}),
+			reliabilityType = "reliable",
+		}),
+
+		-- Index Data Response (Server -> Client)
+		indexData = ByteNet.definePacket({
+			value = ByteNet.struct({
+				brainrots = ByteNet.array(ByteNet.string),
+				weapons = ByteNet.array(ByteNet.string),
 			}),
 			reliabilityType = "reliable",
 		}),

@@ -123,11 +123,22 @@ systemLoader:RegisterSystem({
 })
 
 -- System: Mob Display Controller
+-- System: Mob Display Controller
 systemLoader:RegisterSystem({
     Name = "MobDisplay",
     Priority = 7,
     Init = function(_context)
         MobDisplayController.Start()
+    end,
+})
+
+-- System: Index Controller
+local IndexController = require(script.UI.Index.IndexController)
+systemLoader:RegisterSystem({
+    Name = "Index",
+    Priority = 8,
+    Init = function(_context)
+        IndexController.Init()
     end,
 })
 

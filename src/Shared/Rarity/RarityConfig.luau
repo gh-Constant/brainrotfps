@@ -27,11 +27,7 @@ export type RarityVisuals = {
 ]]
 local RarityStyles: {[string]: RarityVisuals} = {
     Common = {
-        BackgroundStyle = "Common",
-        TextStyle = "BasicGray",
-    },
-    Uncommon = {
-        BackgroundStyle = "VibrantGreen", -- Keep as is or map if "Uncommon" exists in config? User didn't show it.
+        BackgroundStyle = "VibrantGreen",
         TextStyle = "VibrantGreen",
     },
     Rare = {
@@ -64,7 +60,7 @@ local RarityStyles: {[string]: RarityVisuals} = {
 -- Used for sorting items - higher index = rarer
 local RarityOrder: {string} = {
     "Common",
-    "Uncommon",
+
     "Rare",
     "Epic",
     "Legendary",

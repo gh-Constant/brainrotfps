@@ -14,6 +14,8 @@ local InventoryManager = require(script.Inventory)
 local GrenadeService = require(script.Weapons.GrenadeService)
 local BuffService = require(script.Buffs.BuffService)
 
+local IndexSystem = require(script.Index.IndexSystem)
+
 print("[Server] Server initialized!")
 
 -- Initialize systems
@@ -24,3 +26,4 @@ SafezoneManager.Init()   -- Handles safezones
 CmdrSetup.Init()         -- Handles Cmdr command console
 BrainrotSpawner.Init()   -- Handles brainrot spawning in zones
 GrenadeService.Init()    -- Handles grenades
+IndexSystem.Init()       -- Handles mob index

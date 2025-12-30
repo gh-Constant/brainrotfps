@@ -28,6 +28,7 @@ local StatsDisplay = require(Components.StatsDisplay)
 local PvPToggle = require(Components.PvPToggle)
 local CombatIndicator = require(Components.CombatIndicator)
 local ButtonToggles = require(Components.ButtonToggles)
+local HomeButton = require(Components.HomeButton)
 
 local UI = {
     -- Shared utilities
@@ -95,6 +96,7 @@ function UI.Init(context: any)
     DamageIndicator.Init()
     InventoryUI.Init(uiContext)
     ButtonToggles.Init(uiContext)
+    HomeButton.Init(uiContext)
     
     print("[UI] All systems initialized!")
 end

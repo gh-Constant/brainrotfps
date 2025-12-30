@@ -1,15 +1,14 @@
 --!strict
 --[[
     BuffService
-    Manages XP and Gold multipliers from various sources (Friends, Premium, GamePasses).
+    Manages XP and Gold multipliers from Friends and Premium.
 ]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
-local Rojo = ReplicatedStorage:WaitForChild("Rojo")
-local Shared = Rojo:WaitForChild("Shared")
+
 local Server = ServerScriptService:WaitForChild("Rojo"):WaitForChild("Server")
 
 -- Use lazy loading for PlayerManager to avoid circular dependency issues during init
@@ -21,9 +20,6 @@ local function getPlayerManager()
     return PlayerManager
 end
 
-local MonetizationService = require(Server:WaitForChild("Monetization"):WaitForChild("MonetizationService"))
-local ProductConfig = require(Shared:WaitForChild("Monetization"):WaitForChild("ProductConfig"))
-
 local BuffService = {}
 
 -- Constants
@@ -31,39 +27,14 @@ local FRIEND_BOOST_PER_FRIEND = 0.10 -- 10% per friend
 local FRIEND_BOOST_MAX = 0.50 -- Max 50%
 local PREMIUM_BOOST = 0.25 -- 25% XP and Gold
 
--- Cache
-local friendCache: {[number]: {[number]: boolean}} = {} -- [PlayerId] = {[OtherId] = true}
-
 --[[
-    Checks if two players are friends, using cache if available.
+    Checks if two players are friends.
 ]]
 local function areFriends(player1: Player, player2: Player): boolean
-    local id1, id2 = player1.UserId, player2.UserId
-    
-    if not friendCache[id1] then friendCache[id1] = {} end
-    if friendCache[id1][id2] ~= nil then
-        return friendCache[id1][id2]
-    end
-    
     local success, result = pcall(function()
-        return player1:IsFriendsWith(id2) -- Using IsFriendsWith for now as it's internally cached by Roblox nicely. 
-        -- Async version IsFriendsWithAsync is better but requires yield handling in loops.
-        -- Given this is run in a task.spawn, we can accept IsFriendsWith's slight yield or use Async.
-        -- But IsFriendsWith is deprecated. Let's use Async and cache it.
+        return player1:IsFriendsWith(player2.UserId)
     end)
-    
-    if not success then
-        return false -- Fail safe
-    end
-    
-    -- Cache result (bidirectional?)
-    friendCache[id1][id2] = result
-    
-    -- Also cache for the other player since friendship is mutual in Roblox
-    if not friendCache[id2] then friendCache[id2] = {} end
-    friendCache[id2][id1] = result
-    
-    return result
+    return success and result
 end
 
 --[[
@@ -79,7 +50,6 @@ local function calculateMultipliers(player: Player)
     local friendCount = 0
     for _, otherPlayer in ipairs(Players:GetPlayers()) do
         if otherPlayer ~= player then
-            -- Check if they are friends
             if areFriends(player, otherPlayer) then
                 friendCount += 1
             end
@@ -92,32 +62,9 @@ local function calculateMultipliers(player: Player)
     local isPremium = player.MembershipType == Enum.MembershipType.Premium
     local premiumBoost = isPremium and PREMIUM_BOOST or 0
     
-    -- 3. Calculate GamePass Multipliers
-    local doubleGold = false
-    local doubleXP = false
-    
-    -- Check GamePasses via MonetizationService
-    if MonetizationService.PerformPassCheck(player, ProductConfig.GamePasses.DoubleGold.Id) then
-        doubleGold = true
-    end
-    
-    if MonetizationService.PerformPassCheck(player, ProductConfig.GamePasses.DoubleExperience.Id) then
-        doubleXP = true
-    end
-    
-    -- 4. Final Calculation
-    -- Base is 100% (1.0). Boosts are additive to base?
-    -- Formula: (1 + FriendBoost + PremiumBoost) * GamePass
-    
+    -- 3. Final Calculation
     local totalXPMultiplier = (1 + friendBoost + premiumBoost)
-    if doubleXP then
-        totalXPMultiplier *= 2
-    end
-    
-    local totalGoldMultiplier = (1 + premiumBoost) -- Friend boost is XP only per request
-    if doubleGold then
-        totalGoldMultiplier *= 2
-    end
+    local totalGoldMultiplier = (1 + premiumBoost)
     
     -- Apply to PlayerData
     playerData.ExperienceMultiplier = totalXPMultiplier
@@ -151,7 +98,7 @@ function BuffService.Init()
             local tries = 0
             while not getPlayerManager().GetPlayerData(player) do
                 tries += 1
-                if tries > 60 then return end -- Give up after 6s (should be fast)
+                if tries > 60 then return end -- Give up after 6s
                 task.wait(0.1)
             end
             
@@ -165,23 +112,16 @@ function BuffService.Init()
     -- Handle Player Removing
     Players.PlayerRemoving:Connect(function(player)
         -- Update everyone else because a potential friend left
-        -- Wait a moment for the player list to update?
-        -- Players.PlayerRemoving fires before they are gone from GetPlayers?
-        -- Actually GetPlayers usually excludes them slightly after?
-        -- Safest is to wait a tick.
         task.delay(0.1, function()
             updateAllPlayers()
         end)
     end)
     
-    -- Listen for GamePass purchases
-    MonetizationService.OnGamePassPurchased:Connect(function(player, passId)
-        if passId == ProductConfig.GamePasses.DoubleGold.Id or
-           passId == ProductConfig.GamePasses.DoubleExperience.Id then
-            task.spawn(function()
-                calculateMultipliers(player)
-            end)
-        end
+    -- Handle Premium Membership Changes (Real-time update)
+    Players.PlayerMembershipChanged:Connect(function(player)
+        task.spawn(function()
+            calculateMultipliers(player)
+        end)
     end)
     
     -- Initial check for existing players

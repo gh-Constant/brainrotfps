@@ -138,6 +138,28 @@ function ButtonToggles.Init(context: any)
         end
     end)
     
+    -- Register Index toggle
+    task.spawn(function()
+        local indexButton = buttons:FindFirstChild("Index") :: GuiButton?
+        if indexButton then
+            local indexGui = playerGui:WaitForChild("Index", 10)
+            if indexGui then
+                local hub = indexGui:WaitForChild("Hub", 10)
+                local indexFrame = hub and hub:FindFirstChild("Index") :: GuiObject?
+                
+                if indexFrame then
+                    ButtonToggles.Register("Index", indexButton, indexFrame, false)
+                else
+                    warn("[ButtonToggles] Index frame not found in Hub")
+                end
+            else
+                warn("[ButtonToggles] Index ScreenGui not found")
+            end
+        else
+            -- warn("[ButtonToggles] Index button not found") -- Optional, don't spam if not ready
+        end
+    end)
+    
     -- Register Inventory toggle
     -- Note: Inventory has its own module, but we can still register the button here
     -- for consistency if needed. Currently InventoryUI handles its own button.

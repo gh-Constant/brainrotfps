@@ -162,17 +162,16 @@ local Styles: ColorSystemMap = {
     
     -- Epic: Dark purple
     AmethystVoid = {
-        Color = Color3.fromRGB(90, 30, 130), 
-        StrokePreset = "DeathStroke", -- Purple-ish?
-        BackgroundPreset = "Ghost",
+        Color = Color3.fromRGB(180, 80, 255), -- Brighter purple for visibility
+        StrokePreset = "DeathStroke",
     },
     
-    -- Legenday: Orange/Gold
+    -- Legenday: Yellow/Gold
     SolarFlare = {
-        Color = Color3.fromRGB(255, 165, 0),
+        Color = Color3.fromRGB(255, 240, 100), -- Lighter yellow/gold
         BackgroundPreset = "Gold",
         StrokePreset = "GoldStroke",
-        Speed = 0.2, -- Reduced from 1
+        Speed = 0.2,
     },
     
     -- Mythic: Pink/Magenta

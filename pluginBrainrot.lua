@@ -115,11 +115,16 @@ else
 			-- Configure physics properties for all parts
 			for _, descendant in ipairs(clone:GetDescendants()) do
 				if descendant:IsA("BasePart") then
-					descendant.CanCollide = true
+					if descendant.Name == "HumanoidRootPart" or descendant.Name == "RootPart" or descendant.Name == "FakeRootPart" then
+						descendant.CanCollide = false
+						descendant.Massless = true
+					else
+						descendant.CanCollide = true
+						descendant.Massless = false
+					end
 					descendant.CanQuery = true
 					descendant.CanTouch = true
 					descendant.Anchored = false
-					descendant.Massless = false
 				end
 			end
 

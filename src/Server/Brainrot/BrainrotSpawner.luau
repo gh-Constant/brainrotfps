@@ -338,6 +338,8 @@ local function spawnBrainrot(group: ZoneGroup)
 					}, instigator)
 				end
 			end
+			local IndexSystem = require(Server:WaitForChild("Index"):WaitForChild("IndexSystem"))
+			IndexSystem.OnMobKilled(instigator, brainrot.Name)
 		end
 		
 		if loggingEnabled then
