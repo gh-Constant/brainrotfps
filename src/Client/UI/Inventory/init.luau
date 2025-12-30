@@ -31,22 +31,23 @@ local Shared = Rojo:WaitForChild("Shared")
 local Janitor = require(Packages:WaitForChild("janitor"))
 local Signal = require(Packages:WaitForChild("signal"))
 
-local Inventory = require(Shared:WaitForChild("Inventory"))
+local Inventory = require(Shared:WaitForChild("Inventory")) -- For types only, core logic moved to DisplayUtils
 local Packets = require(Shared:WaitForChild("Packets"))
-local RarityConfig = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig"))
-local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
+local _RarityConfig = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig")) -- Used in DisplayUtils
+local _ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
+local ItemUtils = require(Shared:WaitForChild("Inventory"):WaitForChild("ItemUtils"))
+local Logger = require(Shared:WaitForChild("Inventory"):WaitForChild("Logger"))
+
 local ItemSlot = require(script.ItemSlot)
 local DragDrop = require(script.DragDrop)
+local InventoryStore = require(script.InventoryStore)
+local ToolbarActions = require(script.ToolbarActions)
+local SlotRenderer = require(script.SlotRenderer)
+local DisplayUtils = require(script.DisplayUtils)
 
--- Logging helper (checks Config.Inventory.Logging attribute)
+-- Use Logger for all logging
 local function log(message: string)
-	local config = ReplicatedStorage:FindFirstChild("Config")
-	if config then
-		local invConfig = config:FindFirstChild("Inventory")
-		if invConfig and invConfig:GetAttribute("Logging") == true then
-			print(message)
-		end
-	end
+    Logger.log("InventoryUI", message)
 end
 
 -- Get Toolbar module (for hide/show when inventory opens)
@@ -90,206 +91,24 @@ InventoryUI.OnToggled = Signal.new()
 -- Forward declaration
 local updateIntegratedToolbar 
 
---[[
-    Gets the display name for an item.
-    Checks Config for "DisplayName" attribute, falls back to templateId.
-]]
+-- Use ItemUtils for display name (replaces 30-line duplicate function)
 local function _getDisplayName(templateId: string): string
-    local config = ReplicatedStorage:FindFirstChild("Config")
-    if config then
-        local items = config:FindFirstChild("Items")
-        if items then
-            -- Recursive search for Configuration elements
-            local function searchRecursive(parent: Instance): Configuration?
-                for _, child in parent:GetChildren() do
-                    if child:IsA("Configuration") and child.Name == templateId then
-                        return child
-                    elseif child:IsA("Folder") then
-                        local found = searchRecursive(child)
-                        if found then return found end
-                    end
-                end
-                return nil
-            end
-            
-            local itemConfig = searchRecursive(items)
-            if itemConfig then
-                local displayName = itemConfig:GetAttribute("DisplayName")
-                if displayName and displayName ~= "" then
-                    return displayName
-                end
-            end
-        end
-    end
-    return templateId
+    return ItemUtils.GetDisplayName(templateId)
 end
 
--- Helper to get ItemType from item configuration
-local function getItemType(templateId: string): string?
-    local config = ReplicatedStorage:FindFirstChild("Config")
-    if config then
-        local items = config:FindFirstChild("Items")
-        if items then
-            local function searchRecursive(parent: Instance): Configuration?
-                for _, child in parent:GetChildren() do
-                    if child:IsA("Configuration") and child.Name == templateId then
-                        return child
-                    elseif child:IsA("Folder") then
-                        local found = searchRecursive(child)
-                        if found then return found end
-                    end
-                end
-                return nil
-            end
-            
-            local itemConfig = searchRecursive(items)
-            if itemConfig then
-                return itemConfig:GetAttribute("ItemType") :: string?
-            end
-        end
-    end
-    return nil
-end
+-- getItemType moved to DisplayUtils.GetItemType()
 
 --[[
     Converts inventory items to slot display data.
-    Stackable items are grouped together, non-stackable items shown individually.
-    Filtered by currentFilter if not "Unfiltered".
+    Uses DisplayUtils for filtering, grouping, and sorting.
 ]]
 local function getItemsForDisplay(): {ItemSlotData}
-    -- Create a set of item IDs that are in toolbar slots
-    local equippedItemIds: {[string]: number} = {} -- itemId -> slot number
-    for slot, itemId in pairs(toolbarSlots) do
-        if itemId and itemId ~= "" then
-            equippedItemIds[itemId] = slot
-        end
-    end
-    
-    local slotDataList: {ItemSlotData} = {}
-    
-    -- Separate stackable and non-stackable items, applying filter
-    local stackableItems: {InventoryItem} = {}
-    local nonStackableItems: {InventoryItem} = {}
-    
-    for _, item in inventoryData do
-        -- Apply filter
-        local passesFilter = true
-        if currentFilter ~= "Unfiltered" then
-            local itemType = getItemType(item.TemplateId)
-            passesFilter = (itemType == currentFilter)
-        end
-        
-        if passesFilter then
-            if Inventory.IsStackable(item.TemplateId) then
-                table.insert(stackableItems, item)
-            else
-                table.insert(nonStackableItems, item)
-            end
-        end
-    end
-    
-    -- Group stackable items into stacks
-    local stacks = Inventory.GroupIntoStacks(stackableItems)
-    for _, stack in ipairs(stacks) do
-        -- Check if any item in this stack is equipped
-        local equippedSlot: number? = nil
-        for _, stackItem in ipairs(stack.Items) do
-            if equippedItemIds[stackItem.Id] then
-                equippedSlot = equippedItemIds[stackItem.Id]
-                break
-            end
-        end
-        
-        -- Collect all item IDs in the stack
-        local itemIds: {string} = {}
-        local anyDuped = false
-        for _, stackItem in ipairs(stack.Items) do
-            table.insert(itemIds, stackItem.Id)
-            if dupedItems[stackItem.Id] then
-                anyDuped = true
-            end
-        end
-        
-        table.insert(slotDataList, {
-            TemplateId = stack.TemplateId,
-            Type = stack.Type :: string,
-            Rarity = if stack.Rarity then stack.Rarity :: string else nil,
-            Count = stack.Count,
-            ItemIds = itemIds,
-            IsEquipped = equippedSlot ~= nil,
-            EquippedSlot = equippedSlot,
-            EquippedSlot = equippedSlot,
-            MaybeDuped = anyDuped,
-            Metadata = stack.Items[1].Metadata,
-        })
-    end
-    
-    -- Add non-stackable items individually
-    for _, item in nonStackableItems do
-        local equippedSlot = equippedItemIds[item.Id]
-        table.insert(slotDataList, {
-            TemplateId = item.TemplateId,
-            Type = item.Type :: string,
-            Rarity = if item.Rarity then item.Rarity :: string else nil,
-            Count = 1,
-            ItemIds = {item.Id},
-            IsEquipped = equippedSlot ~= nil,
-            EquippedSlot = equippedSlot,
-            MaybeDuped = dupedItems[item.Id] or false,
-            Metadata = item.Metadata,
-        })
-    end
-    
-    -- Sort by rarity (rarest first) and mutation count (most first)
-    -- Build rarity order lookup from RarityConfig.RarityOrder (index = rarity value, higher = rarer)
-    local rarityOrder: {[string]: number} = {}
-    for index, rarityName in ipairs(RarityConfig.RarityOrder) do
-        rarityOrder[rarityName] = index
-    end
-    
-    local function getMutationCount(slotData: ItemSlotData): number
-        if slotData.Metadata and slotData.Metadata.Mutations then
-            local count = 0
-            for _ in pairs(slotData.Metadata.Mutations) do
-                count = count + 1
-            end
-            return count
-        end
-        return 0
-    end
-    
-    table.sort(slotDataList, function(a, b)
-        -- Equipped items first
-        local equippedA = a.IsEquipped or false
-        local equippedB = b.IsEquipped or false
-        if equippedA ~= equippedB then
-            return equippedA
-        end
-        
-        -- Sort by equipped slot if both are equipped
-        if equippedA and equippedB then
-            local slotA = a.EquippedSlot or 999
-            local slotB = b.EquippedSlot or 999
-            if slotA ~= slotB then
-                return slotA < slotB
-            end
-        end
-        
-        local rarityA = rarityOrder[a.Rarity or "Common"] or 0
-        local rarityB = rarityOrder[b.Rarity or "Common"] or 0
-        
-        -- Higher rarity first
-        if rarityA ~= rarityB then
-            return rarityA > rarityB
-        end
-        
-        -- More mutations first
-        local mutationsA = getMutationCount(a)
-        local mutationsB = getMutationCount(b)
-        return mutationsA > mutationsB
-    end)
-    
-    return slotDataList
+    return DisplayUtils.GetItemsForDisplay(
+        inventoryData,
+        toolbarSlots,
+        dupedItems,
+        currentFilter
+    )
 end
 
 
@@ -423,33 +242,13 @@ end
     Handles incoming inventory sync from server.
 ]]
 local function onInventorySync(data: any)
-    inventoryData = {}
-    toolbarSlots = {}
-    dupedItems = {} -- Reset duped tracking
+    -- Delegate to InventoryStore for centralized state management
+    InventoryStore.HandleSync(data)
     
-    -- [OPTIMIZED] Unpack grouped items from server
-    -- Server sends groups to save bandwidth, we expand them back to flat list for Client use
-    for _, group in data.groupedItems do
-        local templateId = group.templateId
-        local itemType = group.itemType :: Inventory.ItemType
-        local rarity = if group.rarity ~= "" then group.rarity :: Inventory.RarityType? else nil
-        local metadata = group.metadata
-        
-        for _, instance in group.instances do
-            local item: InventoryItem = {
-                Id = instance.id,
-                TemplateId = templateId,
-                Type = itemType,
-                Rarity = rarity,
-                Metadata = metadata,
-            }
-            table.insert(inventoryData, item)
-        end
-    end
-    
-    for slot, itemId in pairs(data.toolbarSlots) do
-        toolbarSlots[slot] = itemId
-    end
+    -- Get state from InventoryStore (single source of truth)
+    inventoryData = InventoryStore.GetInventory()
+    toolbarSlots = InventoryStore.GetToolbarSlots()
+    dupedItems = InventoryStore.GetDupedItems()
     
     refreshDisplay()
     
@@ -466,35 +265,12 @@ end
     Handles incoming inventory update (add/remove).
 ]]
 local function onInventoryUpdate(data: any)
-    local action = data.action
-    local itemData = data.item
+    -- Delegate to InventoryStore for centralized state management
+    InventoryStore.HandleUpdate(data)
     
-    log("[InventoryUI] onInventoryUpdate: " .. action .. " item: " .. (itemData and itemData.templateId or "nil"))
-    
-    if action == "Add" then
-        local item: InventoryItem = {
-            Id = itemData.id,
-            TemplateId = itemData.templateId,
-            Type = itemData.itemType :: Inventory.ItemType,
-            Rarity = if itemData.rarity ~= "" then itemData.rarity :: Inventory.RarityType? else nil,
-            Metadata = itemData.metadata,
-        }
-        table.insert(inventoryData, item)
-        
-        -- Track duped status
-        if itemData.maybeDuped then
-            dupedItems[itemData.id] = true
-        end
-        
-        log("[InventoryUI] Added item: " .. item.TemplateId .. " total items: " .. #inventoryData)
-    elseif action == "Remove" then
-        for i, item in inventoryData do
-            if item.Id == itemData.id then
-                table.remove(inventoryData, i)
-                break
-            end
-        end
-    end
+    -- Get updated state from InventoryStore
+    inventoryData = InventoryStore.GetInventory()
+    dupedItems = InventoryStore.GetDupedItems()
     
     refreshDisplay()
     
@@ -511,10 +287,11 @@ end
     Handles incoming toolbar update (lightweight).
 ]]
 local function onToolbarUpdate(data: any)
-    toolbarSlots = {}
-    for slot, itemId in pairs(data.toolbarSlots) do
-        toolbarSlots[slot] = itemId
-    end
+    -- Delegate to InventoryStore for centralized state management
+    InventoryStore.HandleToolbarUpdate(data)
+    
+    -- Get updated toolbar slots from InventoryStore
+    toolbarSlots = InventoryStore.GetToolbarSlots()
     
     log("[InventoryUI] Toolbar updated via lightweight packet")
     
@@ -542,312 +319,93 @@ updateIntegratedToolbar = function()
         return 
     end
     
-    -- Use local authoritative data from packet
-    local toolbarData = {}
-    for i = 1, 9 do
-        local itemId = toolbarSlots[i]
-        local data = {
-            SlotIndex = i,
-            InventoryItemId = itemId,
-            Tool = nil,
-        }
-        
-        -- Try to find the actual tool if it exists in character or backpack (for Icon/Texture)
-        -- But relying mainly on inventory data for logic
-        if itemId then
-             -- Find item in inventory data to get TemplateId/Config
-             local invItem = nil
-             for _, item in inventoryData do
-                 if item.Id == itemId then
-                     invItem = item
-                     break
-                 end
-             end
-             
-             if invItem then
-                 -- We have the inventory item, that's enough for display even if tool isn't spawned yet
-                 data.Tool = {
-                     Name = invItem.TemplateId,
-                     TextureId = "", -- Will be resolved via Config in the loop below
-                     GetAttribute = function(self, attr) 
-                        return nil -- Mock to prevent crashes if code expects tool instance
-                     end
-                 } :: any
-                 
-                 -- Try to find real tool for extra data if needed
-                 local player = Players.LocalPlayer
-                 if player then
-                     local backpack = player:FindFirstChild("Backpack")
-                     local character = player.Character
-                     
-                     if backpack then
-                         for _, t in backpack:GetChildren() do
-                             if t:IsA("Tool") and t:GetAttribute("InventoryItemId") == itemId then
-                                 data.Tool = t
-                                 break
-                             end
-                         end
-                     end
-                     if character and data.Tool == nil then -- Check character if not found in backpack
-                         for _, t in character:GetChildren() do
-                             if t:IsA("Tool") and t:GetAttribute("InventoryItemId") == itemId then
-                                 data.Tool = t
-                                 break
-                             end
-                         end
-                     end
-                 end
-             end
-        end
-        
-        table.insert(toolbarData, data)
-    end
-    
     -- Register toolbar contents with DragDrop for swap detection
     local slotContents: {[number]: string?} = {}
     for i = 1, 9 do
-        local data = toolbarData[i]
-        slotContents[i] = if data and data.InventoryItemId then data.InventoryItemId else nil
+        slotContents[i] = toolbarSlots[i]
     end
     DragDrop.RegisterToolbarContents(slotContents)
     
     for i, slotFrame in ipairs(toolbarSlotFrames) do
-        local data = toolbarData[i]
+        local itemId = toolbarSlots[i]
         
-        -- All elements are directly on the slot frame now
-        -- No "Background" child check needed as per user request
-        
-        -- Get sub-elements
-        local toolIcon = slotFrame:FindFirstChild("ToolIcon") :: ImageLabel?
-        local hotkeyLabel = slotFrame:FindFirstChild("HotkeyLabel") :: TextLabel?
-        local quantityLabel = slotFrame:FindFirstChild("QuantityLabel") :: TextLabel?
-        local nameLabel = slotFrame:FindFirstChild("ToolNameLabel") :: TextLabel?
-        local eventsLabel = slotFrame:FindFirstChild("EventsLabel") :: TextLabel?
-        
-        if data and data.Tool then
-            local tool = data.Tool
+        if itemId then
+            -- Find item in inventory data using InventoryStore O(1) lookup
+            local invItem = InventoryStore.FindById(itemId)
             
-            -- 1. RESOLVE DATA (Rarity, TemplateId, Config)
-            local rarity: string? = nil
-            local customColor: string? = nil
-            local invTemplateId: string? = nil
-            
-            -- Try to get data from inventory link
-            if data.InventoryItemId then
-                for _, invItem in inventoryData do
-                    if invItem.Id == data.InventoryItemId then
-                        rarity = invItem.Rarity :: string?
-                        invTemplateId = invItem.TemplateId
-                        break
-                    end
-                end
-            end
-            
-            -- Fallback rarity
-            if not rarity or rarity == "" then
-                rarity = tool:GetAttribute("Rarity") :: string?
-            end
-            
-            -- Resolve Config (iC)
-            local tId = invTemplateId or tool:GetAttribute("TemplateId") or tool.Name
-            local iC: Configuration? = nil
-            
-            local config = ReplicatedStorage:FindFirstChild("Config")
-            if config then
-                 local items = config:FindFirstChild("Items")
-                 if items then
-                     local function quickSearch(parent: Instance): Configuration?
-                         for _, child in parent:GetChildren() do
-                             if child.Name == tId and child:IsA("Configuration") then
-                                 return child
-                             elseif child:IsA("Folder") then
-                                 local found = quickSearch(child)
-                                 if found then return found end
-                             end
-                         end
-                         return nil
-                     end
-                     iC = quickSearch(items)
-                 end
-            end
-            
-            -- Get Custom Colors from Config
-            if iC then
-                customColor = iC:GetAttribute("CustomColor") :: string?
-            end
-            
-            -- Fallback CustomColor from Tool
-            if not customColor or customColor == "" then
-                customColor = tool:GetAttribute("CustomColor") :: string?
-            end
-
-            -- 2. UPDATE UI ELEMENTS
-            
-            -- Update icon
-            if toolIcon then
-                local textureId = ""
+            if invItem then
+                -- Build render data from inventory item
+                local renderData: SlotRenderer.SlotRenderData = {
+                    TemplateId = invItem.TemplateId,
+                    Rarity = invItem.Rarity :: string?,
+                    Count = 1, -- Toolbar slots don't show stacks
+                    IsEquipped = true,
+                    EquippedSlot = i,
+                    Metadata = invItem.Metadata,
+                }
                 
-                -- Priority: Config "Image" > Tool "TextureId"
-                if iC then
-                     textureId = iC:GetAttribute("Image") :: string? or ""
-                end
-                
-                if textureId == "" then
-                     textureId = tool.TextureId
-                end
-                
-                if textureId and textureId ~= "" and not string.find(textureId, "://") then
-                    textureId = "rbxassetid://" .. textureId
-                end
-                toolIcon.Image = if textureId and textureId ~= "" then textureId else "rbxassetid://6031763426"
-                toolIcon.Visible = true
-            end
-            
-            -- Update name
-            if nameLabel then
-                local toolDisplayName = tool:GetAttribute("DisplayName")
-                nameLabel.Text = if toolDisplayName and toolDisplayName ~= "" then toolDisplayName else tool.Name
-                nameLabel.Visible = true
-            end
-            
-            -- Show stack count
-            if quantityLabel then
-                local stackCount = tool:GetAttribute("StackCount")
-                if stackCount and stackCount > 1 then
-                    quantityLabel.Text = "x" .. tostring(stackCount)
-                    quantityLabel.Visible = true
-                else
-                    quantityLabel.Text = ""
-                    quantityLabel.Visible = false
-                end
-            end
-            
-             -- Update EventsLabel
-            if eventsLabel then
-                local foundMutations = nil
-                
-                -- Check inventory data first
-                if data.InventoryItemId then
-                    for _, invItem in inventoryData do
-                        if invItem.Id == data.InventoryItemId then
-                            if invItem.Metadata and invItem.Metadata.Mutations then
-                                foundMutations = invItem.Metadata.Mutations
+                -- Try to get stack count from actual tool if spawned
+                local player = Players.LocalPlayer
+                if player then
+                    local backpack = player:FindFirstChild("Backpack")
+                    local character = player.Character
+                    
+                    local tool: Tool? = nil
+                    if backpack then
+                        for _, t in backpack:GetChildren() do
+                            if t:IsA("Tool") and t:GetAttribute("InventoryItemId") == itemId then
+                                tool = t
+                                break
                             end
-                            break
+                        end
+                    end
+                    if not tool and character then
+                        for _, t in character:GetChildren() do
+                            if t:IsA("Tool") and t:GetAttribute("InventoryItemId") == itemId then
+                                tool = t
+                                break
+                            end
+                        end
+                    end
+                    
+                    if tool then
+                        local stackCount = tool:GetAttribute("StackCount") :: number?
+                        if stackCount and stackCount > 1 then
+                            renderData.Count = stackCount
                         end
                     end
                 end
                 
-                -- Fallback to tool attribute
-                if not foundMutations then
-                    local mutJson = tool:GetAttribute("Mutations") :: string?
-                    if mutJson and mutJson ~= "" then
-                         local HttpService = game:GetService("HttpService")
-                         pcall(function()
-                             foundMutations = HttpService:JSONDecode(mutJson)
-                         end)
-                    end
-                end
-
-                 if foundMutations then
-                     local count = 0
-                     for _ in pairs(foundMutations) do
-                         count = count + 1
-                     end
-                     if count > 0 then
-                        eventsLabel.Text = tostring(count) .. " " .. (count == 1 and "Event" or "Events")
-                        eventsLabel.Visible = true
-                     else
-                        eventsLabel.Text = ""
-                        eventsLabel.Visible = false
-                     end
-                 else
-                     eventsLabel.Text = ""
-                     eventsLabel.Visible = false
-                 end
-            end
-
-            -- Update RarityLabel
-            local rarityLabel = slotFrame:FindFirstChild("RarityLabel") :: TextLabel?
-            if rarityLabel then
-                rarityLabel.Text = rarity or "Common"
-                rarityLabel.Visible = true
+                -- Use SlotRenderer for all UI updates
+                SlotRenderer.RenderSlot(slotFrame, renderData)
                 
-                local textStyle = nil
-                if iC then
-                     textStyle = iC:GetAttribute("CustomTextColor") :: string?
+                -- Setup drag-drop for inventory items
+                if screenGui then
+                    DragDrop.MakeToolbarSlotDraggable(
+                        slotFrame,
+                        i,
+                        itemId,
+                        invItem.TemplateId,
+                        screenGui
+                    )
                 end
-                
-                if not textStyle then
-                     textStyle = tool:GetAttribute("CustomTextColor") :: string?
-                end
-                
-                if not textStyle then
-                     textStyle = RarityConfig.GetTextStyle(rarity or "Common")
-                end
-                
-                ColorSystem.ApplyToText(rarityLabel, textStyle)
-            end
-
-            -- Apply Background visuals
-            local style = customColor
-            if not style or style == "" then
-                style = RarityConfig.GetBackgroundStyle(rarity)
-            end
-            
-            ColorSystem.ApplyToBackground(slotFrame, style)
-            
-            -- Make this toolbar slot draggable (to remove from toolbar) if from inventory
-            if screenGui and data.InventoryItemId then
-                DragDrop.MakeToolbarSlotDraggable(
-                    slotFrame,
-                    i,
-                    data.InventoryItemId,
-                    tool.Name,
-                    screenGui
-                )
+            else
+                -- Item ID but not in inventory (shouldn't happen but handle gracefully)
+                SlotRenderer.ClearSlot(slotFrame)
             end
         else
             -- Empty slot
-            if toolIcon then
-                toolIcon.Image = ""
-                toolIcon.Visible = false
-            end
-            if nameLabel then
-                nameLabel.Text = ""
-                nameLabel.Visible = false
-            end
-            if quantityLabel then
-                quantityLabel.Text = ""
-                quantityLabel.Visible = false
-            end
-            if eventsLabel then
-                eventsLabel.Text = ""
-                eventsLabel.Visible = false
-            end
-            
-            local rarityLabel = slotFrame:FindFirstChild("RarityLabel") :: TextLabel?
-            if rarityLabel then
-                rarityLabel.Visible = false
-            end
-            
-            ColorSystem.ApplyToBackground(slotFrame, nil)
+            SlotRenderer.ClearSlot(slotFrame)
             
             -- Remove drag detector if it exists
             local dragDetector = slotFrame:FindFirstChild("ToolbarDragDetector")
             if dragDetector then
                 dragDetector:Destroy()
             end
-
         end
         
-        -- Always show hotkey
-        if hotkeyLabel then
-            hotkeyLabel.Text = tostring(i)
-            hotkeyLabel.Visible = true
-        end
-        
-
+        -- Always show hotkey using SlotRenderer helper
+        SlotRenderer.SetHotkey(slotFrame, i)
     end
 end
 
@@ -909,34 +467,21 @@ end
     Sends a toolbar assignment action to server.
 ]]
 function InventoryUI.AssignToToolbar(itemId: string, slot: number)
-    Packets.inventoryAction.send({
-        action = "AssignToolbar",
-        itemId = itemId,
-        slot = slot,
-    })
+    ToolbarActions.AssignToToolbar(itemId, slot)
 end
 
 --[[
     Sends a toolbar removal action to server.
 ]]
 function InventoryUI.RemoveFromToolbar(slot: number)
-    Packets.inventoryAction.send({
-        action = "RemoveToolbar",
-        itemId = "",
-        slot = slot,
-    })
+    ToolbarActions.RemoveFromToolbar(slot)
 end
 
 --[[
     Sends a toolbar swap action to server.
 ]]
 function InventoryUI.SwapToolbarSlots(slot1: number, slot2: number)
-    Packets.inventoryAction.send({
-        action = "SwapToolbar",
-        itemId = "",
-        slot = slot1,
-        slot2 = slot2,
-    })
+    ToolbarActions.SwapToolbarSlots(slot1, slot2)
 end
 
 --[[
@@ -1196,15 +741,12 @@ function InventoryUI.Init(context: any)
         log("[InventoryUI] Created and registered " .. #toolbarSlotFrames .. " toolbar slots from template")
     end
     
-    -- Get Toolbar reference (from context if available, or require it)
+    -- Get Toolbar reference (from context if available, or require it from same folder)
     if context.Toolbar then
         Toolbar = context.Toolbar
     else
-        -- Try to require Toolbar module
-        local Client = script.Parent.Parent
-        if Client:FindFirstChild("Toolbar") then
-            Toolbar = require(Client.Toolbar)
-        end
+        -- Toolbar is now in the same folder (Inventory)
+        Toolbar = require(script.Toolbar)
     end
     
     -- Setup packet listeners

@@ -89,11 +89,20 @@ end
 --[[
     Recursively finds an item configuration by templateId in Config.Items.
     Searches through all folders and returns the first Configuration element with matching name.
+    Results are cached for O(1) repeated lookups.
     
     @param templateId - The template name to find
     @return Configuration? - The item configuration or nil
 ]]
+-- Cache for item configs
+local itemConfigCache: {[string]: Configuration} = {}
+
 function ItemUtils.FindItemConfig(templateId: string): Configuration?
+    -- Check cache first
+    if itemConfigCache[templateId] then
+        return itemConfigCache[templateId]
+    end
+    
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
     local config = ReplicatedStorage:FindFirstChild("Config")
     if not config then return nil end
@@ -115,7 +124,11 @@ function ItemUtils.FindItemConfig(templateId: string): Configuration?
         return nil
     end
     
-    return searchRecursive(items)
+    local itemConfig = searchRecursive(items)
+    if itemConfig then
+        itemConfigCache[templateId] = itemConfig
+    end
+    return itemConfig
 end
 
 --[[
@@ -276,4 +289,125 @@ function ItemUtils.GetStackItems(items: {InventoryItem}, referenceItem: Inventor
     return stack
 end
 
+--------------------------------------------------------------------------------
+-- UI Helper Functions (extracted from client scripts)
+--------------------------------------------------------------------------------
+
+--[[
+    Gets the display name for an item.
+    Checks Config for "DisplayName" attribute, falls back to templateId.
+    
+    @param templateId - The template ID
+    @return string - The display name
+]]
+function ItemUtils.GetDisplayName(templateId: string): string
+    local itemConfig = ItemUtils.FindItemConfig(templateId)
+    if itemConfig then
+        local displayName = itemConfig:GetAttribute("DisplayName") :: string?
+        if displayName and displayName ~= "" then
+            return displayName
+        end
+    end
+    return templateId
+end
+
+--[[
+    Gets the image/texture ID for an item.
+    Priority: Config "Image" attribute > Tool.TextureId
+    
+    @param templateId - The template ID
+    @return string - The image asset ID (with rbxassetid:// prefix)
+]]
+function ItemUtils.GetItemImage(templateId: string): string
+    local itemConfig = ItemUtils.FindItemConfig(templateId)
+    if not itemConfig then return "" end
+    
+    -- Check Image attribute first
+    local image = itemConfig:GetAttribute("Image") :: string?
+    if image and image ~= "" then
+        if not string.find(image, "://") then
+            image = "rbxassetid://" .. image
+        end
+        return image
+    end
+    
+    -- Fallback to Tool's TextureId
+    local tool = itemConfig:FindFirstChildWhichIsA("Tool") :: Tool?
+    if tool then
+        local textureId = tool.TextureId
+        if textureId and textureId ~= "" then
+            if not string.find(textureId, "://") then
+                textureId = "rbxassetid://" .. textureId
+            end
+            return textureId
+        end
+    end
+    
+    return ""
+end
+
+--[[
+    Gets the ItemType attribute from an item's configuration.
+    
+    @param templateId - The template ID
+    @return string? - The item type ("Gun", "Grenade", "Potion", etc.) or nil
+]]
+function ItemUtils.GetItemType(templateId: string): string?
+    local itemConfig = ItemUtils.FindItemConfig(templateId)
+    if itemConfig then
+        return itemConfig:GetAttribute("ItemType") :: string?
+    end
+    return nil
+end
+
+--[[
+    Gets the Tool instance from inside a Configuration.
+    
+    @param templateId - The template ID
+    @return Tool? - The tool or nil
+]]
+function ItemUtils.GetTool(templateId: string): Tool?
+    local itemConfig = ItemUtils.FindItemConfig(templateId)
+    if itemConfig then
+        return itemConfig:FindFirstChildWhichIsA("Tool") :: Tool?
+    end
+    return nil
+end
+
+--[[
+    Gets the custom color style from Config, or derives it from rarity.
+    
+    @param templateId - The template ID
+    @param rarity - Optional rarity to fall back to
+    @return string? - The style name for ColorSystem
+]]
+function ItemUtils.GetBackgroundStyle(templateId: string, rarity: string?): string?
+    local itemConfig = ItemUtils.FindItemConfig(templateId)
+    if itemConfig then
+        local customColor = itemConfig:GetAttribute("CustomColor") :: string?
+        if customColor and customColor ~= "" then
+            return customColor
+        end
+    end
+    
+    -- Fall back to rarity-based style via RarityConfig
+    -- Note: Caller should use RarityConfig.GetBackgroundStyle(rarity) if this returns nil
+    return nil
+end
+
+--[[
+    Gets the custom text color style from Config.
+    
+    @param templateId - The template ID
+    @return string? - The style name for ColorSystem text, or nil
+]]
+function ItemUtils.GetTextStyle(templateId: string): string?
+    local itemConfig = ItemUtils.FindItemConfig(templateId)
+    if itemConfig then
+        return itemConfig:GetAttribute("CustomTextColor") :: string?
+    end
+    return nil
+end
+
 return ItemUtils
+

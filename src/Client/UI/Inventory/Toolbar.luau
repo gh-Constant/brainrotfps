@@ -21,6 +21,8 @@ local Shared = Rojo:WaitForChild("Shared")
 local Janitor = require(Packages:WaitForChild("janitor"))
 local RarityConfig = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig"))
 local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
+local ItemUtils = require(Shared:WaitForChild("Inventory"):WaitForChild("ItemUtils"))
+local Logger = require(Shared:WaitForChild("Inventory"):WaitForChild("Logger"))
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -147,25 +149,9 @@ local function updateSlotDisplay(slot: ToolSlot)
         end
     end
     
-    -- Helper to get item config (similar to ItemSlot)
+    -- Use ItemUtils for config lookup (replaces 20-line inline function)
     local function getItemConfig(templateId: string): Configuration?
-        local config = ReplicatedStorage:FindFirstChild("Config")
-        if not config then return nil end
-        local items = config:FindFirstChild("Items")
-        if not items then return nil end
-        
-        local function searchRecursive(parent: Instance): Configuration?
-            for _, child in parent:GetChildren() do
-                if child.Name == templateId and child:IsA("Configuration") then
-                    return child
-                elseif child:IsA("Folder") then
-                    local found = searchRecursive(child)
-                    if found then return found end
-                end
-            end
-            return nil
-        end
-        return searchRecursive(items)
+        return ItemUtils.FindItemConfig(templateId)
     end
 
     -- Apply rarity visuals using ColorSystem
@@ -627,34 +613,11 @@ local function setupHotkeyInput()
         if input.UserInputType == Enum.UserInputType.MouseWheel then
             -- Only allow scroll switching if equipped tool is ItemType "Gun"
             if equippedTool then
-                -- Check ItemType from Config
-                local config = ReplicatedStorage:FindFirstChild("Config")
-                if config then
-                    local items = config:FindFirstChild("Items")
-                    if items then
-                        local templateId = equippedTool:GetAttribute("TemplateId") or equippedTool.Name
-                        
-                        -- Search for item config
-                        local function searchRecursive(parent: Instance): Configuration?
-                            for _, child in parent:GetChildren() do
-                                if child.Name == templateId and child:IsA("Configuration") then
-                                    return child
-                                elseif child:IsA("Folder") then
-                                    local found = searchRecursive(child)
-                                    if found then return found end
-                                end
-                            end
-                            return nil
-                        end
-                        
-                        local itemConfig = searchRecursive(items)
-                        if itemConfig then
-                            local itemType = itemConfig:GetAttribute("ItemType")
-                            if itemType ~= "Gun" then
-                                return -- Don't allow scroll for non-Gun items
-                            end
-                        end
-                    end
+                -- Use ItemUtils for config lookup (replaces 25-line inline pattern)
+                local templateId = equippedTool:GetAttribute("TemplateId") or equippedTool.Name
+                local itemType = ItemUtils.GetItemType(templateId)
+                if itemType ~= "Gun" then
+                    return -- Don't allow scroll for non-Gun items
                 end
             else
                 -- Nothing equipped, do nothing

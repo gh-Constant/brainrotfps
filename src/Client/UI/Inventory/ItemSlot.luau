@@ -25,16 +25,12 @@ local Shared = Rojo:WaitForChild("Shared")
 local Janitor = require(Packages:WaitForChild("janitor"))
 local Rarity = require(Shared:WaitForChild("Rarity"))
 local RarityConfig = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig"))
+local ItemUtils = require(Shared:WaitForChild("Inventory"):WaitForChild("ItemUtils"))
+local Logger = require(Shared:WaitForChild("Inventory"):WaitForChild("Logger"))
 
--- Logging helper (checks Config.Inventory.Logging attribute)
+-- Use Logger for all logging (replaces 9-line duplicate function)
 local function log(message: string)
-	local config = ReplicatedStorage:FindFirstChild("Config")
-	if config then
-		local invConfig = config:FindFirstChild("Inventory")
-		if invConfig and invConfig:GetAttribute("Logging") == true then
-			print(message)
-		end
-	end
+    Logger.log("ItemSlot", message)
 end
 
 -- Types
@@ -71,43 +67,9 @@ local ItemSlotModule = {}
 ItemSlotModule.__index = ItemSlotModule
 
 -- Cache for item configs
-local itemConfigCache: {[string]: Configuration} = {}
-
---[[
-    Gets item configuration from Config/Items.
-]]
+-- Use ItemUtils for config lookup (already has caching built-in)
 local function getItemConfig(templateId: string): Configuration?
-    -- Check cache first
-    if itemConfigCache[templateId] then
-        return itemConfigCache[templateId]
-    end
-    
-    local config = ReplicatedStorage:FindFirstChild("Config")
-    if not config then return nil end
-    
-    local items = config:FindFirstChild("Items")
-    if not items then return nil end
-    
-    -- Recursive search function for nested folders
-    local function searchRecursive(parent: Instance): Configuration?
-        for _, child in parent:GetChildren() do
-            if child:IsA("Configuration") and child.Name == templateId then
-                return child
-            elseif child:IsA("Folder") then
-                local found = searchRecursive(child)
-                if found then return found end
-            end
-        end
-        return nil
-    end
-    
-    local itemConfig = searchRecursive(items)
-    if itemConfig then
-        itemConfigCache[templateId] = itemConfig
-        return itemConfig
-    end
-    
-    return nil
+    return ItemUtils.FindItemConfig(templateId)
 end
 
 --[[

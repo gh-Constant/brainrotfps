@@ -3,8 +3,24 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local castRays = require(ReplicatedStorage.Blaster.Utility.castRays)
 local canPlayerDamageHumanoid = require(ReplicatedStorage.Blaster.Utility.canPlayerDamageHumanoid)
 
-local DIRECTION_BUFFER_CONSTANT = 10
+local BASE_DIRECTION_BUFFER = 10 -- Minimum buffer in studs
 local WALL_DISTANCE_BUFFER_CONSTANT = 8
+
+--[[
+	Calculates the direction buffer based on the target's size.
+	Larger targets get a larger buffer to make them easier to hit.
+]]
+local function getDirectionBuffer(character: Model): number
+	-- Get the bounding box of the target
+	local _, size = character:GetBoundingBox()
+	
+	-- Use the full diagonal as the buffer for generous hit detection on big mobs
+	local diagonal = size.Magnitude
+	local targetBuffer = diagonal * 1.0 -- Full diagonal for more leniency
+	
+	-- Clamp between BASE_DIRECTION_BUFFER and a maximum of 100 studs
+	return math.clamp(targetBuffer, BASE_DIRECTION_BUFFER, 100)
+end
 
 local function validateTag(
 	player: Player,
@@ -36,10 +52,14 @@ local function validateTag(
 		return false
 	end
 
+	-- Calculate the direction buffer based on the target's size
+	-- Larger mobs get a more lenient buffer
+	local directionBuffer = getDirectionBuffer(character)
+
 	-- In order to make sure that the ray is actually aiming within a certain distance of the character,
-	-- we'll calculate a maximum angle based on our DIRECTION_BUFFER_CONSTANT.
-	-- DIRECTION_BUFFER_CONSTANT is that maximum amount of studs away from the character that the ray can aim.
-	-- atan(DIRECTION_BUFFER_CONSTANT / characterDistance) will give us the maximum angle based on how far away the character is.
+	-- we'll calculate a maximum angle based on our direction buffer.
+	-- The buffer is the maximum amount of studs away from the character that the ray can aim.
+	-- atan(directionBuffer / characterDistance) will give us the maximum angle based on how far away the character is.
 	--[[
 		◎───y───
 		▲     /
@@ -50,15 +70,20 @@ local function validateTag(
 		│/
 
 		x = characterDistance
-		y = DIRECTION_BUFFER_CONSTANT
+		y = directionBuffer
 		θ = atan(y/x)
 	]]
 
-	local maxAngle = math.atan(DIRECTION_BUFFER_CONSTANT / characterDistance)
+	local maxAngle = math.atan(directionBuffer / characterDistance) * 2 -- 2x multiplier for extra leniency
 	-- Check what angle the ray is actually aiming relative to the character and make sure it's within our maximum.
 	-- This will stop a client from passing in arbitrary humanoids, only allowing them to damage what they could
 	-- conceivably be aiming at.
 	local angle = characterOffset:Angle(direction)
+	
+	-- Debug: show what values we're working with
+	print(string.format("[validateTag] angle=%.3f, maxAngle=%.3f, buffer=%d, dist=%.1f", 
+		math.deg(angle), math.deg(maxAngle), directionBuffer, characterDistance))
+	
 	if angle > maxAngle then
 		print("not good angle")
 		return false

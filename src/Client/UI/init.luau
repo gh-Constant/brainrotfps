@@ -13,7 +13,7 @@
 
 -- Top-level UI modules
 local ProgressBar = require(script.ProgressBar)
-local Toolbar = require(script.Toolbar)
+local Toolbar = require(script.Inventory.Toolbar)
 local BroadcastUI = require(script.BroadcastUI)
 local DeathScreen = require(script.DeathScreen)
 local LootFX = require(script.LootFX)
