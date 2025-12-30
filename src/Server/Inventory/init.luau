@@ -297,6 +297,21 @@ function InventoryManager.Init()
         end
     end)
     
+    -- Request Inventory Listener
+    Packets.requestInventory.listen(function(_, player)
+        if not checkRateLimit(player) then return end
+        
+        local inventory = ActiveInventories[player.UserId]
+        if inventory then
+            Network.SyncInventory(player, inventory)
+            -- Also sync toolbar
+            ToolbarUtils.SpawnToolbarTools(player, inventory)
+            print(string.format("[InventoryManager] Resyncing inventory for %s upon request", player.Name))
+        else
+            warn(string.format("[InventoryManager] Received sync request from %s but no inventory loaded yet", player.Name))
+        end
+    end)
+    
     -- Player Lifecycle
     -- Managed by PlayerManager (LoadInventory/UnloadInventory)
     

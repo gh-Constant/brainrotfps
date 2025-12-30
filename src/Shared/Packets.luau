@@ -149,6 +149,13 @@ return ByteNet.defineNamespace("game", function()
 			reliabilityType = "reliable",
 		}),
 
+		-- Request Inventory Packet (Client -> Server)
+		-- Used to request a full sync when client UI is ready
+		requestInventory = ByteNet.definePacket({
+			value = ByteNet.struct({}),
+			reliabilityType = "reliable",
+		}),
+
 
 		-- Throw grenade packet (Client -> Server)
 		throwGrenade = ByteNet.definePacket({

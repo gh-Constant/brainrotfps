@@ -1290,6 +1290,10 @@ function InventoryUI.Init(context: any)
         end
     end)
     
+    -- Request initial inventory data
+    log("[InventoryUI] Requesting initial inventory data...")
+    Packets.requestInventory.send({})
+    
     log("[InventoryUI] Initialized with new Inventory/Hub hierarchy!")
 end
 
