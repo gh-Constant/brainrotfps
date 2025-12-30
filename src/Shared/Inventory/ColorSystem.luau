@@ -1,19 +1,20 @@
 --!strict
 --[[
-    Color System (Visual Styles)
+    Color System (Visual Styles) - OPTIMIZED WITH ezVisuals
     Defines all visual styles for items, including colors, gradients, and animations.
-    Now integrated with ezVisuals for effects.
+    
+    PERFORMANCE OPTIMIZATIONS:
+    - Uses ezVisuals library (preserves original visual styles)
+    - Tracks all effects for global PauseAll/ResumeAll when inventory closes
+    - Proper cleanup to prevent memory leaks
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
 local Packages = Rojo:WaitForChild("Packages")
-local Shared = Rojo:WaitForChild("Shared")
 
 -- Require ezVisuals
--- Using the file provided by user which likely points to the package
 local ezVisuals = require(Packages:WaitForChild("ezvisualz"))
 
 -- Custom synced effects for synchronized animations
@@ -65,8 +66,6 @@ local function loadExternalStyles(stylesMap: ColorSystemMap)
                     Color = child.Color.Keypoints[1].Value, -- Fallback color from start of gradient
                     Gradient = child.Color,
                     GradientRotation = child.Rotation,
-                    -- Use existing stroke/text presets if available, or nil
-                    -- We can map these manually in RarityConfig if needed, or define defaults here
                 }
             end
         end
@@ -179,7 +178,7 @@ local Styles: ColorSystemMap = {
         Color = Color3.fromRGB(255, 0, 128),
         BackgroundPreset = "Shine", 
         StrokePreset = "ChromeStroke",
-        Speed = 0.3, -- Reduced from 1.5
+        Speed = 0.3,
     },
     
     -- Zebra animated (for text effects)
@@ -188,15 +187,15 @@ local Styles: ColorSystemMap = {
         BackgroundPreset = "Zebra",
         TextPreset = "Zebra",
         StrokePreset = nil,
-        Speed = 0.4, -- 2x faster for Secret rarity
+        Speed = 0.4,
         Animated = true,
     },
     
     -- Zebra static (black/white non-animated for backgrounds)
     ZebraStatic = {
-        Color = Color3.fromRGB(40, 40, 40),  -- Dark gray/black base
-        LightColor = Color3.fromRGB(255, 255, 255),  -- White contrast
-        BackgroundPreset = nil,  -- No animated preset, use static
+        Color = Color3.fromRGB(40, 40, 40),
+        LightColor = Color3.fromRGB(255, 255, 255),
+        BackgroundPreset = nil,
         StrokePreset = nil,
         Animated = false,
     },
@@ -302,10 +301,10 @@ local function GetColorConfig(styleName: string?): ColorVisualConfig?
 end
 
 -- ==========================================================
--- VISUAL APPLICATION LOGIC
+-- VISUAL APPLICATION LOGIC (With Performance Tracking)
 -- ==========================================================
 
--- Store active effects to allow cleanup: {[Instance]: {[EffectType]: EffectObject}}
+-- Store active effects to allow cleanup and pause/resume: {[Instance]: {[EffectType]: EffectObject}}
 local activeEffects: {[Instance]: {[string]: any}} = {}
 
 local function StopAnimation(instance: Instance, specificType: string?)
@@ -338,6 +337,36 @@ local function RegisterEffect(instance: Instance, effectType: string, effectObje
 end
 
 --[[
+    PERFORMANCE: Pause all registered effects (call when inventory closes)
+]]
+local function PauseAll()
+    for instance, effects in pairs(activeEffects) do
+        for _, effect in pairs(effects) do
+            if effect.Pause then
+                effect:Pause()
+            end
+        end
+    end
+end
+
+--[[
+    PERFORMANCE: Resume all registered effects (call when inventory opens)
+]]
+local function ResumeAll()
+    for instance, effects in pairs(activeEffects) do
+        -- Skip if instance destroyed
+        if not instance.Parent then
+            continue
+        end
+        for _, effect in pairs(effects) do
+            if effect.Resume then
+                effect:Resume()
+            end
+        end
+    end
+end
+
+--[[
     Applies style to a Frame (UIStroke).
 ]]
 local function ApplyToFrame(frame: Frame, styleName: string?, options: {StrokeThickness: number?}?)
@@ -347,7 +376,6 @@ local function ApplyToFrame(frame: Frame, styleName: string?, options: {StrokeTh
     if not styleName then
         local stroke = frame:FindFirstChild("RarityStroke") :: UIStroke?
         if stroke then stroke:Destroy() end
-         -- Also check for generic UIStroke that might have been added by ezVisuals (it cleans itself up on Destroy)
         return
     end
 
@@ -378,10 +406,6 @@ local function ApplyToBackground(frame: Frame, styleName: string?)
     StopAnimation(frame, "Background")
     
     if not styleName then
-        -- Cleanup is handled by StopAnimation calling Destroy on the effect
-        -- But we might need to reset basic props if they were modified directly (ezVisuals usually handles this via SavedObjects if enabled, checking logic)
-        -- We passed saveInstanceObjects=false, so we might need manual cleanup if ezVisuals leaves artifacts?
-        -- ezVisuals Destroy() removes the Effects it created.
         -- Reset to default dark background for empty slots
         frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
         
@@ -406,13 +430,13 @@ local function ApplyToBackground(frame: Frame, styleName: string?)
              gradient.Parent = frame
          end
          gradient.Color = config.Gradient
-         gradient.Rotation = config.GradientRotation or -90 -- Default to -90 if not specified
+         gradient.Rotation = config.GradientRotation or -90
     elseif config.BackgroundPreset then
-        -- Note: Some presets are Stroke-only, some are Background/Gradient
+        -- Use ezVisuals for animated presets
         local effect = ezVisuals.new(frame, config.BackgroundPreset, config.Speed, config.Size, false, config.Color)
         RegisterEffect(frame, "Background", effect)
     else
-        -- Fallback?
+        -- Fallback to solid color
         frame.BackgroundColor3 = config.Color
     end
 end
@@ -433,7 +457,7 @@ local function ApplyToText(textLabel: TextLabel, styleName: string?)
     
     textLabel.TextColor3 = config.Color
     
-    -- Ensure base stroke exists (ezVisuals might have destroyed it)
+    -- Ensure base stroke exists
     local stroke = textLabel:FindFirstChild("UIStroke")
     if not stroke then
         stroke = Instance.new("UIStroke")
@@ -444,7 +468,7 @@ local function ApplyToText(textLabel: TextLabel, styleName: string?)
     end
 
     if config.TextPreset or config.BackgroundPreset then
-        -- Many gradient presets work on TextLabels too if they apply UIGradient
+        -- Many gradient presets work on TextLabels too
         local preset = config.TextPreset or config.BackgroundPreset
         
         -- Use custom synced effects to ensure all animated rarity texts animate in sync
@@ -466,15 +490,6 @@ end
     NOTE: ezVisuals ONLY supports GuiObjects. We must use custom logic for Highlights (3D).
 ]]
 local function ApplyToHighlight(highlight: Highlight, styleName: string?)
-    -- Existing custom logic...
-    -- Reuse the old implementation since ezVisuals cannot help here.
-     local activeAnimations: {[Instance]: RBXScriptConnection} = {} -- Local to this scope? No, needs to be persistent.
-     -- We can't use the 'activeEffects' table easily since it stores ezVisuals objects.
-     -- Let's re-implement simple highlight logic here or assume user only cares about UI ezVisuals.
-     -- User said "Modify the whole color system to use the new library".
-     -- But technical limitation prevents it for Highlight.
-     -- I will keep a minimal fallback here.
-     
      local config = GetColorConfig(styleName)
      if not config then
         highlight.FillColor = Color3.fromRGB(100, 100, 100)
@@ -498,6 +513,19 @@ local function CreateHighlight(styleName: string?): Highlight
     return highlight
 end
 
+--[[
+    Get active effect count (for debugging)
+]]
+local function GetAnimationCount(): number
+    local count = 0
+    for _, effects in pairs(activeEffects) do
+        for _ in pairs(effects) do
+            count = count + 1
+        end
+    end
+    return count
+end
+
 return {
     Styles = Styles,
     GetColorConfig = GetColorConfig,
@@ -509,4 +537,9 @@ return {
     ApplyToHighlight = ApplyToHighlight,
     CreateHighlight = CreateHighlight,
     StopAnimation = function(inst) StopAnimation(inst) end,
+    
+    -- Performance Controls
+    PauseAll = PauseAll,
+    ResumeAll = ResumeAll,
+    GetAnimationCount = GetAnimationCount,
 }

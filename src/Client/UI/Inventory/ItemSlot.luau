@@ -1,7 +1,12 @@
 --!strict
 --[[
-    Item Slot Component
-    Renders a single inventory slot using the EXISTING template elements:
+    Item Slot Component - PERFORMANCE OPTIMIZED
+    Renders a single inventory slot using the EXISTING template elements.
+    
+    PERFORMANCE OPTIMIZATIONS:
+    - Uses ViewportRotationManager for centralized rotation (single Heartbeat loop)
+    - No per-slot RenderStepped connections
+    - ColorSystem requires moved to top-level
     
     Template Hierarchy (ItemSlot [ImageLabel]):
     ├── ToolIcon [ImageLabel] - Shows tool texture
@@ -15,7 +20,6 @@
     This module does NOT create new UI elements - it only modifies existing ones.
 ]]
 
-local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
@@ -23,12 +27,16 @@ local Packages = Rojo:WaitForChild("Packages")
 local Shared = Rojo:WaitForChild("Shared")
 
 local Janitor = require(Packages:WaitForChild("janitor"))
-local Rarity = require(Shared:WaitForChild("Rarity"))
+local Signal = require(Packages:WaitForChild("signal"))
 local RarityConfig = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig"))
 local ItemUtils = require(Shared:WaitForChild("Inventory"):WaitForChild("ItemUtils"))
+local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
 local Logger = require(Shared:WaitForChild("Inventory"):WaitForChild("Logger"))
 
--- Use Logger for all logging (replaces 9-line duplicate function)
+-- Import centralized rotation manager
+local ViewportRotationManager = require(script.Parent:WaitForChild("ViewportRotationManager"))
+
+-- Use Logger for all logging
 local function log(message: string)
     Logger.log("ItemSlot", message)
 end
@@ -60,14 +68,10 @@ export type ItemSlot = {
     OnDeleteClicked: any, -- Signal
 }
 
--- Constants
-local ROTATION_SPEED = 10 -- Rotations per second
-
 local ItemSlotModule = {}
 ItemSlotModule.__index = ItemSlotModule
 
 -- Cache for item configs
--- Use ItemUtils for config lookup (already has caching built-in)
 local function getItemConfig(templateId: string): Configuration?
     return ItemUtils.FindItemConfig(templateId)
 end
@@ -197,10 +201,10 @@ end
 function ItemSlotModule.new(parent: GuiObject?, template: GuiObject?): ItemSlot
     local self = setmetatable({}, ItemSlotModule)
     
-    self._janitor = Janitor.new() :: Janitor
-    self._rotationConnection = nil :: RBXScriptConnection?
-    self._model = nil :: Model?
-    self._highlight = nil :: Highlight?
+    self._janitor = Janitor.new()
+    self._model = nil
+    self._viewport = nil
+    self._highlight = nil
     
     -- Clone template - DO NOT create new elements
     if template then
@@ -216,7 +220,7 @@ function ItemSlotModule.new(parent: GuiObject?, template: GuiObject?): ItemSlot
     end
     
     self.Data = nil :: ItemSlotData?
-    self.OnDeleteClicked = require(Packages:WaitForChild("signal")).new()
+    self.OnDeleteClicked = Signal.new()
     
     if parent then
         self.Frame.Parent = parent
@@ -235,6 +239,12 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
     if not data then
         self._janitor:Cleanup()
         self.Data = nil
+        
+        -- Unregister from rotation manager if we had a viewport
+        if self._viewport then
+            ViewportRotationManager.Unregister(self._viewport :: ViewportFrame)
+            self._viewport = nil
+        end
         
         -- Reset visuals for empty slot
         local toolIcon = self.Frame:FindFirstChild("ToolIcon") :: ImageLabel?
@@ -261,7 +271,6 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
         local rarityLabel = self.Frame:FindFirstChild("RarityLabel") :: TextLabel?
         if rarityLabel then rarityLabel.Visible = false end
         
-        local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
         ColorSystem.ApplyToBackground(self.Frame, nil)
         ColorSystem.ApplyToFrame(self.Frame, nil)
         
@@ -275,13 +284,11 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
         -- Check if style changed (rarity/custom color)
         local newStyle = data.Metadata and data.Metadata.CustomColor 
         if not newStyle then
-             local RarityConfigReuse = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig"))
-             newStyle = RarityConfigReuse.GetBackgroundStyle(data.Rarity)
+             newStyle = RarityConfig.GetBackgroundStyle(data.Rarity)
         end
         local oldStyle = self.Data.Metadata and self.Data.Metadata.CustomColor
         if not oldStyle then
-             local RarityConfigReuse = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig"))
-             oldStyle = RarityConfigReuse.GetBackgroundStyle(self.Data.Rarity)
+             oldStyle = RarityConfig.GetBackgroundStyle(self.Data.Rarity)
         end
         
         if newStyle ~= oldStyle then
@@ -293,6 +300,11 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
         -- Only clean up connection listeners, keep visuals
         self._janitor:Remove("DeleteButton")
     else
+        -- Clean up old viewport from rotation manager
+        if self._viewport then
+            ViewportRotationManager.Unregister(self._viewport :: ViewportFrame)
+            self._viewport = nil
+        end
         self._janitor:Cleanup()
     end
     
@@ -325,7 +337,6 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
              style = RarityConfig.GetTextStyle(rarity)
         end
         
-        local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
         ColorSystem.ApplyToText(rarityLabel, style)
     end
     if quantityLabel then
@@ -390,7 +401,6 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
            style = RarityConfig.GetBackgroundStyle(data.Rarity)
         end
         
-        local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
         ColorSystem.ApplyToBackground(self.Frame, style)
 
         
@@ -419,7 +429,7 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
                 ColorSystem.ApplyToHighlight(highlight, style)
                 
                 -- Camera
-                local camera = viewport:FindFirstChild("Camera")
+                local camera = viewport:FindFirstChild("Camera") :: Camera?
                 if not camera then
                     camera = Instance.new("Camera"); camera.Parent = viewport; viewport.CurrentCamera = camera
                 end
@@ -428,17 +438,9 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
                 local maxSize = math.max(size.X, size.Y, size.Z)
                 local distance = maxSize * 0.5
                 
-                local startTime = os.clock()
-                local rotationConn = RunService.RenderStepped:Connect(function()
-                    if not self.Frame.Visible then return end -- Optimization
-                    if modelClone and camera then
-                        local elapsed = os.clock() - startTime
-                        local angle = elapsed * ROTATION_SPEED * math.pi * 2
-                        local rotatedCF = cf * CFrame.Angles(0, angle, 0);
-                        (camera :: Camera).CFrame = CFrame.new(rotatedCF.Position + Vector3.new(distance, distance * 0.3, distance), rotatedCF.Position)
-                    end
-                end)
-                self._janitor:Add(rotationConn, "Disconnect", "RotationLoop")
+                -- PERFORMANCE: Register with centralized rotation manager instead of creating per-slot RenderStepped
+                self._viewport = viewport
+                ViewportRotationManager.Register(viewport, camera :: Camera, modelClone, cf, distance)
                 
                 viewport.Visible = true
             else
@@ -469,10 +471,15 @@ end
     Destroys the item slot.
 ]]
 function ItemSlotModule:Destroy()
-    if self._highlight then
-        Rarity.StopAnimation(self._highlight)
+    -- Unregister from rotation manager
+    if self._viewport then
+        ViewportRotationManager.Unregister(self._viewport :: ViewportFrame)
+        self._viewport = nil
     end
-    Rarity.StopAnimation(self.Frame)
+    
+    -- Stop any color animations
+    ColorSystem.StopAnimation(self.Frame)
+    
     self._janitor:Destroy()
     self.Frame:Destroy()
 end

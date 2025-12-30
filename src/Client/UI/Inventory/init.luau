@@ -34,7 +34,7 @@ local Signal = require(Packages:WaitForChild("signal"))
 local Inventory = require(Shared:WaitForChild("Inventory")) -- For types only, core logic moved to DisplayUtils
 local Packets = require(Shared:WaitForChild("Packets"))
 local _RarityConfig = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig")) -- Used in DisplayUtils
-local _ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
+local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
 local ItemUtils = require(Shared:WaitForChild("Inventory"):WaitForChild("ItemUtils"))
 local Logger = require(Shared:WaitForChild("Inventory"):WaitForChild("Logger"))
 
@@ -44,6 +44,7 @@ local InventoryStore = require(script.InventoryStore)
 local ToolbarActions = require(script.ToolbarActions)
 local SlotRenderer = require(script.SlotRenderer)
 local DisplayUtils = require(script.DisplayUtils)
+local ViewportRotationManager = require(script.ViewportRotationManager)
 
 -- Use Logger for all logging
 local function log(message: string)
@@ -175,10 +176,7 @@ local function refreshDisplay()
             local itemId = slotItemData.ItemIds[1]
             if itemId then
                 log("[InventoryUI] Deleting item: " .. itemId)
-                Packets.inventoryAction.send({
-                    action = "DeleteItem",
-                    itemId = itemId,
-                })
+                ToolbarActions.DeleteItem(itemId)
             end
         end)
         
@@ -223,7 +221,7 @@ local function refreshDisplay()
                         TemplateId = newData.TemplateId,
                         Type = newData.Type,
                         Rarity = newData.Rarity,
-                        SourceSlot = slot.Frame,
+                        SourceSlot = slot.Frame :: Frame, -- Fix type error
                         SourceToolbarSlot = newData.EquippedSlot, -- Pass equipped slot for move operations
                     }
                     DragDrop.MakeDraggable(slot.Frame, dragData, screenGui)
@@ -238,76 +236,7 @@ local function refreshDisplay()
     end
 end
 
---[[
-    Handles incoming inventory sync from server.
-]]
-local function onInventorySync(data: any)
-    -- Delegate to InventoryStore for centralized state management
-    InventoryStore.HandleSync(data)
-    
-    -- Get state from InventoryStore (single source of truth)
-    inventoryData = InventoryStore.GetInventory()
-    toolbarSlots = InventoryStore.GetToolbarSlots()
-    dupedItems = InventoryStore.GetDupedItems()
-    
-    refreshDisplay()
-    
-    -- Sync integrated toolbar immediately
-    updateIntegratedToolbar()
-    
-    -- Refresh main HUD toolbar
-    if Toolbar and Toolbar.Refresh then
-        Toolbar.Refresh()
-    end
-end
 
---[[
-    Handles incoming inventory update (add/remove).
-]]
-local function onInventoryUpdate(data: any)
-    -- Delegate to InventoryStore for centralized state management
-    InventoryStore.HandleUpdate(data)
-    
-    -- Get updated state from InventoryStore
-    inventoryData = InventoryStore.GetInventory()
-    dupedItems = InventoryStore.GetDupedItems()
-    
-    refreshDisplay()
-    
-    -- Refresh hotbar to reflect changes (e.g. removed items)
-    task.delay(0.2, function()
-        updateIntegratedToolbar()
-        if Toolbar and Toolbar.Refresh then
-            Toolbar.Refresh()
-        end
-    end)
-end
-
---[[
-    Handles incoming toolbar update (lightweight).
-]]
-local function onToolbarUpdate(data: any)
-    -- Delegate to InventoryStore for centralized state management
-    InventoryStore.HandleToolbarUpdate(data)
-    
-    -- Get updated toolbar slots from InventoryStore
-    toolbarSlots = InventoryStore.GetToolbarSlots()
-    
-    log("[InventoryUI] Toolbar updated via lightweight packet")
-    
-    -- Refresh hotbar (integrated and HUD)
-    updateIntegratedToolbar()
-    if Toolbar and Toolbar.Refresh then
-        Toolbar.Refresh()
-    end
-    
-    -- Smart refresh of inventory grid (will mostly be skipped due to diffing)
-    refreshDisplay()
-    
-    if infoPanel and infoPanel.Refresh then
-        infoPanel:Refresh()
-    end
-end
 
 --[[
     Updates the integrated toolbar display to match the actual toolbar state.
@@ -347,26 +276,7 @@ updateIntegratedToolbar = function()
                 -- Try to get stack count from actual tool if spawned
                 local player = Players.LocalPlayer
                 if player then
-                    local backpack = player:FindFirstChild("Backpack")
-                    local character = player.Character
-                    
-                    local tool: Tool? = nil
-                    if backpack then
-                        for _, t in backpack:GetChildren() do
-                            if t:IsA("Tool") and t:GetAttribute("InventoryItemId") == itemId then
-                                tool = t
-                                break
-                            end
-                        end
-                    end
-                    if not tool and character then
-                        for _, t in character:GetChildren() do
-                            if t:IsA("Tool") and t:GetAttribute("InventoryItemId") == itemId then
-                                tool = t
-                                break
-                            end
-                        end
-                    end
+                    local tool = ItemUtils.FindToolInstance(player, itemId)
                     
                     if tool then
                         local stackCount = tool:GetAttribute("StackCount") :: number?
@@ -434,9 +344,16 @@ function InventoryUI.Toggle(open: boolean?)
         Toolbar.SetVisible(not isOpen)
     end
     
-    -- Update integrated toolbar display when opening
+    -- PERFORMANCE: Pause/resume all animations based on visibility
     if isOpen then
+        -- Resume animations when opening
+        ColorSystem.ResumeAll()
+        ViewportRotationManager.ResumeAll()
         updateIntegratedToolbar()
+    else
+        -- Pause animations when closing to save CPU
+        ColorSystem.PauseAll()
+        ViewportRotationManager.PauseAll()
     end
     
     InventoryUI.OnToggled:Fire(isOpen)
@@ -749,10 +666,63 @@ function InventoryUI.Init(context: any)
         Toolbar = require(script.Toolbar)
     end
     
-    -- Setup packet listeners
-    Packets.inventorySync.listen(onInventorySync)
-    Packets.inventoryUpdate.listen(onInventoryUpdate)
-    Packets.toolbarUpdate.listen(onToolbarUpdate)
+    -- Setup packet listeners (Delegation only)
+    Packets.inventorySync.listen(function(data)
+        InventoryStore.HandleSync(data)
+    end)
+    
+    Packets.inventoryUpdate.listen(function(data)
+        InventoryStore.HandleUpdate(data)
+    end)
+    
+    Packets.toolbarUpdate.listen(function(data)
+        InventoryStore.HandleToolbarUpdate(data)
+    end)
+    
+    -- Reactive UI Updates via Signals
+    janitor:Add(InventoryStore.OnSync:Connect(function(newInventory, newToolbarSlots)
+        log("[InventoryUI] OnSync received")
+        inventoryData = newInventory
+        toolbarSlots = newToolbarSlots
+        dupedItems = InventoryStore.GetDupedItems()
+        
+        refreshDisplay()
+        updateIntegratedToolbar()
+        if Toolbar and Toolbar.Refresh then
+            Toolbar.Refresh()
+        end
+    end))
+    
+    janitor:Add(InventoryStore.OnUpdate:Connect(function(action, itemData)
+        log("[InventoryUI] OnUpdate received: " .. action)
+        -- Update local state
+        inventoryData = InventoryStore.GetInventory()
+        dupedItems = InventoryStore.GetDupedItems()
+        
+        refreshDisplay()
+        
+        -- Also refresh toolbar in case an equipped item was removed/modified
+        updateIntegratedToolbar()
+        if Toolbar and Toolbar.Refresh then
+            Toolbar.Refresh()
+        end
+    end))
+    
+    janitor:Add(InventoryStore.OnToolbarUpdate:Connect(function(newToolbarSlots)
+        log("[InventoryUI] OnToolbarUpdate received")
+        toolbarSlots = newToolbarSlots
+        
+        -- Optimized: Only refresh toolbar, skip full grid refresh
+        updateIntegratedToolbar()
+        refreshDisplay() -- Fix: Refresh grid to show/hide "1", "2", etc labels
+        if Toolbar and Toolbar.Refresh then
+            Toolbar.Refresh()
+        end
+        
+        if infoPanel and infoPanel.Refresh then
+            infoPanel:Refresh()
+        end
+    end))
     
     -- Handle drag & drop to toolbar
     janitor:Add(DragDrop.OnItemDropped:Connect(function(result: DragDrop.DropResult)
@@ -770,10 +740,7 @@ function InventoryUI.Init(context: any)
             -- Send assignment to server
             InventoryUI.AssignToToolbar(result.ItemData.ItemId, result.ToolbarSlotIndex)
             log("[InventoryUI] Assigned " .. result.ItemData.TemplateId .. " to toolbar slot " .. result.ToolbarSlotIndex)
-            -- Refresh integrated toolbar display after a short delay (wait for server to process)
-            task.delay(0.2, function()
-                updateIntegratedToolbar()
-            end)
+            -- UI will update reactively when server sends ToolbarUpdate
         end
     end))
     
@@ -781,20 +748,14 @@ function InventoryUI.Init(context: any)
     janitor:Add(DragDrop.OnToolbarItemRemoved:Connect(function(slotIndex: number, _itemId: string)
         InventoryUI.RemoveFromToolbar(slotIndex)
         log("[InventoryUI] Removed tool from toolbar slot " .. slotIndex)
-        -- Refresh display after removal
-        task.delay(0.2, function()
-            updateIntegratedToolbar()
-        end)
+        -- UI will update reactively when server sends ToolbarUpdate
     end))
     
     -- Handle swapping toolbar items
     janitor:Add(DragDrop.OnToolbarSwap:Connect(function(slot1: number, slot2: number)
         InventoryUI.SwapToolbarSlots(slot1, slot2)
         log("[InventoryUI] Swapped toolbar slots " .. slot1 .. " <-> " .. slot2)
-        -- Refresh display after swap
-        task.delay(0.2, function()
-            updateIntegratedToolbar()
-        end)
+        -- UI will update reactively when server sends ToolbarUpdate
     end))
     
     -- Handle item selection (info panel disabled for now)

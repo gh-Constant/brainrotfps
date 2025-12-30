@@ -96,39 +96,44 @@ end
 ]]
 -- Cache for item configs
 local itemConfigCache: {[string]: Configuration} = {}
+local isCacheInitialized = false
 
-function ItemUtils.FindItemConfig(templateId: string): Configuration?
-    -- Check cache first
-    if itemConfigCache[templateId] then
-        return itemConfigCache[templateId]
-    end
+--[[
+    Builds the item config cache by recursively iterating through Config.Items.
+    Called once on first lookup.
+]]
+local function buildItemConfigCache()
+    if isCacheInitialized then return end
     
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
     local config = ReplicatedStorage:FindFirstChild("Config")
-    if not config then return nil end
+    if not config then return end
     
     local items = config:FindFirstChild("Items")
-    if not items then return nil end
+    if not items then return end
     
-    -- Recursive search function
-    local function searchRecursive(parent: Instance): Configuration?
+    local function recurse(parent: Instance)
         for _, child in parent:GetChildren() do
-            if child:IsA("Configuration") and child.Name == templateId then
-                return child
+            if child:IsA("Configuration") then
+                -- Store by name (TemplateId)
+                itemConfigCache[child.Name] = child
             elseif child:IsA("Folder") then
-                -- Recursively search folders
-                local found = searchRecursive(child)
-                if found then return found end
+                recurse(child)
             end
         end
-        return nil
     end
     
-    local itemConfig = searchRecursive(items)
-    if itemConfig then
-        itemConfigCache[templateId] = itemConfig
+    recurse(items)
+    isCacheInitialized = true
+end
+
+function ItemUtils.FindItemConfig(templateId: string): Configuration?
+    -- Initialize cache on first use
+    if not isCacheInitialized then
+        buildItemConfigCache()
     end
-    return itemConfig
+    
+    return itemConfigCache[templateId]
 end
 
 --[[
@@ -406,6 +411,39 @@ function ItemUtils.GetTextStyle(templateId: string): string?
     if itemConfig then
         return itemConfig:GetAttribute("CustomTextColor") :: string?
     end
+    return nil
+end
+
+--[[
+    Finds the physical Tool instance for a given item ID.
+    Checks Backpack and Character.
+    
+    @param player - The player to search
+    @param itemId - The inventory item ID to match
+    @return Tool? - The found tool or nil
+]]
+function ItemUtils.FindToolInstance(player: Player, itemId: string): Tool?
+    local backpack = player:FindFirstChild("Backpack")
+    local character = player.Character
+    
+    -- Check Backpack
+    if backpack then
+        for _, t in backpack:GetChildren() do
+            if t:IsA("Tool") and t:GetAttribute("InventoryItemId") == itemId then
+                return t
+            end
+        end
+    end
+    
+    -- Check Character
+    if character then
+        for _, t in character:GetChildren() do
+            if t:IsA("Tool") and t:GetAttribute("InventoryItemId") == itemId then
+                return t
+            end
+        end
+    end
+    
     return nil
 end
 

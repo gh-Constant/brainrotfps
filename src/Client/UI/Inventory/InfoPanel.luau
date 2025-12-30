@@ -9,6 +9,7 @@ local Shared = Rojo:WaitForChild("Shared")
 local Janitor = require(Packages:WaitForChild("janitor"))
 local Inventory = require(Shared:WaitForChild("Inventory"))
 local Packets = require(Shared:WaitForChild("Packets"))
+local Constants = require(Shared:WaitForChild("Inventory"):WaitForChild("Constants"))
 
 -- Types
 type Janitor = typeof(Janitor.new())
@@ -240,7 +241,7 @@ function InfoPanel:Update(item: InventoryItem?)
 				if isEquipped and equippedSlot then
 					-- Unequip: Remove from toolbar
 					Packets.inventoryAction.send({
-						action = "RemoveToolbar",
+						action = Constants.ActionType.RemoveToolbar,
 						itemId = self._currentItem.Id,
 						slot = equippedSlot,
 					})
@@ -263,7 +264,7 @@ function InfoPanel:Update(item: InventoryItem?)
 					
 					if firstEmptySlot then
 						Packets.inventoryAction.send({
-							action = "AssignToolbar",
+							action = Constants.ActionType.AssignToolbar,
 							itemId = self._currentItem.Id,
 							slot = firstEmptySlot,
 						})
@@ -284,7 +285,7 @@ function InfoPanel:Update(item: InventoryItem?)
 				if not self._currentItem then return end
 				
 				Packets.inventoryAction.send({
-					action = "DeleteItem",
+					action = Constants.ActionType.DeleteItem,
 					itemId = self._currentItem.Id,
 				})
 				

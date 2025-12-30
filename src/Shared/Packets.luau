@@ -141,7 +141,7 @@ return ByteNet.defineNamespace("game", function()
 		-- Player actions like assigning toolbar slots
 		inventoryAction = ByteNet.definePacket({
 			value = ByteNet.struct({
-				action = ByteNet.string, -- "AssignToolbar" | "RemoveToolbar" | "SwapToolbar"
+				action = ByteNet.uint8, -- Constants.ActionType enum
 				itemId = ByteNet.optional(ByteNet.string),
 				slot = ByteNet.optional(ByteNet.uint8),
 				slot2 = ByteNet.optional(ByteNet.uint8), -- For swap operations

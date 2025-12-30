@@ -18,6 +18,7 @@ local Janitor = require(Packages:WaitForChild("janitor"))
 
 local Inventory = require(Shared:WaitForChild("Inventory"))
 local Packets = require(Shared:WaitForChild("Packets"))
+local Constants = require(Shared:WaitForChild("Inventory"):WaitForChild("Constants"))
 
 -- Modules
 local Events = require(script.Events)
@@ -284,15 +285,13 @@ function InventoryManager.Init()
         local slot = data.slot
         local slot2 = data.slot2
         
-        if action == "AssignToolbar" and itemId and slot then
+        if action == Constants.ActionType.AssignToolbar and itemId and slot then
             InventoryManager.AssignToToolbar(player, itemId, slot)
-        elseif action == "RemoveToolbar" and slot then
+        elseif action == Constants.ActionType.RemoveToolbar and slot then
             InventoryManager.RemoveFromToolbar(player, slot)
-        elseif action == "SwapToolbar" and slot and slot2 then
+        elseif action == Constants.ActionType.SwapToolbar and slot and slot2 then
             InventoryManager.SwapToolbarSlots(player, slot, slot2)
-        elseif action == "DeleteItem" and itemId then
-            InventoryManager.RemoveItem(player, itemId)
-        elseif action == "Consume" and itemId then
+        elseif action == Constants.ActionType.DeleteItem and itemId then
             InventoryManager.RemoveItem(player, itemId)
         end
     end)

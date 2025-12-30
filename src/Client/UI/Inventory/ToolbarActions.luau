@@ -13,6 +13,7 @@ local Rojo = ReplicatedStorage:WaitForChild("Rojo")
 local Shared = Rojo:WaitForChild("Shared")
 
 local Packets = require(Shared:WaitForChild("Packets"))
+local Constants = require(Shared:WaitForChild("Inventory"):WaitForChild("Constants"))
 local Logger = require(Shared:WaitForChild("Inventory"):WaitForChild("Logger"))
 
 local ToolbarActions = {}
@@ -26,7 +27,7 @@ local ToolbarActions = {}
 function ToolbarActions.AssignToToolbar(itemId: string, slot: number)
     Logger.log("ToolbarActions", "Assigning item " .. itemId .. " to slot " .. slot)
     Packets.inventoryAction.send({
-        action = "AssignToolbar",
+        action = Constants.ActionType.AssignToolbar,
         itemId = itemId,
         slot = slot,
     })
@@ -40,7 +41,7 @@ end
 function ToolbarActions.RemoveFromToolbar(slot: number)
     Logger.log("ToolbarActions", "Removing item from slot " .. slot)
     Packets.inventoryAction.send({
-        action = "RemoveToolbar",
+        action = Constants.ActionType.RemoveToolbar,
         itemId = "",
         slot = slot,
     })
@@ -55,7 +56,7 @@ end
 function ToolbarActions.SwapToolbarSlots(slot1: number, slot2: number)
     Logger.log("ToolbarActions", "Swapping slots " .. slot1 .. " <-> " .. slot2)
     Packets.inventoryAction.send({
-        action = "SwapToolbar",
+        action = Constants.ActionType.SwapToolbar,
         itemId = "",
         slot = slot1,
         slot2 = slot2,
@@ -70,7 +71,7 @@ end
 function ToolbarActions.DeleteItem(itemId: string)
     Logger.log("ToolbarActions", "Deleting item " .. itemId)
     Packets.inventoryAction.send({
-        action = "DeleteItem",
+        action = Constants.ActionType.DeleteItem,
         itemId = itemId,
     })
 end
