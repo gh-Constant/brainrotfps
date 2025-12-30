@@ -92,6 +92,10 @@ function GrenadeService.Launch(player: Player, origin: Vector3, direction: Vecto
 	-- Launch it
 	grenade.AssemblyLinearVelocity = direction * strength
 	
+	-- Fix lag: Set network owner to player so they see it move instantly
+	-- Note: This allows client to physically simulate it (exploitable but smoother)
+	grenade:SetNetworkOwner(player)
+	
 	-- === SECURITY: VALIDATE AND CONSUME GRENADE ===
 	
 	-- CRITICAL: Block tools without inventory tracking (potential exploit)
@@ -150,12 +154,8 @@ function GrenadeService.Launch(player: Player, origin: Vector3, direction: Vecto
 	-- Track if already exploded (declared early so task.delay can reference it)
 	local hasExploded = false
 	
-	-- Enable collision after a short delay (lets grenade move away from thrower first)
-	task.delay(0.1, function()
-		if grenade and grenade.Parent and not hasExploded then
-			grenade.CanCollide = true
-		end
-	end)
+	-- CanCollide remains false to prevent bouncing.
+	-- Touched event and Heartbeat raycast will handle the explosion on contact.
 	
 	local function doExplode()
 		if hasExploded then return end
@@ -237,6 +237,43 @@ function GrenadeService.Explode(grenade: BasePart, instigator: Player)
 	explosion.BlastRadius = 15
 	explosion.BlastPressure = 0 -- We handle damage manually
 	explosion.Parent = workspace
+	
+	-- Visual Effect: Colored Sphere based on mutation
+	local mutationData = if grenadeMutation then Mutations.GetMutation(grenadeMutation) else nil
+	local effectColor = if mutationData then mutationData.Color else Color3.fromRGB(255, 100, 50) -- Default orange
+	
+	local visualItems = Instance.new("Folder")
+	visualItems.Name = "ExplosionEffect"
+	visualItems.Parent = workspace
+	
+	local sphere = Instance.new("Part")
+	sphere.Name = "BlastSphere"
+	sphere.Shape = Enum.PartType.Ball
+	sphere.Material = Enum.Material.Neon
+	sphere.Color = effectColor
+	sphere.Transparency = 0.4
+	sphere.Size = Vector3.new(1, 1, 1)
+	sphere.CFrame = CFrame.new(pos)
+	sphere.Anchored = true
+	sphere.CanCollide = false
+	sphere.CanQuery = false
+	sphere.CanTouch = false
+	sphere.CastShadow = false
+	sphere.Parent = visualItems
+	
+	local TweenService = game:GetService("TweenService")
+	local info = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	
+	local goal = {
+		Size = Vector3.new(30, 30, 30), -- BlastRadius * 2
+		Transparency = 1
+	}
+	
+	local tween = TweenService:Create(sphere, info, goal)
+	tween:Play()
+	tween.Completed:Connect(function()
+		visualItems:Destroy()
+	end)
 	
 	-- Affect mobs spawned by BrainrotSpawner
 	print(string.format("[Grenade] 💥 Explosion at %s by %s", tostring(pos), instigator.Name))

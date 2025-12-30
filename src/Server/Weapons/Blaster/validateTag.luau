@@ -81,9 +81,7 @@ local function validateTag(
 	local angle = characterOffset:Angle(direction)
 	
 	-- Debug: show what values we're working with
-	print(string.format("[validateTag] angle=%.3f, maxAngle=%.3f, buffer=%d, dist=%.1f", 
-		math.deg(angle), math.deg(maxAngle), directionBuffer, characterDistance))
-	
+		
 	if angle > maxAngle then
 		print("not good angle")
 		return false

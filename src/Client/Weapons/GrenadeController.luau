@@ -14,7 +14,7 @@ local GrenadeController = {}
 
 -- Config
 local MAX_CHARGE_TIME = 1.5
-local MIN_CHARGE_TIME = 0.2 -- Minimum hold time to prevent misclicks
+local MIN_CHARGE_TIME = 0 -- Minimum hold time (0 for instant throws)
 local MIN_STRENGTH = 40
 local MAX_STRENGTH = 100
 local TRAJECTORY_SEGMENTS = 60 -- More segments for smooth curve
@@ -246,14 +246,8 @@ function GrenadeController.Init(_context: any)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 and charging then
 			charging = false
 			
-			-- Only fire if held long enough (prevent misclicks)
-			local chargeDuration = os.clock() - chargeStartTime
-			if chargeDuration >= MIN_CHARGE_TIME then
-				GrenadeController.Fire()
-			else
-				-- Too short, don't throw
-				print("[Grenade] Hold longer to throw!")
-			end
+			-- Fire immediately (min charge time is 0)
+			GrenadeController.Fire()
 			
 			GrenadeController.ClearTrajectory()
 		end

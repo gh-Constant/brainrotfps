@@ -29,8 +29,8 @@ end
 
 -- Calculate player damage based on level
 local function getPlayerDamage(level: number): number
-	-- Player damage formula: 9 + level
-	return 9 + level
+	-- Player damage formula: 9 + level * 5 (5 damage per level)
+	return 9 + level * 5
 end
 
 -- Helper to find an element by name across multiple instances

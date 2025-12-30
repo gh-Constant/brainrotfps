@@ -98,7 +98,7 @@ local function updateStats()
             end
         end
 
-        local totalDamage = (9 + level) * globalMultiplier * mutationDamageMult
+        local totalDamage = (9 + level * 5) * globalMultiplier * mutationDamageMult
         
         if isGun then
             -- baseFirerate is already the boosted value from tool attribute
