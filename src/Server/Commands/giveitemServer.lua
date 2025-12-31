@@ -69,14 +69,10 @@ return function(context, player, itemName, count, mutationString)
          metadata = { Mutations = mutations }
     end
     
-    -- Add items
-    local successCount = 0
-    for i = 1, itemCount do
-        local item = InventoryManager.AddItem(player, itemName, itemType, rarity, metadata)
-        if item then
-            successCount = successCount + 1
-        end
-    end
+    
+    -- Add items (BATCHED)
+    local items = InventoryManager.AddItems(player, itemName, itemType, itemCount, rarity, metadata)
+    local successCount = #items
     
     if successCount > 0 then
         local rarityStr = rarity and (" [" .. rarity .. "]") or ""

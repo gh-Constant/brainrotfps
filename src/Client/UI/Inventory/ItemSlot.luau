@@ -33,13 +33,10 @@ local ItemUtils = require(Shared:WaitForChild("Inventory"):WaitForChild("ItemUti
 local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
 local Logger = require(Shared:WaitForChild("Inventory"):WaitForChild("Logger"))
 
--- Import centralized rotation manager
-local ViewportRotationManager = require(script.Parent:WaitForChild("ViewportRotationManager"))
+-- Import centralized visibility manager
+local InventoryVisibilityManager = require(script.Parent:WaitForChild("InventoryVisibilityManager"))
 
--- Use Logger for all logging
-local function log(message: string)
-    Logger.log("ItemSlot", message)
-end
+
 
 -- Types
 type Janitor = typeof(Janitor.new())
@@ -240,11 +237,9 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
         self._janitor:Cleanup()
         self.Data = nil
         
-        -- Unregister from rotation manager if we had a viewport
-        if self._viewport then
-            ViewportRotationManager.Unregister(self._viewport :: ViewportFrame)
-            self._viewport = nil
-        end
+        -- Unregister from visibility manager if we had a viewport/slot
+        InventoryVisibilityManager.Unregister(self.Frame)
+        self._viewport = nil
         
         -- Reset visuals for empty slot
         local toolIcon = self.Frame:FindFirstChild("ToolIcon") :: ImageLabel?
@@ -271,8 +266,8 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
         local rarityLabel = self.Frame:FindFirstChild("RarityLabel") :: TextLabel?
         if rarityLabel then rarityLabel.Visible = false end
         
-        ColorSystem.ApplyToBackground(self.Frame, nil)
-        ColorSystem.ApplyToFrame(self.Frame, nil)
+        ColorSystem.ApplyToBackground(self.Frame :: Frame, nil)
+        ColorSystem.ApplyToFrame(self.Frame :: Frame, nil)
         
         return
     end
@@ -300,11 +295,9 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
         -- Only clean up connection listeners, keep visuals
         self._janitor:Remove("DeleteButton")
     else
-        -- Clean up old viewport from rotation manager
-        if self._viewport then
-            ViewportRotationManager.Unregister(self._viewport :: ViewportFrame)
-            self._viewport = nil
-        end
+        -- Clean up old visibility registration
+        InventoryVisibilityManager.Unregister(self.Frame)
+        self._viewport = nil
         self._janitor:Cleanup()
     end
     
@@ -401,7 +394,7 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
            style = RarityConfig.GetBackgroundStyle(data.Rarity)
         end
         
-        ColorSystem.ApplyToBackground(self.Frame, style)
+        ColorSystem.ApplyToBackground(self.Frame :: Frame, style)
 
         
         -- Model Setup
@@ -438,23 +431,66 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
                 local maxSize = math.max(size.X, size.Y, size.Z)
                 local distance = maxSize * 0.5
                 
-                -- PERFORMANCE: Register with centralized rotation manager instead of creating per-slot RenderStepped
+                -- PERFORMANCE: Register with centralized visibility manager (handles both culling and rotation)
                 self._viewport = viewport
-                ViewportRotationManager.Register(viewport, camera :: Camera, modelClone, cf, distance)
+                
+                InventoryVisibilityManager.Register(self.Frame, {
+                    ToolIcon = nil, -- Explicitly hidden for 3D view
+                    Viewport = viewport,
+                    NameLabel = nameLabel,
+                    QuantityLabel = if quantityLabel and quantityLabel.Visible then quantityLabel else nil,
+                    EventsLabel = if eventsLabel and eventsLabel.Visible then eventsLabel else nil,
+                    RarityLabel = rarityLabel,
+                    
+                    Camera = camera,
+                    Model = modelClone,
+                    CenterCF = cf,
+                    Distance = distance
+                })
                 
                 viewport.Visible = true
             else
-                 -- Fallback
+                 -- Fallback (Icon Only)
                  if viewport then viewport.Visible = false end
                  if toolIcon then toolIcon.Image = getItemImage(data.TemplateId); toolIcon.Visible = true end
+                 
+                 -- Register for 2D culling even if no 3D model
+                 InventoryVisibilityManager.Register(self.Frame, {
+                    ToolIcon = toolIcon,
+                    Viewport = nil,
+                    NameLabel = nameLabel,
+                    QuantityLabel = if quantityLabel and quantityLabel.Visible then quantityLabel else nil,
+                    EventsLabel = if eventsLabel and eventsLabel.Visible then eventsLabel else nil,
+                    RarityLabel = rarityLabel,
+                 })
             end
         else
+            -- No 3D Model logic
             if viewport then viewport.Visible = false end
             if toolIcon then toolIcon.Image = getItemImage(data.TemplateId); toolIcon.Visible = true end
+            
+            -- Register for 2D culling
+             InventoryVisibilityManager.Register(self.Frame, {
+                ToolIcon = toolIcon,
+                Viewport = nil,
+                NameLabel = nameLabel,
+                QuantityLabel = if quantityLabel and quantityLabel.Visible then quantityLabel else nil,
+                EventsLabel = if eventsLabel and eventsLabel.Visible then eventsLabel else nil,
+                RarityLabel = rarityLabel,
+             })
         end
     end
     
     self.Frame.Visible = true
+    
+    -- Final sync of 2D visibility state (handles Reuse case and ensures correct elements are managed)
+    InventoryVisibilityManager.UpdateVisibleElements(self.Frame, {
+        ToolIcon = if (self._model and self._viewport) then nil else toolIcon, -- Hide icon if 3D model active
+        NameLabel = nameLabel,
+        QuantityLabel = if quantityLabel and quantityLabel.Visible then quantityLabel else nil,
+        EventsLabel = if eventsLabel and eventsLabel.Visible then eventsLabel else nil,
+        RarityLabel = rarityLabel,
+    })
 end
 
 --[[
@@ -471,11 +507,9 @@ end
     Destroys the item slot.
 ]]
 function ItemSlotModule:Destroy()
-    -- Unregister from rotation manager
-    if self._viewport then
-        ViewportRotationManager.Unregister(self._viewport :: ViewportFrame)
-        self._viewport = nil
-    end
+    -- Unregister from visibility manager
+    InventoryVisibilityManager.Unregister(self.Frame)
+    self._viewport = nil
     
     -- Stop any color animations
     ColorSystem.StopAnimation(self.Frame)

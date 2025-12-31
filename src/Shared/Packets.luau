@@ -136,6 +136,26 @@ return ByteNet.defineNamespace("game", function()
 			}),
 			reliabilityType = "reliable",
 		}),
+
+		-- Batch Inventory update packet (Server -> Client)
+		-- [OPTIMIZED] Adds multiple items in a single packet to prevent freezing
+		inventoryBatchUpdate = ByteNet.definePacket({
+			value = ByteNet.struct({
+				action = ByteNet.string, -- "Add" | "Remove"
+				items = ByteNet.array(ByteNet.struct({
+					id = ByteNet.string,
+					templateId = ByteNet.string,
+					itemType = ByteNet.string,
+					rarity = ByteNet.string,
+                    maybeDuped = ByteNet.bool,
+                    metadata = ByteNet.optional(ByteNet.struct({
+                        CustomColor = ByteNet.optional(ByteNet.string),
+                        Mutations = ByteNet.optional(ByteNet.map(ByteNet.string, ByteNet.float64)), -- MutationName -> Count
+                    })),
+                })),
+			}),
+			reliabilityType = "reliable",
+		}),
 		
 		-- Inventory action packet (Client -> Server)
 		-- Player actions like assigning toolbar slots

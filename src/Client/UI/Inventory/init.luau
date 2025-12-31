@@ -44,7 +44,7 @@ local InventoryStore = require(script.InventoryStore)
 local ToolbarActions = require(script.ToolbarActions)
 local SlotRenderer = require(script.SlotRenderer)
 local DisplayUtils = require(script.DisplayUtils)
-local ViewportRotationManager = require(script.ViewportRotationManager)
+local InventoryVisibilityManager = require(script.InventoryVisibilityManager)
 
 -- Use Logger for all logging
 local function log(message: string)
@@ -124,6 +124,7 @@ local function refreshDisplay()
     
     -- Get individual items for display (no stacking)
     local itemData = getItemsForDisplay()
+    
     log("[InventoryUI] refreshDisplay: inventoryData count: " .. #inventoryData .. " displayItems count: " .. #itemData)
     
     -- Reuse or create slots
@@ -348,12 +349,12 @@ function InventoryUI.Toggle(open: boolean?)
     if isOpen then
         -- Resume animations when opening
         ColorSystem.ResumeAll()
-        ViewportRotationManager.ResumeAll()
+        InventoryVisibilityManager.ResumeAll()
         updateIntegratedToolbar()
     else
         -- Pause animations when closing to save CPU
         ColorSystem.PauseAll()
-        ViewportRotationManager.PauseAll()
+        InventoryVisibilityManager.PauseAll()
     end
     
     InventoryUI.OnToggled:Fire(isOpen)
@@ -673,6 +674,10 @@ function InventoryUI.Init(context: any)
     
     Packets.inventoryUpdate.listen(function(data)
         InventoryStore.HandleUpdate(data)
+    end)
+    
+    Packets.inventoryBatchUpdate.listen(function(data)
+        InventoryStore.HandleBatchUpdate(data)
     end)
     
     Packets.toolbarUpdate.listen(function(data)

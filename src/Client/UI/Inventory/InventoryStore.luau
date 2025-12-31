@@ -183,6 +183,65 @@ function InventoryStore.HandleUpdate(data: any)
 end
 
 --[[
+    Handles batch inventory update from server.
+    Called when inventoryBatchUpdate packet is received.
+]]
+function InventoryStore.HandleBatchUpdate(data: any)
+    local action = data.action
+    local items = data.items
+    
+    Logger.log("InventoryStore", string.format("Batch Update: %s %d items", action, #items))
+    
+    if action == "Add" then
+        for _, itemData in ipairs(items) do
+            local item: InventoryItem = {
+                Id = itemData.id,
+                TemplateId = itemData.templateId,
+                Type = itemData.itemType :: any,
+                Rarity = if itemData.rarity ~= "" then itemData.rarity :: any else nil,
+                Metadata = itemData.metadata,
+            }
+            table.insert(inventoryData, item)
+            itemIndex[item.Id] = item
+            
+            -- Track duped status
+            if itemData.maybeDuped then
+                dupedItems[itemData.id] = true
+            end
+        end
+        
+    elseif action == "Remove" then
+        -- Create set for O(1) checking
+        local removeIds = {}
+        for _, itemData in ipairs(items) do
+            removeIds[itemData.id] = true
+            itemIndex[itemData.id] = nil
+            dupedItems[itemData.id] = nil
+        end
+        
+        -- Filter in place
+        local w = 1
+        for r = 1, #inventoryData do
+            if not removeIds[inventoryData[r].Id] then
+                if r ~= w then
+                    inventoryData[w] = inventoryData[r]
+                end
+                w += 1
+            end
+        end
+        
+        -- Clear remaining slots
+        for r = w, #inventoryData do
+            inventoryData[r] = nil
+        end
+    end
+    
+    -- Fire OnUpdate with "Batch" to trigger refresh
+    InventoryStore.OnUpdate:Fire(action, {BatchCount = #items}) 
+    -- Note: UI needs to handle this "fake" itemData or just generic refresh
+end
+
+--[[
     Handles toolbar update from server.
     Called when toolbarUpdate packet is received.
     

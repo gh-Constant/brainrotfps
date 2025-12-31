@@ -71,4 +71,26 @@ function Network.SendInventoryUpdate(player: Player, action: string, item: Inven
     }, player)
 end
 
+--[[
+    Sends a batch inventory update to a client.
+]]
+function Network.SendBatchInventoryUpdate(player: Player, action: string, items: {InventoryItem}, dupedItems: {[string]: boolean})
+    local itemsPayload = {}
+    for _, item in ipairs(items) do
+        table.insert(itemsPayload, {
+            id = item.Id,
+            templateId = item.TemplateId,
+            itemType = item.Type :: any, -- Cast to satisfy ByteNet string requirement
+            rarity = (item.Rarity or "") :: any, -- Cast to satisfy ByteNet string requirement
+            maybeDuped = dupedItems[item.Id] or false,
+            metadata = item.Metadata,
+        })
+    end
+
+    Packets.inventoryBatchUpdate.sendTo({
+        action = action,
+        items = itemsPayload,
+    }, player)
+end
+
 return Network

@@ -103,6 +103,75 @@ function Actions.AddItem(
 end
 
 --[[
+    Adds multiple items to a player's inventory in a batch.
+    Optimized to send a single network packet.
+]]
+function Actions.AddItems(
+    player: Player,
+    inventory: any,
+    index: any?,
+    templateId: string,
+    itemType: ItemType,
+    count: number,
+    rarity: RarityType?,
+    metadata: {[string]: any}?,
+    dupedItems: {[string]: boolean}
+): {InventoryItem}
+    if not inventory then return {} end
+    if count <= 0 then return {} end
+    
+    -- Security: Validate templateId exists (once)
+    if itemType == "Tool" and not isValidTemplateId(templateId) then
+        warn(string.format("[Actions] Invalid templateId '%s' for %s", templateId, player.Name))
+        return {}
+    end
+    
+    local addedItems = {}
+    local maxSize = inventory.MaxSize or 100000000000
+    
+    -- Bulk create and insert
+    for i = 1, count do
+        if #inventory.Items >= maxSize then
+             warn(string.format("[Actions] Inventory full for %s during batch add", player.Name))
+             break
+        end
+        
+        local item = Inventory.CreateItem(templateId, itemType, rarity, metadata)
+        table.insert(inventory.Items, item)
+        table.insert(addedItems, item)
+        
+        -- Update Index
+        if index then
+            index.ById[item.Id] = item
+            if not index.ByTemplate[templateId] then
+                index.ByTemplate[templateId] = {}
+            end
+            table.insert(index.ByTemplate[templateId], item)
+        end
+        
+        -- Register in global ItemRegistry (spawn separately to not block)
+        task.spawn(function()
+            ItemRegistry.RegisterItem(item.Id, player.UserId, templateId):catch(function(err)
+                warn("[Actions] Failed to register item:", err)
+            end)
+        end)
+        
+        -- Fire individual events (optional, but good for compatibility)
+        Events.OnItemAdded:Fire(player, item)
+        Events.OnInventoryChanged:Fire(player, "Add", item)
+    end
+    
+    if #addedItems > 0 then
+        -- Sync to client (BATCHED)
+        Network.SendBatchInventoryUpdate(player, "Add", addedItems, dupedItems)
+        
+        log(string.format("[Actions] Batch added %d x %s (%s) to %s", #addedItems, templateId, itemType, player.Name))
+    end
+    
+    return addedItems
+end
+
+--[[
     Removes an item from a player's inventory by ID.
     Handles toolbar desync if the item was equipped.
 ]]

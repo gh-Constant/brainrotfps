@@ -37,7 +37,7 @@ type ItemType = Inventory.ItemType
 type RarityType = Inventory.RarityType
 
 -- ProfileStore
-local STORE_NAME = "InventoryData_eEv5"
+local STORE_NAME = "InventoryData_eeEv5"
 local DATA_TEMPLATE: InventoryData = {
     Items = {},
     ToolbarSlots = {},
@@ -227,6 +227,12 @@ function InventoryManager.AddItem(player: Player, templateId: string, itemType: 
     local inventory = ActiveInventories[player.UserId]
     local index = ActiveIndices[player.UserId]
     return Actions.AddItem(player, inventory, index, templateId, itemType, rarity, metadata, DupedItems)
+end
+
+function InventoryManager.AddItems(player: Player, templateId: string, itemType: ItemType, count: number, rarity: RarityType?, metadata: any): {InventoryItem}
+    local inventory = ActiveInventories[player.UserId]
+    local index = ActiveIndices[player.UserId]
+    return Actions.AddItems(player, inventory, index, templateId, itemType, count, rarity, metadata, DupedItems)
 end
 
 function InventoryManager.RemoveItem(player: Player, itemId: string): boolean
