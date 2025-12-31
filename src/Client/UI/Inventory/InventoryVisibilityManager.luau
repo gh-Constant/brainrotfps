@@ -142,10 +142,9 @@ end
     Stops the loop if no slots are registered.
 ]]
 local function checkStopUpdateLoop()
-    local count = 0
-    for _ in pairs(registeredSlots) do
-        count = count + 1
-        if count > 0 then return end
+    -- Check if table is empty using next()
+    if next(registeredSlots) ~= nil then
+        return -- Still have registered slots, keep loop running
     end
     
     if updateConnection then

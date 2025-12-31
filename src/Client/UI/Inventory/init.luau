@@ -33,7 +33,6 @@ local Signal = require(Packages:WaitForChild("signal"))
 
 local Inventory = require(Shared:WaitForChild("Inventory")) -- For types only, core logic moved to DisplayUtils
 local Packets = require(Shared:WaitForChild("Packets"))
-local _RarityConfig = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig")) -- Used in DisplayUtils
 local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
 local ItemUtils = require(Shared:WaitForChild("Inventory"):WaitForChild("ItemUtils"))
 local Logger = require(Shared:WaitForChild("Inventory"):WaitForChild("Logger"))
@@ -60,7 +59,7 @@ type InventoryItem = Inventory.InventoryItem
 type StackInfo = Inventory.StackInfo
 type ItemSlotData = ItemSlot.ItemSlotData
 
-local _LocalPlayer = Players.LocalPlayer
+-- Players.LocalPlayer accessed directly where needed
 
 -- Module
 local InventoryUI = {}
@@ -80,6 +79,11 @@ local slotTemplate: GuiObject? = nil -- Slot template from Config
 local infoPanel: any? = nil -- InfoPanel instance
 local InfoPanel = require(script.InfoPanel)
 local currentFilter: string = "Unfiltered" -- "Unfiltered", "Gun", "Grenade", "Potion"
+
+-- PERFORMANCE: Batched loading config to prevent frame hitches
+local BATCH_SIZE = 8 -- Number of slots to process per frame
+local BATCH_DELAY = 0.016 -- ~60fps, one frame between batches (use task.wait())
+local currentBatchThread: thread? = nil -- Track ongoing batch load to cancel if data changes
 
 -- Events
 InventoryUI.OnItemClicked = Signal.new()
@@ -115,6 +119,8 @@ end
 
 --[[
     Updates the display with current inventory data.
+    PERFORMANCE: Uses batched loading to prevent frame freezing.
+    Processes BATCH_SIZE slots per frame with yields between batches.
 ]]
 local function refreshDisplay()
     if not slotsContainer then 
@@ -122,15 +128,21 @@ local function refreshDisplay()
         return 
     end
     
+    -- Cancel any ongoing batch load
+    if currentBatchThread and coroutine.status(currentBatchThread) ~= "dead" then
+        task.cancel(currentBatchThread)
+        currentBatchThread = nil
+    end
+    
     -- Get individual items for display (no stacking)
     local itemData = getItemsForDisplay()
     
     log("[InventoryUI] refreshDisplay: inventoryData count: " .. #inventoryData .. " displayItems count: " .. #itemData)
     
-    -- Reuse or create slots
+    -- Reuse or create slots (synchronous - just cloning templates is fast)
     local requiredSlots = #itemData
     
-    -- Create more slots if needed
+    -- Create more slots if needed (template cloning is relatively fast)
     while #itemSlots < requiredSlots do
         -- Pass the stored slotTemplate if available
         local slot = ItemSlot.new(slotsContainer, slotTemplate :: any)
@@ -185,56 +197,73 @@ local function refreshDisplay()
         janitor:Add(slot, "Destroy")
     end
     
-    -- Update slot data and make draggable
-    for i, slot in itemSlots do
-        if i <= requiredSlots then
-            local newData = itemData[i]
-            local currentData = slot.Data
-            
-            -- Smart Diff: Check if data actually changed to avoid expensive SetData
-            local changed = true
-            if currentData 
-                and currentData.TemplateId == newData.TemplateId 
-                and currentData.Count == newData.Count
-                and currentData.IsEquipped == newData.IsEquipped
-                and currentData.MaybeDuped == newData.MaybeDuped
-                and #currentData.ItemIds == #newData.ItemIds
-                and currentData.ItemIds[1] == newData.ItemIds[1] then
-                 
-                 changed = false
-            end
-            
-            if changed then
-                slot:SetData(newData)
+    -- PERFORMANCE: Batch processing of slot updates
+    -- This is the expensive part (SetData with 3D viewport setup)
+    currentBatchThread = task.spawn(function()
+        local batchIndex = 0
+        
+        for i, slot in itemSlots do
+            if i <= requiredSlots then
+                local newData = itemData[i]
+                local currentData = slot.Data
                 
-                -- Make draggable (remove old detector first)
-                local oldDetector = slot.Frame:FindFirstChild("ItemDragDetector")
-                if oldDetector then
-                    oldDetector:Destroy()
+                -- Smart Diff: Check if data actually changed to avoid expensive SetData
+                local changed = true
+                if currentData 
+                    and currentData.TemplateId == newData.TemplateId 
+                    and currentData.Count == newData.Count
+                    and currentData.IsEquipped == newData.IsEquipped
+                    and currentData.MaybeDuped == newData.MaybeDuped
+                    and #currentData.ItemIds == #newData.ItemIds
+                    and currentData.ItemIds[1] == newData.ItemIds[1] then
+                     
+                     changed = false
                 end
                 
-                -- Add drag capability if we have a screenGui
-                if screenGui and newData then
-                    local itemId = newData.ItemIds[1] or ""
+                if changed then
+                    slot:SetData(newData)
                     
-                    local dragData: DragDrop.DragData = {
-                        ItemId = itemId,
-                        TemplateId = newData.TemplateId,
-                        Type = newData.Type,
-                        Rarity = newData.Rarity,
-                        SourceSlot = slot.Frame :: Frame, -- Fix type error
-                        SourceToolbarSlot = newData.EquippedSlot, -- Pass equipped slot for move operations
-                    }
-                    DragDrop.MakeDraggable(slot.Frame, dragData, screenGui)
+                    -- Make draggable (remove old detector first)
+                    local oldDetector = slot.Frame:FindFirstChild("ItemDragDetector")
+                    if oldDetector then
+                        oldDetector:Destroy()
+                    end
+                    
+                    -- Add drag capability if we have a screenGui
+                    if screenGui and newData then
+                        local itemId = newData.ItemIds[1] or ""
+                        
+                        local dragData: DragDrop.DragData = {
+                            ItemId = itemId,
+                            TemplateId = newData.TemplateId,
+                            Type = newData.Type,
+                            Rarity = newData.Rarity,
+                            SourceSlot = slot.Frame :: Frame, -- Fix type error
+                            SourceToolbarSlot = newData.EquippedSlot, -- Pass equipped slot for move operations
+                        }
+                        DragDrop.MakeDraggable(slot.Frame, dragData, screenGui)
+                    end
+                    
+                    -- Count this as an expensive operation
+                    batchIndex = batchIndex + 1
+                    
+                    -- Yield after processing a batch to allow frame rendering
+                    if batchIndex >= BATCH_SIZE then
+                        batchIndex = 0
+                        task.wait(BATCH_DELAY)
+                    end
                 end
+                
+                slot.Frame.Visible = true
+            else
+                slot:SetData(nil)
+                slot.Frame.Visible = false
             end
-            
-            slot.Frame.Visible = true
-        else
-            slot:SetData(nil)
-            slot.Frame.Visible = false
         end
-    end
+        
+        -- Mark batch as complete
+        currentBatchThread = nil
+    end)
 end
 
 
@@ -350,11 +379,20 @@ function InventoryUI.Toggle(open: boolean?)
         -- Resume animations when opening
         ColorSystem.ResumeAll()
         InventoryVisibilityManager.ResumeAll()
+        
+        -- Render the inventory grid now (deferred from OnSync for performance)
+        refreshDisplay()
         updateIntegratedToolbar()
     else
         -- Pause animations when closing to save CPU
         ColorSystem.PauseAll()
         InventoryVisibilityManager.PauseAll()
+        
+        -- IMPORTANT: Refresh the main toolbar to re-apply animated color effects
+        -- since the toolbar remains visible while inventory is closed
+        if Toolbar and Toolbar.Refresh then
+            Toolbar.Refresh()
+        end
     end
     
     InventoryUI.OnToggled:Fire(isOpen)
@@ -691,8 +729,14 @@ function InventoryUI.Init(context: any)
         toolbarSlots = newToolbarSlots
         dupedItems = InventoryStore.GetDupedItems()
         
-        refreshDisplay()
-        updateIntegratedToolbar()
+        -- PERFORMANCE: Only render inventory grid if actually visible
+        -- This prevents expensive ViewportFrame creation on game join
+        if isOpen then
+            refreshDisplay()
+            updateIntegratedToolbar()
+        end
+        
+        -- Always refresh the main toolbar (it's always visible)
         if Toolbar and Toolbar.Refresh then
             Toolbar.Refresh()
         end
@@ -704,10 +748,13 @@ function InventoryUI.Init(context: any)
         inventoryData = InventoryStore.GetInventory()
         dupedItems = InventoryStore.GetDupedItems()
         
-        refreshDisplay()
+        -- PERFORMANCE: Only refresh grid if inventory is open
+        if isOpen then
+            refreshDisplay()
+            updateIntegratedToolbar()
+        end
         
-        -- Also refresh toolbar in case an equipped item was removed/modified
-        updateIntegratedToolbar()
+        -- Always refresh the main toolbar (it's always visible)
         if Toolbar and Toolbar.Refresh then
             Toolbar.Refresh()
         end
@@ -717,9 +764,13 @@ function InventoryUI.Init(context: any)
         log("[InventoryUI] OnToolbarUpdate received")
         toolbarSlots = newToolbarSlots
         
-        -- Optimized: Only refresh toolbar, skip full grid refresh
-        updateIntegratedToolbar()
-        refreshDisplay() -- Fix: Refresh grid to show/hide "1", "2", etc labels
+        -- PERFORMANCE: Only refresh integrated toolbar/grid if inventory is open
+        if isOpen then
+            updateIntegratedToolbar()
+            refreshDisplay() -- Refresh grid to show/hide "1", "2", etc labels
+        end
+        
+        -- Always refresh the main toolbar (it's always visible)
         if Toolbar and Toolbar.Refresh then
             Toolbar.Refresh()
         end

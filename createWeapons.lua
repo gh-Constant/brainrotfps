@@ -175,6 +175,15 @@ for _, brainrotModel in ipairs(selectedObjects) do
     -- 1. Clone Template ViewModel
     local newViewModel = VM_TEMPLATE_PATH:Clone()
     
+    -- Update Shoot animation ID
+    local animations = newViewModel:FindFirstChild("Animations")
+    if animations then
+        local shootAnim = animations:FindFirstChild("Shoot")
+        if shootAnim and shootAnim:IsA("Animation") then
+            shootAnim.AnimationId = "rbxassetid://89549817013461"
+        end
+    end
+    
     -- 2. Clone Brainrot Model into ViewModel
     -- The template likely has the gun model inside (e.g. named "Matteo" or "Blaster")
     -- We need to find the reference model in the *template* to copy transforms from

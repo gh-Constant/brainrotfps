@@ -197,30 +197,28 @@ function InventoryManager.UnloadInventory(player: Player)
     ActiveIndices[userId] = nil
 end
 
-local function freezeInventory(data: InventoryData): InventoryData
-    -- Create safe snapshot
-    local snapshot = table.clone(data)
-    
-    -- Freeze items list
-    local items = table.clone(data.Items)
-    for i, item in ipairs(items) do
-        -- Freeze individual items to prevent property mutation
-        items[i] = table.freeze(table.clone(item))
-    end
-    snapshot.Items = table.freeze(items)
-    
-    -- Freeze toolbar
-    snapshot.ToolbarSlots = table.freeze(table.clone(data.ToolbarSlots))
-    
-    return table.freeze(snapshot)
+--[[
+    Returns raw inventory data for internal server use (no cloning).
+    WARNING: Do not mutate directly - use AddItem/RemoveItem APIs.
+]]
+function InventoryManager.GetInventoryRaw(player: Player): InventoryData?
+    return ActiveInventories[player.UserId]
 end
 
+--[[
+    Returns a frozen copy of inventory for external module use.
+    Only call this when you need to expose data to untrusted code.
+]]
 function InventoryManager.GetInventory(player: Player): InventoryData?
     local data = ActiveInventories[player.UserId]
     if not data then return nil end
     
-    -- Return read-only proxy to prevent direct mutation
-    return freezeInventory(data)
+    -- Create safe snapshot only when needed for external access
+    local snapshot = table.clone(data)
+    snapshot.Items = table.freeze(table.clone(data.Items))
+    snapshot.ToolbarSlots = table.freeze(table.clone(data.ToolbarSlots))
+    
+    return table.freeze(snapshot)
 end
 
 function InventoryManager.AddItem(player: Player, templateId: string, itemType: ItemType, rarity: RarityType?, metadata: any): InventoryItem?

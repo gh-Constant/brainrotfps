@@ -272,15 +272,18 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
         return
     end
     
+    -- Compute style once (used for both reuse check and heavy UI update)
+    local itemConfig = getItemConfig(data.TemplateId)
+    local newStyle = if itemConfig then itemConfig:GetAttribute("CustomColor") else nil
+    if not newStyle then
+        newStyle = RarityConfig.GetBackgroundStyle(data.Rarity)
+    end
+    
     -- Check for reuse
     local isReuse = false
     if self.Data and self.Data.TemplateId == data.TemplateId then
         isReuse = true
         -- Check if style changed (rarity/custom color)
-        local newStyle = data.Metadata and data.Metadata.CustomColor 
-        if not newStyle then
-             newStyle = RarityConfig.GetBackgroundStyle(data.Rarity)
-        end
         local oldStyle = self.Data.Metadata and self.Data.Metadata.CustomColor
         if not oldStyle then
              oldStyle = RarityConfig.GetBackgroundStyle(self.Data.Rarity)
@@ -313,25 +316,35 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
     local toolBarPosLabel = self.Frame:FindFirstChild("ToolBarPos") :: TextLabel?
     local rarityLabel = self.Frame:FindFirstChild("RarityLabel") :: TextLabel?
     
-    -- Update Lightweight UI (Labels)
+    -- PERFORMANCE: Use RarityLabel to show item NAME instead (no animated effects)
+    -- Hide NameLabel in inventory grid
+    if nameLabel then
+        nameLabel.Visible = false
+    end
+    
+    -- Repurpose RarityLabel to display item name with rarity color (no animation = better performance)
     if rarityLabel then
-        local rarity = data.Rarity or "Common"
-        rarityLabel.Text = rarity
+        local displayName = data.TemplateId
+        if itemConfig then
+            local dn = itemConfig:GetAttribute("DisplayName")
+            if dn and dn ~= "" then displayName = dn end
+        end
+        rarityLabel.Text = displayName
+        rarityLabel.TextSize = 16 -- Bigger text
         rarityLabel.Visible = true
         
-        -- Style Priority: Config Attribute > Rarity
-        local style = nil
-        local itemConfig = getItemConfig(data.TemplateId)
-        if itemConfig then
-            style = itemConfig:GetAttribute("CustomTextColor")
+        -- Use static rarity color instead of animated effect
+        local colorConfig = ColorSystem.GetColorConfig(newStyle)
+        if colorConfig then
+            rarityLabel.TextColor3 = colorConfig.Color
+        else
+            rarityLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Fallback to white
         end
         
-        if not style then
-             style = RarityConfig.GetTextStyle(rarity)
-        end
-        
-        ColorSystem.ApplyToText(rarityLabel, style)
+        -- Stop any animated effects
+        ColorSystem.StopAnimation(rarityLabel)
     end
+    
     if quantityLabel then
         if data.Count > 1 then
             quantityLabel.Text = "x" .. tostring(data.Count)
@@ -339,17 +352,6 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
         else
             quantityLabel.Visible = false
         end
-    end
-    
-    if nameLabel then
-        local displayName = data.TemplateId
-        local itemConfig = getItemConfig(data.TemplateId)
-        if itemConfig then
-            local dn = itemConfig:GetAttribute("DisplayName")
-            if dn and dn ~= "" then displayName = dn end
-        end
-        nameLabel.Text = displayName
-        nameLabel.Visible = true
     end
     
     if eventsLabel then
@@ -383,18 +385,8 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
 
     -- Update Heavy UI (if not reused)
     if not isReuse then
-        -- Style Priority: Config Attribute > Rarity
-        local style = nil
-        local itemConfig = getItemConfig(data.TemplateId)
-        if itemConfig then
-            style = itemConfig:GetAttribute("CustomColor")
-        end
-        
-        if not style then
-           style = RarityConfig.GetBackgroundStyle(data.Rarity)
-        end
-        
-        ColorSystem.ApplyToBackground(self.Frame :: Frame, style)
+        -- Use the pre-computed newStyle (already checked Config > Rarity priority)
+        ColorSystem.ApplyToBackground(self.Frame :: Frame, newStyle)
 
         
         -- Model Setup
@@ -416,10 +408,10 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
                 -- Highlight
                 local highlight = worldModel:FindFirstChild("Highlight")
                 if not highlight then
-                     highlight = ColorSystem.CreateHighlight(style)
+                     highlight = ColorSystem.CreateHighlight(newStyle)
                      highlight.Parent = worldModel
                 end
-                ColorSystem.ApplyToHighlight(highlight, style)
+                ColorSystem.ApplyToHighlight(highlight, newStyle)
                 
                 -- Camera
                 local camera = viewport:FindFirstChild("Camera") :: Camera?
@@ -458,10 +450,10 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
                  InventoryVisibilityManager.Register(self.Frame, {
                     ToolIcon = toolIcon,
                     Viewport = nil,
-                    NameLabel = nameLabel,
+                    NameLabel = nil, -- Hidden in inventory grid
                     QuantityLabel = if quantityLabel and quantityLabel.Visible then quantityLabel else nil,
                     EventsLabel = if eventsLabel and eventsLabel.Visible then eventsLabel else nil,
-                    RarityLabel = rarityLabel,
+                    RarityLabel = rarityLabel, -- Now shows item name
                  })
             end
         else
@@ -473,10 +465,10 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
              InventoryVisibilityManager.Register(self.Frame, {
                 ToolIcon = toolIcon,
                 Viewport = nil,
-                NameLabel = nameLabel,
+                NameLabel = nil, -- Hidden in inventory grid
                 QuantityLabel = if quantityLabel and quantityLabel.Visible then quantityLabel else nil,
                 EventsLabel = if eventsLabel and eventsLabel.Visible then eventsLabel else nil,
-                RarityLabel = rarityLabel,
+                RarityLabel = rarityLabel, -- Now shows item name
              })
         end
     end
@@ -486,10 +478,10 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
     -- Final sync of 2D visibility state (handles Reuse case and ensures correct elements are managed)
     InventoryVisibilityManager.UpdateVisibleElements(self.Frame, {
         ToolIcon = if (self._model and self._viewport) then nil else toolIcon, -- Hide icon if 3D model active
-        NameLabel = nameLabel,
+        NameLabel = nil, -- Hidden in inventory grid
         QuantityLabel = if quantityLabel and quantityLabel.Visible then quantityLabel else nil,
         EventsLabel = if eventsLabel and eventsLabel.Visible then eventsLabel else nil,
-        RarityLabel = rarityLabel,
+        RarityLabel = rarityLabel, -- Now shows item name
     })
 end
 

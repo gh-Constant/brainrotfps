@@ -14,7 +14,6 @@
 ]]
 
 local DataStoreService = game:GetService("DataStoreService")
-local _HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
