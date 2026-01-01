@@ -38,6 +38,15 @@ local function getInventoryManager()
     return InventoryManager
 end
 
+-- Use lazy require for LeaderboardService to avoid circular dependency
+local LeaderboardService = nil
+local function getLeaderboardService()
+    if not LeaderboardService then
+        LeaderboardService = require(script.Parent.Leaderboard.LeaderboardService)
+    end
+    return LeaderboardService
+end
+
 -- ProfileStore configuration
 local STORE_NAME = "PlayerData_v2"
 local DATA_TEMPLATE = {
@@ -47,6 +56,7 @@ local DATA_TEMPLATE = {
     TotalGoldEarned = 0,
     Credits = 0,
     TotalCreditsEarned = 0,
+    MaxLevel = 1,
 }
 
 -- Create ProfileStore
@@ -243,6 +253,17 @@ local function onPlayerAdded(player: Player)
             if profile:IsActive() then
                 profile.Data.Level = playerData.Level
                 profile.Data.Experience = playerData.Experience
+                
+                -- Track MaxLevel for leaderboard
+                if not profile.Data.MaxLevel or playerData.Level > profile.Data.MaxLevel then
+                    profile.Data.MaxLevel = playerData.Level
+                    
+                    -- Update leaderboard only if we have a new max level
+                    task.spawn(function()
+                        local lbService = getLeaderboardService()
+                        lbService.UpdateScore(player, "Level", playerData.Level)
+                    end)
+                end
             end
             -- Update leaderstats
             levelValue.Value = playerData.Level
@@ -296,6 +317,15 @@ local function onPlayerAdded(player: Player)
             end
             -- Update leaderstats
             xpValue.Value = playerData.Experience
+            
+            -- Update leaderboard (TotalXP)
+            -- We use IncrementScore to track gains over time (Daily/Weekly/AllTime)
+            if _delta > 0 then
+                task.spawn(function()
+                    local lbService = getLeaderboardService()
+                    lbService.IncrementScore(player, "TotalXP", _delta)
+                end)
+            end
         end)
     end
     
@@ -322,6 +352,14 @@ local function onPlayerAdded(player: Player)
         playerData.Level,
         playerData.Gold
     ))
+    
+    -- Update leaderboard with MaxLevel for AllTime HighScore
+    task.spawn(function()
+        local lbService = getLeaderboardService()
+        local maxLevel = profile.Data.MaxLevel or playerData.Level
+        if maxLevel < playerData.Level then maxLevel = playerData.Level end -- safety
+        lbService.UpdateScore(player, "Level", maxLevel)
+    end)
     
     -- Load inventory (async, doesn't block player join)
     task.spawn(function()

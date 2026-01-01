@@ -26,6 +26,15 @@ if not vmCheckFolder then
     vmCheckFolder.Parent = Workspace
 end
 
+-- Ensure ItemsViewports folder exists in ReplicatedStorage
+local VIEWPORTS_FOLDER_NAME = "ItemsViewports"
+local viewportsFolder = ReplicatedStorage:FindFirstChild(VIEWPORTS_FOLDER_NAME)
+if not viewportsFolder then
+    viewportsFolder = Instance.new("Folder")
+    viewportsFolder.Name = VIEWPORTS_FOLDER_NAME
+    viewportsFolder.Parent = ReplicatedStorage
+end
+
 ChangeHistoryService:SetWaypoint("StartCreateWeapons")
 
 for _, brainrotModel in ipairs(selectedObjects) do
@@ -123,6 +132,7 @@ for _, brainrotModel in ipairs(selectedObjects) do
 			desc.CanCollide = false
 			desc.Massless = true
 			desc.CanTouch = false
+			desc.Anchored = false
 		end
 	end
 	
@@ -222,6 +232,7 @@ for _, brainrotModel in ipairs(selectedObjects) do
             desc.CanCollide = false
             desc.Massless = true
             desc.CanTouch = false
+            desc.Anchored = false
         end
     end
 
@@ -337,6 +348,56 @@ for _, brainrotModel in ipairs(selectedObjects) do
     if tool then
         tool:SetAttribute("viewModel", brainrotModel.Name)
     end
+    
+    -------------------------------------------------------------------------------
+    -- ITEMS VIEWPORT CREATION
+    -------------------------------------------------------------------------------
+    print("Creating Viewport Model for: " .. brainrotModel.Name)
+    
+    -- 1. Clone Brainrot Model
+    local viewportModel = brainrotModel:Clone()
+    viewportModel.Name = brainrotModel.Name
+    
+    -- 2. Remove VfxInstance
+    local vpVfx = viewportModel:FindFirstChild("VfxInstance")
+    if vpVfx then
+        vpVfx:Destroy()
+    end
+    
+    -- 3. Add Camera Part
+    -- Position: 1.595, 6.646, -6.617
+    -- Orientation: -10.438, 164.693, 0
+    local camPart = Instance.new("Part")
+    camPart.Name = "Camera"
+    camPart.Size = Vector3.new(1, 1, 1)
+    camPart.Transparency = 1
+    camPart.Anchored = true
+    camPart.CanCollide = false
+    camPart.CanTouch = false
+    camPart.Parent = viewportModel
+    
+    -- Set CFrame
+    camPart.CFrame = CFrame.new(1.595, 6.646, -6.617) * CFrame.fromOrientation(math.rad(-10.438), math.rad(164.693), 0)
+    
+    -- 4. Anchor & Non-Collidable
+    -- Note: We iterate descendants to catch all parts
+    -- USER REQUEST: "remove the thing that make things anchored for nos reason"
+    -- We will ONLY disable CanCollide/Touch/Massless but keep Anchored as-is (or explicitly false if preferred)
+    -- Actually, to be safe and match user intent "no reason", we might just skip anchoring properties.
+    -- But usually we want CanCollide false for viewports.
+    -- I will remove Anchored = true and set Anchored = false to be safe.
+    for _, desc in ipairs(viewportModel:GetDescendants()) do
+        if desc:IsA("BasePart") then
+            desc.CanCollide = false
+            desc.Massless = true
+            desc.CanTouch = false
+            desc.Anchored = false -- Explicitly unanchor as requested
+        end
+    end
+    
+    -- 5. Parent to ItemsViewports folder
+    viewportModel.Parent = viewportsFolder
+
 end
 
 ChangeHistoryService:SetWaypoint("EndCreateWeapons")

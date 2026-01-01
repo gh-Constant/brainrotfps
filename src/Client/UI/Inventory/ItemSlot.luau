@@ -35,8 +35,7 @@ local Logger = require(Shared:WaitForChild("Inventory"):WaitForChild("Logger"))
 
 -- Import centralized visibility manager
 local InventoryVisibilityManager = require(script.Parent:WaitForChild("InventoryVisibilityManager"))
-
-
+local VisualUtils = require(script.Parent:WaitForChild("VisualUtils"))
 
 -- Types
 type Janitor = typeof(Janitor.new())
@@ -46,14 +45,14 @@ export type ItemSlotData = {
     Type: string,
     Rarity: string?,
     Count: number,
-    ItemIds: {string}, -- All item IDs in this stack
-    IsEquipped: boolean?, -- Whether this item is in a toolbar slot
-    EquippedSlot: number?, -- Which toolbar slot (1-9) if equipped
+    ItemIds: {string},
+    IsEquipped: boolean?,
+    EquippedSlot: number?,
     Metadata: {
         CustomColor: string?,
         [string]: any,
     }?,
-    MaybeDuped: boolean?, -- Whether this item might be duplicated
+    MaybeDuped: boolean?,
 }
 
 export type ItemSlot = {
@@ -73,128 +72,6 @@ local function getItemConfig(templateId: string): Configuration?
     return ItemUtils.FindItemConfig(templateId)
 end
 
---[[
-    Gets the Tool instance from inside a Configuration.
-]]
-local function getToolFromConfig(itemConfig: Configuration): Tool?
-    return itemConfig:FindFirstChildWhichIsA("Tool") :: Tool?
-end
-
---[[
-    Finds the 3D model for an item based on its ToolModel attribute.
-]]
-local function findItemModel(templateId: string): Instance?
-    local itemConfig = getItemConfig(templateId)
-    if not itemConfig then return nil end
-    
-    local toolModelSource = itemConfig:GetAttribute("ToolModel") :: string?
-    
-    if toolModelSource == "ToolModels" then
-        local config = ReplicatedStorage:FindFirstChild("Config")
-        if config then
-            local toolModels = config:FindFirstChild("ToolModels")
-            if toolModels then
-                return toolModels:FindFirstChild(templateId)
-            end
-        end
-    elseif toolModelSource == "ViewModel" then
-        local blasterFolder = ReplicatedStorage:FindFirstChild("Blaster")
-        if blasterFolder then
-            local viewModels = blasterFolder:FindFirstChild("ViewModels")
-            if viewModels then
-                local viewModelFolder = viewModels:FindFirstChild(templateId)
-                if viewModelFolder then
-                    return viewModelFolder:FindFirstChild("Blaster")
-                end
-            end
-        end
-    elseif toolModelSource == "ToolIcon" then
-        return nil -- Force use of image
-    end
-    
-    -- No ToolModel attribute: use the Tool child inside Configuration
-    local tool = getToolFromConfig(itemConfig)
-    if tool then
-        return tool
-    end
-    
-    return nil
-end
-
---[[
-    Gets the image for an item (for items without 3D model).
-]]
-local function getItemImage(templateId: string): string
-    local itemConfig = getItemConfig(templateId)
-    if not itemConfig then return "" end
-    
-    local image = itemConfig:GetAttribute("Image") :: string?
-    if image and image ~= "" then
-        if not string.find(image, "://") then
-             image = "rbxassetid://" .. image
-        end
-        return image
-    end
-    
-    local tool = getToolFromConfig(itemConfig)
-    if tool then
-        local textureId = tool.TextureId
-        if textureId and textureId ~= "" and not string.find(textureId, "://") then
-             textureId = "rbxassetid://" .. textureId
-        end
-        return textureId
-    end
-    
-    return ""
-end
-
---[[
-    Clones a model for display in viewport (anchored, no collision).
-]]
-local function cloneModelForDisplay(sourceModel: Instance): Model?
-    local modelClone = Instance.new("Model")
-    modelClone.Name = "DisplayModel"
-    
-    for _, part in sourceModel:GetDescendants() do
-        if part:IsA("BasePart") then
-            local partClone = part:Clone()
-            partClone.Anchored = true
-            partClone.CanCollide = false
-            partClone.Parent = modelClone
-        end
-    end
-    
-    for _, child in sourceModel:GetChildren() do
-        if child:IsA("BasePart") and not modelClone:FindFirstChild(child.Name) then
-            local partClone = child:Clone()
-            partClone.Anchored = true
-            partClone.CanCollide = false
-            partClone.Parent = modelClone
-        end
-    end
-    
-    local primaryPartName = "Handle"
-    if sourceModel:IsA("Model") and sourceModel.PrimaryPart then
-        primaryPartName = sourceModel.PrimaryPart.Name
-    end
-    modelClone.PrimaryPart = modelClone:FindFirstChild(primaryPartName) :: BasePart?
-    
-    if #modelClone:GetChildren() == 0 then
-        modelClone:Destroy()
-        return nil
-    end
-    
-    return modelClone
-end
-
---[[
-    Creates a new ItemSlot using a template.
-    Does NOT create new UI elements - only uses existing template elements.
-    
-    @param parent - Parent GUI object
-    @param template - Template to clone (ImageLabel or Frame)
-    @return ItemSlot
-]]
 function ItemSlotModule.new(parent: GuiObject?, template: GuiObject?): ItemSlot
     local self = setmetatable({}, ItemSlotModule)
     
@@ -203,11 +80,9 @@ function ItemSlotModule.new(parent: GuiObject?, template: GuiObject?): ItemSlot
     self._viewport = nil
     self._highlight = nil
     
-    -- Clone template - DO NOT create new elements
     if template then
         self.Frame = template:Clone()
     else
-        -- Fallback: create minimal ImageLabel (shouldn't happen with proper templates)
         warn("[ItemSlot] No template provided! Creating minimal fallback.")
         local fallback = Instance.new("ImageLabel")
         fallback.Name = "ItemSlot"
@@ -226,79 +101,52 @@ function ItemSlotModule.new(parent: GuiObject?, template: GuiObject?): ItemSlot
     return self :: any
 end
 
---[[
-    Sets the data for this slot.
-    Only modifies EXISTING template elements.
-    
-    @param data - The item stack data, or nil to clear
-]]
 function ItemSlotModule:SetData(data: ItemSlotData?)
     if not data then
         self._janitor:Cleanup()
         self.Data = nil
         
-        -- Unregister from visibility manager if we had a viewport/slot
         InventoryVisibilityManager.Unregister(self.Frame)
         self._viewport = nil
         
-        -- Reset visuals for empty slot
+        -- Reset visuals
         local toolIcon = self.Frame:FindFirstChild("ToolIcon") :: ImageLabel?
         if toolIcon then toolIcon.Visible = false end
-        
         local viewport = self.Frame:FindFirstChild("ViewportFrame") :: ViewportFrame?
         if viewport then viewport.Visible = false end
-        
         local quantityLabel = self.Frame:FindFirstChild("QuantityLabel") :: TextLabel?
         if quantityLabel then quantityLabel.Visible = false end
-        
         local nameLabel = self.Frame:FindFirstChild("NameLabel") :: TextLabel?
         if nameLabel then nameLabel.Visible = false end
-        
         local deleteButton = self.Frame:FindFirstChild("DeleteButton") :: TextButton?
         if deleteButton then deleteButton.Visible = false end
-        
         local eventsLabel = self.Frame:FindFirstChild("EventsLabel") :: TextLabel?
         if eventsLabel then eventsLabel.Visible = false end
-        
         local toolBarPosLabel = self.Frame:FindFirstChild("ToolBarPos") :: TextLabel?
         if toolBarPosLabel then toolBarPosLabel.Visible = false end
-        
         local rarityLabel = self.Frame:FindFirstChild("RarityLabel") :: TextLabel?
         if rarityLabel then rarityLabel.Visible = false end
         
         ColorSystem.ApplyToBackground(self.Frame :: Frame, nil)
-        ColorSystem.ApplyToFrame(self.Frame :: Frame, nil)
         
         return
-    end
-    
-    -- Compute style once (used for both reuse check and heavy UI update)
-    local itemConfig = getItemConfig(data.TemplateId)
-    local newStyle = if itemConfig then itemConfig:GetAttribute("CustomColor") else nil
-    if not newStyle then
-        newStyle = RarityConfig.GetBackgroundStyle(data.Rarity)
     end
     
     -- Check for reuse
     local isReuse = false
     if self.Data and self.Data.TemplateId == data.TemplateId then
         isReuse = true
-        -- Check if style changed (rarity/custom color)
+        local newStyle = data.Metadata and data.Metadata.CustomColor 
+        if not newStyle then newStyle = RarityConfig.GetBackgroundStyle(data.Rarity) end
         local oldStyle = self.Data.Metadata and self.Data.Metadata.CustomColor
-        if not oldStyle then
-             oldStyle = RarityConfig.GetBackgroundStyle(self.Data.Rarity)
-        end
+        if not oldStyle then oldStyle = RarityConfig.GetBackgroundStyle(self.Data.Rarity) end
         
-        if newStyle ~= oldStyle then
-            isReuse = false -- Force rebuild visuals
-        end
+        if newStyle ~= oldStyle then isReuse = false end
     end
 
     if isReuse then
-        -- Only clean up connection listeners, keep visuals
         self._janitor:Remove("DeleteButton")
     else
-        -- Clean up old visibility registration
         InventoryVisibilityManager.Unregister(self.Frame)
         self._viewport = nil
         self._janitor:Cleanup()
@@ -316,35 +164,25 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
     local toolBarPosLabel = self.Frame:FindFirstChild("ToolBarPos") :: TextLabel?
     local rarityLabel = self.Frame:FindFirstChild("RarityLabel") :: TextLabel?
     
-    -- PERFORMANCE: Use RarityLabel to show item NAME instead (no animated effects)
-    -- Hide NameLabel in inventory grid
-    if nameLabel then
-        nameLabel.Visible = false
-    end
-    
-    -- Repurpose RarityLabel to display item name with rarity color (no animation = better performance)
+    -- Update Lightweight UI (Labels)
     if rarityLabel then
-        local displayName = data.TemplateId
-        if itemConfig then
-            local dn = itemConfig:GetAttribute("DisplayName")
-            if dn and dn ~= "" then displayName = dn end
-        end
-        rarityLabel.Text = displayName
-        rarityLabel.TextSize = 16 -- Bigger text
+        local rarity = data.Rarity or "Common"
+        rarityLabel.Text = rarity
         rarityLabel.Visible = true
         
-        -- Use static rarity color instead of animated effect
-        local colorConfig = ColorSystem.GetColorConfig(newStyle)
-        if colorConfig then
-            rarityLabel.TextColor3 = colorConfig.Color
-        else
-            rarityLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Fallback to white
+        -- Style Priority: Config Attribute > Rarity
+        local style = nil
+        local itemConfig = getItemConfig(data.TemplateId)
+        if itemConfig then
+            style = itemConfig:GetAttribute("CustomTextColor")
         end
         
-        -- Stop any animated effects
-        ColorSystem.StopAnimation(rarityLabel)
+        if not style then
+             style = RarityConfig.GetTextStyle(rarity)
+        end
+        
+        ColorSystem.ApplyToText(rarityLabel, style)
     end
-    
     if quantityLabel then
         if data.Count > 1 then
             quantityLabel.Text = "x" .. tostring(data.Count)
@@ -354,14 +192,34 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
         end
     end
     
+    if nameLabel then
+        local displayName = data.TemplateId
+        local itemConfig = getItemConfig(data.TemplateId)
+        if itemConfig then
+            local dn = itemConfig:GetAttribute("DisplayName")
+            if dn and dn ~= "" then displayName = dn end
+        end
+        nameLabel.Text = displayName
+        nameLabel.Visible = true
+    end
+    
     if eventsLabel then
         local count = 0
         if data.Metadata and data.Metadata.Mutations then
             for _ in pairs(data.Metadata.Mutations) do count = count + 1 end
         end
-        if count > 0 then
+        
+        if data.Metadata and data.Metadata.OverrideEventsText then
+            eventsLabel.Text = data.Metadata.OverrideEventsText
+            eventsLabel.Visible = true
+        elseif count > 0 then
             eventsLabel.Text = tostring(count) .. " " .. (count == 1 and "Event" or "Events")
             eventsLabel.Visible = true
+            
+            -- Apply dynamic color based on event count
+            local eventRarity = RarityConfig.GetEventRarity(count)
+            local style = RarityConfig.GetTextStyle(eventRarity)
+            ColorSystem.ApplyToText(eventsLabel, style)
         else
             eventsLabel.Visible = false
         end
@@ -385,16 +243,26 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
 
     -- Update Heavy UI (if not reused)
     if not isReuse then
-        -- Use the pre-computed newStyle (already checked Config > Rarity priority)
-        ColorSystem.ApplyToBackground(self.Frame :: Frame, newStyle)
+        -- Style Priority: Config Attribute > Rarity
+        local style = nil
+        local itemConfig = getItemConfig(data.TemplateId)
+        if itemConfig then
+            style = itemConfig:GetAttribute("CustomColor")
+        end
+        
+        if not style then
+           style = RarityConfig.GetBackgroundStyle(data.Rarity)
+        end
+        
+        ColorSystem.ApplyToBackground(self.Frame :: Frame, style)
 
         
         -- Model Setup
-        local itemModel = findItemModel(data.TemplateId)
+        local itemModel, isCustom = VisualUtils.FindItemModel(data.TemplateId)
         if itemModel and viewport then
             if toolIcon then toolIcon.Visible = false end
             
-            local modelClone = cloneModelForDisplay(itemModel)
+            local modelClone = VisualUtils.CloneModelForDisplay(itemModel, isCustom)
             if modelClone then
                 local worldModel = viewport:FindFirstChild("WorldModel") :: WorldModel?
                 if not worldModel then
@@ -408,20 +276,54 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
                 -- Highlight
                 local highlight = worldModel:FindFirstChild("Highlight")
                 if not highlight then
-                     highlight = ColorSystem.CreateHighlight(newStyle)
+                     highlight = ColorSystem.CreateHighlight(style)
                      highlight.Parent = worldModel
                 end
-                ColorSystem.ApplyToHighlight(highlight, newStyle)
+                ColorSystem.ApplyToHighlight(highlight, style)
                 
-                -- Camera
-                local camera = viewport:FindFirstChild("Camera") :: Camera?
-                if not camera then
-                    camera = Instance.new("Camera"); camera.Parent = viewport; viewport.CurrentCamera = camera
+                -- Global Camera Setup (Consistent Zoom)
+                local camera = VisualUtils.SetupModelCamera(viewport, modelClone)
+                
+                -- Play Idle Animation
+                local animsFolder = ReplicatedStorage:FindFirstChild("BrainrotAnimations")
+                if animsFolder then
+                    local modelAnims = animsFolder:FindFirstChild(data.TemplateId)
+                    if modelAnims then
+                        local idleAnim = modelAnims:FindFirstChild("Idle")
+                        local animController = modelClone:FindFirstChild("AnimationController") or modelClone:FindFirstChildWhichIsA("Humanoid")
+                        
+                        if idleAnim and idleAnim:IsA("Animation") and animController then
+                            -- FIX: Ensure parts are unanchored so Motor6Ds can animate them
+                            -- except the PrimaryPart/Root which holds it in place
+                            local root = modelClone.PrimaryPart or modelClone:FindFirstChild("Body") or modelClone:FindFirstChild("HumanoidRootPart")
+                            
+                            for _, desc in ipairs(modelClone:GetDescendants()) do
+                                if desc:IsA("BasePart") then
+                                    if root and desc == root then
+                                        desc.Anchored = true
+                                    else
+                                        desc.Anchored = false
+                                    end
+                                end
+                            end
+
+                            local animator = animController:FindFirstChild("Animator") :: Animator?
+                            if not animator then
+                                animator = Instance.new("Animator")
+                                animator.Parent = animController
+                            end
+                            
+                            if animator then
+                                 local track = animator:LoadAnimation(idleAnim)
+                                 track:Play()
+                            end
+                        end
+                    end
                 end
-                
+
                 local cf, size = modelClone:GetBoundingBox()
                 local maxSize = math.max(size.X, size.Y, size.Z)
-                local distance = maxSize * 0.5
+                local distance = maxSize * 0.8 -- Matches VisualUtils default
                 
                 -- PERFORMANCE: Register with centralized visibility manager (handles both culling and rotation)
                 self._viewport = viewport
@@ -437,38 +339,38 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
                     Camera = camera,
                     Model = modelClone,
                     CenterCF = cf,
-                    Distance = distance
+                    Distance = distance,
                 })
                 
                 viewport.Visible = true
             else
                  -- Fallback (Icon Only)
                  if viewport then viewport.Visible = false end
-                 if toolIcon then toolIcon.Image = getItemImage(data.TemplateId); toolIcon.Visible = true end
+                 if toolIcon then toolIcon.Image = VisualUtils.GetItemImage(data.TemplateId); toolIcon.Visible = true end
                  
                  -- Register for 2D culling even if no 3D model
                  InventoryVisibilityManager.Register(self.Frame, {
                     ToolIcon = toolIcon,
                     Viewport = nil,
-                    NameLabel = nil, -- Hidden in inventory grid
+                    NameLabel = nameLabel,
                     QuantityLabel = if quantityLabel and quantityLabel.Visible then quantityLabel else nil,
                     EventsLabel = if eventsLabel and eventsLabel.Visible then eventsLabel else nil,
-                    RarityLabel = rarityLabel, -- Now shows item name
+                    RarityLabel = rarityLabel,
                  })
             end
         else
             -- No 3D Model logic
             if viewport then viewport.Visible = false end
-            if toolIcon then toolIcon.Image = getItemImage(data.TemplateId); toolIcon.Visible = true end
+            if toolIcon then toolIcon.Image = VisualUtils.GetItemImage(data.TemplateId); toolIcon.Visible = true end
             
             -- Register for 2D culling
              InventoryVisibilityManager.Register(self.Frame, {
                 ToolIcon = toolIcon,
                 Viewport = nil,
-                NameLabel = nil, -- Hidden in inventory grid
+                NameLabel = nameLabel,
                 QuantityLabel = if quantityLabel and quantityLabel.Visible then quantityLabel else nil,
                 EventsLabel = if eventsLabel and eventsLabel.Visible then eventsLabel else nil,
-                RarityLabel = rarityLabel, -- Now shows item name
+                RarityLabel = rarityLabel,
              })
         end
     end
@@ -478,10 +380,10 @@ function ItemSlotModule:SetData(data: ItemSlotData?)
     -- Final sync of 2D visibility state (handles Reuse case and ensures correct elements are managed)
     InventoryVisibilityManager.UpdateVisibleElements(self.Frame, {
         ToolIcon = if (self._model and self._viewport) then nil else toolIcon, -- Hide icon if 3D model active
-        NameLabel = nil, -- Hidden in inventory grid
+        NameLabel = nameLabel,
         QuantityLabel = if quantityLabel and quantityLabel.Visible then quantityLabel else nil,
         EventsLabel = if eventsLabel and eventsLabel.Visible then eventsLabel else nil,
-        RarityLabel = rarityLabel, -- Now shows item name
+        RarityLabel = rarityLabel,
     })
 end
 
@@ -506,7 +408,7 @@ function ItemSlotModule:Destroy()
     -- Stop any color animations
     ColorSystem.StopAnimation(self.Frame)
     
-    self._janitor:Destroy()
+    self._janitor:Cleanup()
     self.Frame:Destroy()
 end
 

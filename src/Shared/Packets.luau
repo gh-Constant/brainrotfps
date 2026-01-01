@@ -205,5 +205,37 @@ return ByteNet.defineNamespace("game", function()
 			}),
 			reliabilityType = "reliable",
 		}),
+
+		-- ============================================
+		-- LEADERBOARD PACKETS
+		-- ============================================
+
+		-- Request leaderboard page (Client -> Server)
+		requestLeaderboard = ByteNet.definePacket({
+			value = ByteNet.struct({
+				valueName = ByteNet.string,
+				period = ByteNet.string, -- "Daily" | "Weekly" | "Monthly" | "AllTime"
+				page = ByteNet.uint8,
+			}),
+			reliabilityType = "reliable",
+		}),
+
+		-- Leaderboard data response (Server -> Client)
+		leaderboardData = ByteNet.definePacket({
+			value = ByteNet.struct({
+				valueName = ByteNet.string,
+				period = ByteNet.string,
+				page = ByteNet.uint8,
+				totalPages = ByteNet.uint8,
+				entries = ByteNet.array(ByteNet.struct({
+					rank = ByteNet.uint16,
+					userId = ByteNet.float64, -- float64 for userId (no int64 in ByteNet)
+					displayName = ByteNet.string,
+                    username = ByteNet.string,
+					value = ByteNet.float64, -- float64 for large values
+				})),
+			}),
+			reliabilityType = "reliable",
+		}),
 	}
 end)

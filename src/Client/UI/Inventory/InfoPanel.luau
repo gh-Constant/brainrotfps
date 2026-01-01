@@ -189,7 +189,11 @@ function InfoPanel:Update(item: InventoryItem?)
     
 	-- Clear previous items but preserve layout
 	for _, child in container:GetChildren() do
-		if not child:IsA("UIListLayout") and not child:IsA("UIGridLayout") and not child:IsA("UIPadding") then
+		if not child:IsA("UIListLayout") 
+			and not child:IsA("UIGridLayout") 
+			and not child:IsA("UIPadding") 
+			and not child:IsA("LocalScript") 
+			and not child:IsA("Script") then
 			child:Destroy()
 		end
 	end
@@ -335,13 +339,18 @@ function InfoPanel:Update(item: InventoryItem?)
 					local clonedInstances: {GuiObject} = {}
 					
 					for _, child in ipairs(children) do
-						if child:IsA("GuiObject") then
-							currentLayoutOrder += 1
+						-- Clone GuiObjects AND Scripts
+						if child:IsA("GuiObject") or child:IsA("LocalScript") or child:IsA("Script") then
 							local instance = child:Clone()
-							instance.LayoutOrder = currentLayoutOrder
+							
+							if instance:IsA("GuiObject") then
+								currentLayoutOrder += 1
+								instance.LayoutOrder = currentLayoutOrder
+								table.insert(clonedInstances, instance)
+							end
+							
 							instance.Parent = container
 							self._janitor:Add(instance)
-							table.insert(clonedInstances, instance)
 						end
 					end
 					

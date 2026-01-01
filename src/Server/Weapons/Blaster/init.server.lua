@@ -105,7 +105,7 @@ local function onShootEvent(
 	local rayRadius = blaster:GetAttribute(Constants.RAY_RADIUS_ATTRIBUTE)
 
 	-- Get base damage based on player level
-	local baseDamage = 9 + getPlayerLevel(player) * 5 -- 5 damage per level
+	local baseDamage = 9 + getPlayerLevel(player) * 5 --e 5 damage per level
 	
 	local mutationStats = getMutationStats(blaster)
 	baseDamage = baseDamage * mutationStats.DamageMultiplier

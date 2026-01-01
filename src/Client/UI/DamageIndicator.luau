@@ -160,28 +160,9 @@ local function spawnIndicator(position: Vector3, damage: number, didDamage: bool
 		anchorPart.CanTouch = false
 		anchorPart.Parent = indicator
 		
-		-- Try to weld to target if possible
-		local welded = false
-		if target and target:IsA("Model") then
-			local primaryPart = target.PrimaryPart or target:FindFirstChild("HumanoidRootPart") or target:FindFirstChild("Torso") or target:FindFirstChild("Head")
-			
-			if primaryPart and primaryPart:IsA("BasePart") then
-				anchorPart.Anchored = false
-				anchorPart.CFrame = CFrame.new(position)
-				
-				local weld = Instance.new("WeldConstraint")
-				weld.Part0 = primaryPart
-				weld.Part1 = anchorPart
-				weld.Parent = anchorPart
-				
-				welded = true
-			end
-		end
-		
-		if not welded then
-			anchorPart.Anchored = true
-			anchorPart.CFrame = CFrame.new(position)
-		end
+		-- Always use world space anchoring
+		anchorPart.Anchored = true
+		anchorPart.CFrame = CFrame.new(position)
 		
 		billboardGui.Adornee = anchorPart
 		

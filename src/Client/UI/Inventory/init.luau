@@ -44,6 +44,7 @@ local ToolbarActions = require(script.ToolbarActions)
 local SlotRenderer = require(script.SlotRenderer)
 local DisplayUtils = require(script.DisplayUtils)
 local InventoryVisibilityManager = require(script.InventoryVisibilityManager)
+local VirtualScrollManager = require(script.VirtualScrollManager)
 
 -- Use Logger for all logging
 local function log(message: string)
@@ -68,7 +69,6 @@ local InventoryUI = {}
 local isOpen = false
 local hubFrame: Frame? = nil
 local slotsContainer: ScrollingFrame? = nil
-local itemSlots: {ItemSlot.ItemSlot} = {}
 local inventoryData: {InventoryItem} = {}
 local toolbarSlots: {[number]: string} = {}
 local dupedItems: {[string]: boolean} = {} -- itemId -> maybeDuped
@@ -80,10 +80,9 @@ local infoPanel: any? = nil -- InfoPanel instance
 local InfoPanel = require(script.InfoPanel)
 local currentFilter: string = "Unfiltered" -- "Unfiltered", "Gun", "Grenade", "Potion"
 
--- PERFORMANCE: Batched loading config to prevent frame hitches
-local BATCH_SIZE = 8 -- Number of slots to process per frame
-local BATCH_DELAY = 0.016 -- ~60fps, one frame between batches (use task.wait())
-local currentBatchThread: thread? = nil -- Track ongoing batch load to cancel if data changes
+-- PERFORMANCE: Virtual scrolling manager (replaces batch loading)
+local virtualScrollManager: VirtualScrollManager.VirtualScrollManager? = nil
+
 
 -- Events
 InventoryUI.OnItemClicked = Signal.new()
@@ -119,19 +118,12 @@ end
 
 --[[
     Updates the display with current inventory data.
-    PERFORMANCE: Uses batched loading to prevent frame freezing.
-    Processes BATCH_SIZE slots per frame with yields between batches.
+    PERFORMANCE: Uses virtual scrolling - only visible slots are updated.
 ]]
 local function refreshDisplay()
-    if not slotsContainer then 
+    if not virtualScrollManager then 
         -- Can happen if packet arrives before Init
         return 
-    end
-    
-    -- Cancel any ongoing batch load
-    if currentBatchThread and coroutine.status(currentBatchThread) ~= "dead" then
-        task.cancel(currentBatchThread)
-        currentBatchThread = nil
     end
     
     -- Get individual items for display (no stacking)
@@ -139,131 +131,8 @@ local function refreshDisplay()
     
     log("[InventoryUI] refreshDisplay: inventoryData count: " .. #inventoryData .. " displayItems count: " .. #itemData)
     
-    -- Reuse or create slots (synchronous - just cloning templates is fast)
-    local requiredSlots = #itemData
-    
-    -- Create more slots if needed (template cloning is relatively fast)
-    while #itemSlots < requiredSlots do
-        -- Pass the stored slotTemplate if available
-        local slot = ItemSlot.new(slotsContainer, slotTemplate :: any)
-        slot.Frame.LayoutOrder = #itemSlots + 1
-        
-        -- Click handler
-        local index = #itemSlots + 1
-        slot.Frame.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or
-               input.UserInputType == Enum.UserInputType.Touch then
-                local data = itemSlots[index] and itemSlots[index].Data
-                if data then
-                    InventoryUI.OnItemClicked:Fire(data)
-                    if infoPanel then
-                        -- Find full inventory item data to pass to InfoPanel
-                        local fullItem = nil
-                        for _, item in inventoryData do
-                            if item.Id == data.ItemIds[1] then
-                                fullItem = item
-                                break
-                            end
-                        end
-                         
-                        -- If it's a stack, we might need to construct a robust item representation
-                        if not fullItem then
-                             -- Construct temporary item from slot data for display
-                             fullItem = {
-                                 Id = data.ItemIds[1] or "",
-                                 TemplateId = data.TemplateId,
-                                 Type = data.Type :: any,
-                                 Rarity = data.Rarity :: any,
-                                 Metadata = data.Metadata
-                             }
-                        end
-                        
-                        infoPanel:Update(fullItem)
-                    end
-                end
-            end
-        end)
-        
-        -- Delete handler
-        slot.OnDeleteClicked:Connect(function(slotItemData)
-            local itemId = slotItemData.ItemIds[1]
-            if itemId then
-                log("[InventoryUI] Deleting item: " .. itemId)
-                ToolbarActions.DeleteItem(itemId)
-            end
-        end)
-        
-        table.insert(itemSlots, slot)
-        janitor:Add(slot, "Destroy")
-    end
-    
-    -- PERFORMANCE: Batch processing of slot updates
-    -- This is the expensive part (SetData with 3D viewport setup)
-    currentBatchThread = task.spawn(function()
-        local batchIndex = 0
-        
-        for i, slot in itemSlots do
-            if i <= requiredSlots then
-                local newData = itemData[i]
-                local currentData = slot.Data
-                
-                -- Smart Diff: Check if data actually changed to avoid expensive SetData
-                local changed = true
-                if currentData 
-                    and currentData.TemplateId == newData.TemplateId 
-                    and currentData.Count == newData.Count
-                    and currentData.IsEquipped == newData.IsEquipped
-                    and currentData.MaybeDuped == newData.MaybeDuped
-                    and #currentData.ItemIds == #newData.ItemIds
-                    and currentData.ItemIds[1] == newData.ItemIds[1] then
-                     
-                     changed = false
-                end
-                
-                if changed then
-                    slot:SetData(newData)
-                    
-                    -- Make draggable (remove old detector first)
-                    local oldDetector = slot.Frame:FindFirstChild("ItemDragDetector")
-                    if oldDetector then
-                        oldDetector:Destroy()
-                    end
-                    
-                    -- Add drag capability if we have a screenGui
-                    if screenGui and newData then
-                        local itemId = newData.ItemIds[1] or ""
-                        
-                        local dragData: DragDrop.DragData = {
-                            ItemId = itemId,
-                            TemplateId = newData.TemplateId,
-                            Type = newData.Type,
-                            Rarity = newData.Rarity,
-                            SourceSlot = slot.Frame :: Frame, -- Fix type error
-                            SourceToolbarSlot = newData.EquippedSlot, -- Pass equipped slot for move operations
-                        }
-                        DragDrop.MakeDraggable(slot.Frame, dragData, screenGui)
-                    end
-                    
-                    -- Count this as an expensive operation
-                    batchIndex = batchIndex + 1
-                    
-                    -- Yield after processing a batch to allow frame rendering
-                    if batchIndex >= BATCH_SIZE then
-                        batchIndex = 0
-                        task.wait(BATCH_DELAY)
-                    end
-                end
-                
-                slot.Frame.Visible = true
-            else
-                slot:SetData(nil)
-                slot.Frame.Visible = false
-            end
-        end
-        
-        -- Mark batch as complete
-        currentBatchThread = nil
-    end)
+    -- PERFORMANCE: Virtual scroll manager handles all slot pooling and recycling
+    virtualScrollManager:SetData(itemData) -- Already checked for nil above
 end
 
 
@@ -563,12 +432,61 @@ function InventoryUI.Init(context: any)
     end
     
     -- Clean up container (remove placeholders except Template)
+    -- Also remove UIGridLayout since VirtualScrollManager positions slots manually
     for _, child in slotsContainer:GetChildren() do
         if child:IsA("ImageLabel") and child.Name ~= "Template" then
             child:Destroy()
         elseif child:IsA("Frame") then
             child:Destroy()
+        elseif child:IsA("UIGridLayout") then
+            child:Destroy() -- Virtual scroll positions slots manually
         end
+    end
+    
+    -- PERFORMANCE: Initialize VirtualScrollManager with slot pool
+    if slotTemplate and screenGui and slotsContainer then
+        virtualScrollManager = VirtualScrollManager.new(slotsContainer, slotTemplate, screenGui)
+        
+        -- Connect click handler to update InfoPanel
+        janitor:Add(virtualScrollManager.OnItemClicked:Connect(function(slotData)
+            InventoryUI.OnItemClicked:Fire(slotData)
+            if infoPanel then
+                -- Find full inventory item data to pass to InfoPanel
+                local fullItem = nil
+                for _, item in inventoryData do
+                    if item.Id == slotData.ItemIds[1] then
+                        fullItem = item
+                        break
+                    end
+                end
+                
+                if not fullItem then
+                    fullItem = {
+                        Id = slotData.ItemIds[1] or "",
+                        TemplateId = slotData.TemplateId,
+                        Type = slotData.Type :: any,
+                        Rarity = slotData.Rarity :: any,
+                        Metadata = slotData.Metadata
+                    }
+                end
+                
+                infoPanel:Update(fullItem)
+            end
+        end), "Disconnect")
+        
+        -- Connect delete handler
+        janitor:Add(virtualScrollManager.OnItemDeleted:Connect(function(slotData)
+            local itemId = slotData.ItemIds[1]
+            if itemId then
+                log("[InventoryUI] Deleting item: " .. itemId)
+                ToolbarActions.DeleteItem(itemId)
+            end
+        end), "Disconnect")
+        
+        janitor:Add(virtualScrollManager, "Destroy")
+        log("[InventoryUI] VirtualScrollManager initialized with pool of 21 slots")
+    else
+        warn("[InventoryUI] Failed to initialize VirtualScrollManager: missing template or screenGui")
     end
     
     -- Bind Close Button (Base.Close)
@@ -815,7 +733,7 @@ function InventoryUI.Init(context: any)
     end))
     
     -- Handle item selection (info panel disabled for now)
-    janitor:Add(InventoryUI.OnItemClicked:Connect(function(itemData: ItemSlotData)
+    janitor:Add(InventoryUI.OnItemClicked:Connect(function(itemData)
         log("[InventoryUI] Item clicked: " .. itemData.TemplateId)
         -- Info panel implementation removed for now
     end))

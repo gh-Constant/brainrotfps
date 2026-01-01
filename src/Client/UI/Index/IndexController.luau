@@ -224,130 +224,107 @@ refreshList = function()
             if el then el:Destroy() end
         end
         
-        -- Handle ViewportFrame
+        -- Handle ViewportFrame (ItemSlot already creates it)
         local vp = frame:FindFirstChild("ViewportFrame") :: ViewportFrame?
         local icon = frame:FindFirstChild("ToolIcon") :: ImageLabel?
         
-        if vp then
+        -- Access the model created by ItemSlot
+        -- ItemSlot sets up worldModel and model inside SetData
+        local worldModel = vp and vp:FindFirstChild("WorldModel") :: WorldModel?
+        local clone = worldModel and worldModel:FindFirstChild(itemName) :: Model?
+        
+        if vp and clone then
             vp.BackgroundColor3 = Color3.new(0, 0, 0)
-            vp.BackgroundTransparency = 0
-            vp.Visible = true 
-            if icon then icon.Visible = false end -- Prefer 3D model
+            vp.BackgroundTransparency = 0 -- Keep visible background for Index
             
-            -- Setup WorldModel
-            local worldModel = vp:FindFirstChild("WorldModel")
-            if not worldModel then
-                worldModel = Instance.new("WorldModel")
-                worldModel.Name = "WorldModel"
-                worldModel.Parent = vp
+            -- Cleanup Billboard (User request: remove billboard part)
+            local billboard = clone:FindFirstChild("Billboard")
+            if billboard then billboard:Destroy() end
+            
+            -- Cleanup for Viewport (User request: Keep Humanoid, Anchor HRP)
+            local humanoid = clone:FindFirstChildOfClass("Humanoid")
+            local hrp = clone:FindFirstChild("HumanoidRootPart") :: BasePart?
+            
+            if hrp then 
+                hrp.Transparency = 1 
+                hrp.Anchored = true 
             end
             
-            -- Clone Mob Model
-            local sourceModel = clonesFolder and clonesFolder:FindFirstChild(itemName) :: Model?
-            if sourceModel then
-                local clone = sourceModel:Clone()
-                
-                -- Cleanup Billboard (User request: remove billboard part)
-                local billboard = clone:FindFirstChild("Billboard")
-                if billboard then billboard:Destroy() end
-                
-                clone.Parent = worldModel
-                
-                -- Cleanup for Viewport (User request: Keep Humanoid, Anchor HRP)
-                local humanoid = clone:FindFirstChildOfClass("Humanoid")
-                local hrp = clone:FindFirstChild("HumanoidRootPart")
-                
-                if hrp then 
-                    hrp.Transparency = 1 
-                    hrp.Anchored = true 
-                end
-                
-                clone.Parent = worldModel
-                
-                -- Position Camera
-                local cam = Instance.new("Camera")
-                cam.Parent = vp
-                vp.CurrentCamera = cam
-                
-                -- Center model
-                local cf, size = clone:GetBoundingBox()
-                local dist = math.max(size.X, size.Y, size.Z) * 0.9
-                local center = cf.Position
-                
-                -- Adjust height based on HipHeight
-                -- User said "it's a little bit too high", so we reduce the baseline from 4.5 to 3.0
-                -- Decreasing baseline raises the camera target (center - (3-6) = center+3), which lowers the model on screen.
-                if humanoid then
-                    local hipHeight = humanoid.HipHeight
-                    local heightAdjustment = 3.0 - hipHeight
-                    center = center - Vector3.new(0, heightAdjustment, 0)
-                end
-                
-                cam.CFrame = CFrame.new(center + Vector3.new(-dist * 0.7, 0, dist * 0.7), center)
-                
-                -- Animation (Load from BrainrotAnimations like MobAI does)
-                local brainrotAnimations = ReplicatedStorage:FindFirstChild("BrainrotAnimations")
-                local animFolder = brainrotAnimations and brainrotAnimations:FindFirstChild(itemName)
-                
-                if humanoid and animFolder then
-                    local animator = humanoid:FindFirstChildOfClass("Animator")
-                    if not animator then
-                        animator = Instance.new("Animator")
-                        animator.Parent = humanoid
+            -- Override Camera Positioning (ItemSlot does generic, we want specific for Index)
+             -- Adjust height based on HipHeight (User requested lower)
+            local cam = vp.CurrentCamera
+            if cam and humanoid then
+                 local cf, size = clone:GetBoundingBox()
+                 local dist = math.max(size.X, size.Y, size.Z) * 0.9
+                 local center = cf.Position
+                 
+                 local hipHeight = humanoid.HipHeight
+                 -- Lower the center target to move model down
+                 local heightAdjustment = 3.0 - hipHeight
+                 center = center - Vector3.new(0, heightAdjustment, 0)
+                 
+                 cam.CFrame = CFrame.new(center + Vector3.new(-dist * 0.7, 0, dist * 0.7), center)
+            end
+
+            -- Animation (User request: Change Idle to Walk for Index)
+            -- ItemSlot puts Idle by default. We can override.
+            local brainrotAnimations = ReplicatedStorage:FindFirstChild("BrainrotAnimations")
+            local animFolder = brainrotAnimations and brainrotAnimations:FindFirstChild(itemName)
+            
+            if humanoid and animFolder then
+                local animator = humanoid:FindFirstChildOfClass("Animator")
+                if animator then
+                     -- Stop existing (Idle)
+                    for _, track in animator:GetPlayingAnimationTracks() do
+                        track:Stop()
                     end
                     
-                    -- User request: Change Idle to Walk
-                    local walkAnim = animFolder:FindFirstChild("Walk")
-                    if walkAnim and walkAnim:IsA("Animation") then
-                        local track = animator:LoadAnimation(walkAnim)
+                    -- Play Run
+                    local runAnim = animFolder:FindFirstChild("Run")
+                    if runAnim and runAnim:IsA("Animation") then
+                        local track = animator:LoadAnimation(runAnim)
                         track.Looped = true
                         track:Play()
                     end
                 end
+            end
+            
+            -- Discovery State: Silhouette
+            if not isDiscovered then
+                vp.BackgroundTransparency = 1
                 
-                -- Discovery State: Silhouette
-                if not isDiscovered then
-                    vp.BackgroundTransparency = 1
-                    
-                    for _, obj in clone:GetDescendants() do
-                        if obj:IsA("BasePart") then
-                            -- Only turn visible parts black
-                            if obj.Transparency < 0.95 then
-                                obj.Color = Color3.new(0, 0, 0)
-                                obj.Material = Enum.Material.Plastic
-                                obj.Transparency = 0 
-                            else
-                                obj.Transparency = 1 
-                            end
-                        elseif obj:IsA("Texture") or obj:IsA("Decal") then
-                            obj.Transparency = 1
-                        elseif obj:IsA("SurfaceAppearance") then
-                            -- Hide SurfaceAppearance (User request)
-                            obj:Destroy()
-                        elseif obj:IsA("MeshPart") then
-                             obj.TextureID = ""
-                             if obj.Transparency < 0.95 then
-                                 obj.Color = Color3.new(0, 0, 0)
-                                 obj.Material = Enum.Material.Plastic
-                             end
+                for _, obj in clone:GetDescendants() do
+                    if obj:IsA("BasePart") then
+                        -- Only turn visible parts black
+                        if obj.Transparency < 0.95 then
+                            obj.Color = Color3.new(0, 0, 0)
+                            obj.Material = Enum.Material.Plastic
+                            obj.Transparency = 0 
+                        else
+                            obj.Transparency = 1 
                         end
+                    elseif obj:IsA("Texture") or obj:IsA("Decal") then
+                        obj.Transparency = 1
+                    elseif obj:IsA("SurfaceAppearance") then
+                        -- Hide SurfaceAppearance
+                        obj:Destroy()
+                    elseif obj:IsA("MeshPart") then
+                         obj.TextureID = ""
+                         if obj.Transparency < 0.95 then
+                             obj.Color = Color3.new(0, 0, 0)
+                             obj.Material = Enum.Material.Plastic
+                         end
                     end
-                    
-                    -- Lighting override for silhouette
-                    vp.Ambient = Color3.new(0, 0, 0)
-                    vp.LightColor = Color3.new(0, 0, 0)
-                else
-                     -- Normal Lighting
-                     vp.BackgroundTransparency = 1
-                     vp.Ambient = Color3.fromRGB(200, 200, 200)
-                     vp.LightColor = Color3.new(1, 1, 1)
                 end
                 
-                vp.Visible = true 
-                if icon then icon.Visible = false end
+                -- Lighting override for silhouette
+                vp.Ambient = Color3.new(0, 0, 0)
+                vp.LightColor = Color3.new(0, 0, 0)
             else
-                -- Fallback if model not found
-                if icon then icon.Visible = true end
+                 -- Normal Lighting
+                 vp.BackgroundTransparency = 1
+                 vp.Ambient = Color3.fromRGB(200, 200, 200)
+                 vp.LightColor = Color3.new(1, 1, 1)
             end
         else
              -- Fallback if no viewport

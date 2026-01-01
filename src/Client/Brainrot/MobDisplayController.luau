@@ -1,8 +1,19 @@
 --!strict
 local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
-local Players = game:GetService("Players")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Create container folder for mob billboards
+local MobGuisFolder = PlayerGui:FindFirstChild("MobGuis")
+if not MobGuisFolder then
+	MobGuisFolder = Instance.new("Folder")
+	MobGuisFolder.Name = "MobGuis"
+	MobGuisFolder.Parent = PlayerGui
+end
 
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
 local Shared = Rojo:WaitForChild("Shared")
@@ -12,6 +23,10 @@ local MoneyLib = require(Shared:WaitForChild("MoneyLib"))
 local Mutations = require(Shared:WaitForChild("Mutations"))
 local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
 local RarityConfig = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig"))
+local ItemUtils = require(Shared:WaitForChild("Inventory"):WaitForChild("ItemUtils"))
+local ItemSlot = require(script.Parent.Parent:WaitForChild("UI"):WaitForChild("Inventory"):WaitForChild("ItemSlot"))
+local VisualUtils = require(script.Parent.Parent:WaitForChild("UI"):WaitForChild("Inventory"):WaitForChild("VisualUtils"))
+local InventoryVisibilityManager = require(script.Parent.Parent:WaitForChild("UI"):WaitForChild("Inventory"):WaitForChild("InventoryVisibilityManager"))
 local Janitor = require(Packages:WaitForChild("janitor"))
 
 local MobDisplayController = {}
@@ -25,6 +40,10 @@ local billboardTemplate = uiConfig:WaitForChild("BillboardGui")
 
 local MOBS_TAG = "BrainrotMob"
 
+-- Cached templates and tweens
+local invTemplate = config:WaitForChild("Inventory"):WaitForChild("Templates"):WaitForChild("ItemSlot")
+local HEALTH_TWEEN_INFO = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
 type MobDisplay = {
 	Janitor: any,
 	Model: Model,
@@ -34,6 +53,7 @@ type MobDisplay = {
 	HealthLabel: TextLabel?,
 	HealthBar: GuiObject?,
 	MutationIcon: ImageLabel?,
+	DropContainer: GuiObject?,
 }
 
 local function UpdateHealth(display: MobDisplay)
@@ -55,8 +75,7 @@ local function UpdateHealth(display: MobDisplay)
 	if display.HealthBar then
 		local percent = math.clamp(health / maxHealth, 0, 1)
 		local goal = { Size = UDim2.fromScale(percent, 1) }
-		local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-		TweenService:Create(display.HealthBar, tweenInfo, goal):Play()
+		TweenService:Create(display.HealthBar, HEALTH_TWEEN_INFO, goal):Play()
 	end
 end
 
@@ -106,20 +125,369 @@ local function UpdateMutation(display: MobDisplay)
 	end
 end
 
+local function UpdateLoot(display: MobDisplay)
+	if not display.DropContainer then return end
+	
+	-- Clear existing
+	for _, child in display.DropContainer:GetChildren() do
+		if child:IsA("GuiObject") then
+			child:Destroy()
+		end
+	end
+	
+	-- Loot Data Collection
+	type DropItem = {
+		Type: "Item" | "Currency" | "XP",
+		Name: string,
+		Chance: number, -- 1-100%
+		SortChance: number, -- For sorting
+		TemplateId: string?,
+		Icon: string?,
+		Rarity: string?,
+		Color: Color3?,
+		CustomText: string?,
+	}
+	
+	local drops: {DropItem} = {}
+	
+	-- 1. XP (Guaranteed)
+	local xpReward = display.Model:GetAttribute("BaseXPReward") or 10
+	if xpReward > 0 then
+		table.insert(drops, {
+			Type = "XP",
+			Name = tostring(xpReward) .. " XP",
+			Chance = 100,
+			SortChance = 101, -- Prioritize above items
+			Icon = if typeof(config.Effects.FX.XP.Image) == "Instance" and config.Effects.FX.XP.Image:IsA("StringValue") 
+				then config.Effects.FX.XP.Image.Value 
+				else (config.Effects.FX.XP.Image :: any),
+			Color = Color3.fromRGB(85, 255, 127), -- XP Color
+			CustomText = "100%",
+		})
+	end
+	
+	-- 2. Gold (Guaranteed)
+	local goldReward = display.Model:GetAttribute("BaseGoldReward") or 5
+	if goldReward > 0 then
+		table.insert(drops, {
+			Type = "Currency",
+			Name = tostring(goldReward) .. " Gold",
+			Chance = 100,
+			SortChance = 100,
+			Icon = if typeof(config.Effects.FX.Coin.Image) == "Instance" and config.Effects.FX.Coin.Image:IsA("StringValue") 
+				then config.Effects.FX.Coin.Image.Value 
+				else (config.Effects.FX.Coin.Image :: any), -- Fallback directly if it's not a value object?
+			Color = Color3.fromRGB(255, 215, 0), -- Gold Color
+			CustomText = "100%",
+		})
+	end
+	
+	-- 3. Items (Chance based)
+	local lootModule = display.Model:FindFirstChild("Loot")
+	if lootModule and lootModule:IsA("ModuleScript") then
+		local success, lootTable = pcall(require, lootModule)
+		if success and lootTable and lootTable.Items then
+			for _, item in ipairs(lootTable.Items) do
+				local chanceOneIn = item.Chance or 1
+				local percent = math.floor((1 / math.max(1, chanceOneIn)) * 100)
+				local name = item.Name
+				
+				local itemConfig = ItemUtils.FindItemConfig(name)
+				local rarity = (itemConfig and itemConfig:GetAttribute("Rarity") or "Common") :: string
+				
+				table.insert(drops, {
+					Type = "Item",
+					Name = name,
+					Chance = percent,
+					SortChance = percent,
+					TemplateId = name,
+					Rarity = rarity,
+					CustomText = if percent >= 100 then "100%" else (tostring(percent) .. "%"),
+				})
+			end
+		end
+	end
+	
+	-- Sort: Highest chance first
+	table.sort(drops, function(a, b)
+		return a.SortChance > b.SortChance
+	end)
+	
+	-- Render
+	for _, drop in ipairs(drops) do
+		-- Create slot directly in the container (uses cached template)
+		local slot = ItemSlot.new(display.DropContainer, invTemplate)
+		display.Janitor:Add(slot)
+		
+		-- IMPORTANT: Unregister from InventoryVisibilityManager because these slots are in World Space (BillboardGui)
+		-- The visibility manager logic is designed for 2D ScreenGui inventory and might Cull/Hide these unexpected slots
+		InventoryVisibilityManager.Unregister(slot.Frame)
+		
+		-- Manually ensure visible elements
+		slot.Frame.Visible = true
+		
+		-- Apply layout properties directly to the slot frame
+		slot.Frame.Name = "Drop_" .. drop.Name
+		slot.Frame.LayoutOrder = 100 - math.floor(drop.SortChance)
+		
+		-- Remove any drag detectors that might be in the template or cloned
+		local dragDetector = slot.Frame:FindFirstChild("DragDetector") or slot.Frame:FindFirstChild("ItemDragDetector")
+		if dragDetector then
+			dragDetector:Destroy()
+		end
+		
+		local slotData = {
+			TemplateId = drop.TemplateId or "Unknown",
+			Type = "Drop",
+			Rarity = drop.Rarity or "Common",
+			Count = 1,
+			ItemIds = {},
+			Metadata = {
+				OverrideEventsText = drop.CustomText,
+				CustomColor = if drop.Type ~= "Item" then "Transparent" else nil -- Only items get rarity bg? Or maybe Coins need style?
+			}
+		}
+		
+		slot:SetData(slotData)
+		
+		-- Unregister AGAIN just in case SetData re-registered it
+		InventoryVisibilityManager.Unregister(slot.Frame)
+		-- Force Viewport Visible if Item
+		if drop.Type == "Item" then
+			local viewport = slot.Frame:FindFirstChild("ViewportFrame") :: ViewportFrame?
+			if viewport then viewport.Visible = true end
+		end
+		
+		-- Custom Overrides for Non-Items
+		if drop.Type ~= "Item" then
+			-- Override Icon
+			if drop.Icon then
+				local icon = slot.Frame:FindFirstChild("ToolIcon")
+				if icon and icon:IsA("ImageLabel") then
+					icon.Image = drop.Icon
+					icon.Visible = true
+				end
+			end
+			
+			-- Override Name
+			local nameLabel = slot.Frame:FindFirstChild("NameLabel") or slot.Frame:FindFirstChild("ToolNameLabel")
+			if nameLabel and nameLabel:IsA("TextLabel") then
+				nameLabel.Text = drop.Name
+			end
+			
+			-- Disable Viewport
+			local viewport = slot.Frame:FindFirstChild("ViewportFrame") :: ViewportFrame?
+			if viewport then viewport.Visible = false end
+			
+			-- Custom Gradients for Coins/XP
+			local gradient = slot.Frame:FindFirstChild("UIGradient") :: UIGradient?
+			if not gradient then
+				-- Try finding it deeper or creating it? ItemSlot usually has it.
+				-- If not, ColorSystem might have failed or it's missing.
+				-- We'll just try to find it.
+				gradient = slot.Frame:FindFirstChildWhichIsA("UIGradient")
+			end
+			
+			if gradient then
+				if drop.Type == "XP" then
+					-- Blue Gradient
+					gradient.Color = ColorSequence.new({
+						ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 170, 255)),
+						ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 85, 255))
+					})
+				elseif drop.Type == "Currency" then
+					-- Yellow/Gold Gradient
+					gradient.Color = ColorSequence.new({
+						ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 0)),
+						ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 170, 0))
+					})
+				end
+			end
+		end
+		
+		-- 2. Styles (User Request)
+		-- A. EventsLabel: White with Stroke
+		local eventsLabel = slot.Frame:FindFirstChild("EventsLabel") :: TextLabel?
+		if eventsLabel then
+			eventsLabel.TextColor3 = Color3.new(1, 1, 1) -- White
+			eventsLabel.TextStrokeTransparency = 0 -- Enable stroke (default usually black)
+			eventsLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+			
+			-- Remove conflicting gradients
+			for _, child in eventsLabel:GetChildren() do
+				if child:IsA("UIGradient") then
+					child:Destroy()
+				end
+			end
+		end
+		
+		-- B. Name Handling: Use RarityLabel for Name (White), Hide original NameLabel
+		local nameLabel = slot.Frame:FindFirstChild("NameLabel")
+		if not nameLabel then
+			nameLabel = slot.Frame:FindFirstChild("ToolNameLabel")
+		end
+		
+		if nameLabel and nameLabel:IsA("TextLabel") then
+			nameLabel.Visible = false
+		end
+		
+		local rarityLabel = slot.Frame:FindFirstChild("RarityLabel") :: TextLabel?
+		if rarityLabel then
+			rarityLabel.Visible = true
+			rarityLabel.Text = drop.Name -- Show Name here
+			rarityLabel.TextColor3 = Color3.new(1, 1, 1) -- White
+			rarityLabel.TextSize = 24 -- "A lot bigger"
+			rarityLabel.FontFace = Font.new(rarityLabel.FontFace.Family, Enum.FontWeight.Bold, rarityLabel.FontFace.Style)
+			
+			-- Remove existing visual overrides on RarityLabel
+			for _, child in rarityLabel:GetChildren() do
+				if child:IsA("UIStroke") or child:IsA("UIGradient") then
+					child:Destroy()
+				end
+			end
+			-- Add clean stroke for readability
+			local stroke = Instance.new("UIStroke")
+			stroke.Thickness = 2
+			stroke.Color = Color3.new(0, 0, 0)
+			stroke.Parent = rarityLabel
+		end
+
+		-- 4. Viewport Setup (Using VisualUtils - same as Inventory)
+		if drop.Type == "Item" then
+			local vp = slot.Frame:FindFirstChild("ViewportFrame") :: ViewportFrame?
+			local toolIcon = slot.Frame:FindFirstChild("ToolIcon") :: ImageLabel?
+			
+			if vp then
+				-- Use VisualUtils to find and clone model (same as Inventory)
+				local itemModel, isCustom = VisualUtils.FindItemModel(drop.Name)
+				
+				if itemModel then
+					local modelClone = VisualUtils.CloneModelForDisplay(itemModel, isCustom)
+					
+					if modelClone then
+						-- Setup WorldModel
+						local existingWorldModel = vp:FindFirstChild("WorldModel")
+						local worldModel: WorldModel
+						if existingWorldModel and existingWorldModel:IsA("WorldModel") then
+							-- Clear existing models
+							for _, child in existingWorldModel:GetChildren() do
+								if child:IsA("Model") then child:Destroy() end
+							end
+							worldModel = existingWorldModel
+						else
+							local newWorldModel = Instance.new("WorldModel")
+							newWorldModel.Name = "WorldModel"
+							newWorldModel.Parent = vp
+							worldModel = newWorldModel
+						end
+						
+						modelClone.Name = drop.Name
+						modelClone.Parent = worldModel
+						
+						-- CRITICAL: Explicitly move model to origin (CloneModelForDisplay might not be doing this)
+						-- Preserve rotation, move pivot to 0,0,0
+						if modelClone.PrimaryPart then
+							local currentPivot = modelClone:GetPivot()
+							modelClone:PivotTo(CFrame.new(0, 0, 0) * currentPivot.Rotation)
+						else
+							-- Try to find a primary part
+							local hrp = modelClone:FindFirstChild("HumanoidRootPart") or 
+							            modelClone:FindFirstChild("Handle") or 
+							            modelClone:FindFirstChildWhichIsA("BasePart")
+							if hrp and hrp:IsA("BasePart") then
+								modelClone.PrimaryPart = hrp
+								local currentPivot = modelClone:GetPivot()
+								modelClone:PivotTo(CFrame.new(0, 0, 0) * currentPivot.Rotation)
+							end
+						end
+						
+						-- Setup Camera based on model's CURRENT position (should now be at origin)
+						local cf, size = modelClone:GetBoundingBox()						
+						local maxSize = math.max(size.X, size.Y, size.Z)
+						local distance = maxSize * 0.9
+						if distance < 2 then distance = 2 end
+						
+						local center = cf.Position
+						local cameraPos = center + Vector3.new(-distance * 0.7, distance * 0.2, distance * 0.7)
+						
+						local existingCam = vp:FindFirstChild("Camera")
+						local cam: Camera
+						if existingCam and existingCam:IsA("Camera") then
+							cam = existingCam
+						else
+							local newCam = Instance.new("Camera")
+							newCam.Name = "Camera"
+							newCam.Parent = vp
+							cam = newCam
+						end
+						vp.CurrentCamera = cam
+						cam.CFrame = CFrame.lookAt(cameraPos, center)
+						
+						-- Show viewport, hide icon
+						vp.Visible = true
+						vp.Ambient = Color3.fromRGB(200, 200, 200)
+						vp.LightColor = Color3.new(1, 1, 1)
+						if toolIcon then toolIcon.Visible = false end
+						
+						-- Animation: Play Idle
+						local humanoid = modelClone:FindFirstChildOfClass("Humanoid")
+						local brainrotAnimations = ReplicatedStorage:FindFirstChild("BrainrotAnimations")
+						local animFolder = brainrotAnimations and brainrotAnimations:FindFirstChild(drop.Name)
+						
+						if humanoid and animFolder then
+							local animator = humanoid:FindFirstChildOfClass("Animator")
+							if animator then
+								local idleAnim = animFolder:FindFirstChild("Idle") or animFolder:FindFirstChild("Run")
+								if idleAnim and idleAnim:IsA("Animation") then
+									local track = animator:LoadAnimation(idleAnim)
+									track.Looped = true
+									track:Play()
+								end
+							end
+						end
+					else
+						-- Clone failed, fallback to icon
+						warn("[MobDisplay] Clone failed for:", drop.Name)
+						if toolIcon then toolIcon.Visible = true end
+						vp.Visible = false
+					end
+				else
+					-- No model found, fallback to icon
+					if toolIcon then
+						toolIcon.Image = VisualUtils.GetItemImage(drop.Name)
+						toolIcon.Visible = true
+					end
+					vp.Visible = false
+				end
+			end
+		end
+	end
+end
+
 local function onMobAdded(model: Instance)
 	if not model:IsA("Model") then return end
 	if activeDisplays[model] then return end
 	
-	local billboardPart = model:WaitForChild("Billboard", 5)
+	-- Wait for model to be fully replicated (prevents race condition with server tagging)
+	-- Wait for model to be fully replicated (prevents race condition with server tagging)
+	-- Use WaitForChild for the root part to ensure the model is actually ready in the workspace
+	-- This defaults to infinite wait (or very long) which is safer for streaming/replication
+	local rootPart = model:WaitForChild("HumanoidRootPart", 20)
+	
+	-- After root part exists, check for preferred billboard part
+	local billboardPart = (model:FindFirstChild("Billboard") or model.PrimaryPart or rootPart or model:FindFirstChild("Head")) :: BasePart?
+	
 	if not billboardPart or not billboardPart:IsA("BasePart") then
-		warn("[MobDisplayController] No Billboard part found for", model.Name)
+		warn("[MobDisplayController] No valid Billboard part/PrimaryPart found for", model.Name, "after waiting")
 		return
 	end
 	
 	-- Clone UI
+	-- CRITICAL: Parent to PlayerGui, NOT to the part!
+	-- ViewportFrames only render in BillboardGuis when parented to PlayerGui
 	local billboardGui = billboardTemplate:Clone()
 	billboardGui.Adornee = billboardPart
-	billboardGui.Parent = billboardPart
+	billboardGui.Parent = MobGuisFolder
 	
 	local base = billboardGui:WaitForChild("Base", 5)
 	if not base then
@@ -139,6 +507,7 @@ local function onMobAdded(model: Instance)
 		HealthLabel = nil,
 		HealthBar = nil,
 		MutationIcon = base:FindFirstChild("MutationIcon") :: ImageLabel?,
+		DropContainer = base:FindFirstChild("Drop") :: GuiObject?,
 	}
 	
 	local healthFrame = base:FindFirstChild("Health") :: GuiObject?
@@ -150,6 +519,7 @@ local function onMobAdded(model: Instance)
 	-- Initial Update
 	UpdateInfo(display)
 	UpdateMutation(display)
+	UpdateLoot(display)
 	
 	-- Listeners
 	janitor:Add(model.AttributeChanged:Connect(function(attr)
@@ -170,10 +540,10 @@ local function onMobAdded(model: Instance)
 		activeDisplays[model] = nil
 	end)
 	
-	-- If model destroys separately
-	model.Destroying:Connect(function()
+	-- If model destroys separately (add to janitor to prevent leak)
+	janitor:Add(model.Destroying:Connect(function()
 		janitor:Destroy()
-	end)
+	end))
 end
 
 local function onMobRemoved(model: Instance)
@@ -184,13 +554,16 @@ local function onMobRemoved(model: Instance)
 end
 
 function MobDisplayController.Start()
-	-- Listen for existing and new mobs
-	for _, mob in CollectionService:GetTagged(MOBS_TAG) do
-		task.spawn(onMobAdded, mob)
-	end
-	
+	-- Connect listeners FIRST to catch any mobs tagged while we're iterating
 	CollectionService:GetInstanceAddedSignal(MOBS_TAG):Connect(onMobAdded)
 	CollectionService:GetInstanceRemovedSignal(MOBS_TAG):Connect(onMobRemoved)
+	
+	-- Then process existing mobs with a small delay to ensure they're fully replicated
+	task.defer(function()
+		for _, mob in CollectionService:GetTagged(MOBS_TAG) do
+			task.spawn(onMobAdded, mob)
+		end
+	end)
 	
 	print("[MobDisplayController] Started")
 end

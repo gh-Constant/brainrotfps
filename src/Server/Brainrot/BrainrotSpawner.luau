@@ -21,6 +21,8 @@ local brainrotConfig = config:WaitForChild("Brainrots")
 local zonesConfig = brainrotConfig:WaitForChild("Zones")
 local MobAI = require(Server:WaitForChild("Brainrot"):WaitForChild("MobAI"))
 local Mutations = require(Shared:WaitForChild("Mutations"))
+local IndexSystem = require(Server:WaitForChild("Index"):WaitForChild("IndexSystem"))
+local LootSystem = require(Server:WaitForChild("Brainrot"):WaitForChild("LootSystem"))
 
 local BrainrotSpawner = {}
 
@@ -320,6 +322,7 @@ local function spawnBrainrot(group: ZoneGroup)
 							trailEnabled = true,
 							trailColor = { 100, 160, 255 }, -- Light blue trail
 							count = math.floor(xpReward / 10), -- 1 part per 10 XP, no limits
+							text = "+" .. tostring(xpReward) .. " XP",
 						},
 					}, instigator)
 					
@@ -334,12 +337,17 @@ local function spawnBrainrot(group: ZoneGroup)
 							trailEnabled = true,
 							trailColor = { 255, 200, 50 }, -- Gold trail
 							count = math.floor(goldReward / 100), -- 1 part per 100 gold, no limits
+							text = "+" .. tostring(goldReward) .. " Gold",
 						},
 					}, instigator)
 				end
 			end
-			local IndexSystem = require(Server:WaitForChild("Index"):WaitForChild("IndexSystem"))
+
+
 			IndexSystem.OnMobKilled(instigator, brainrot.Name)
+			
+			-- Handle Drops (Loot)
+			LootSystem.ProcessLoot(brainrot, instigator)
 		end
 		
 		if loggingEnabled then

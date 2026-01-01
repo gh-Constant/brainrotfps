@@ -37,7 +37,7 @@ type ItemType = Inventory.ItemType
 type RarityType = Inventory.RarityType
 
 -- ProfileStore
-local STORE_NAME = "InventoryData_eeEv5"
+local STORE_NAME = "InventoryDatae_eeEv5"
 local DATA_TEMPLATE: InventoryData = {
     Items = {},
     ToolbarSlots = {},

@@ -11,7 +11,13 @@ local Events = {}
 function Events.Mount(instance: GuiObject, item: InventoryItem, props: any)
 	-- Clear previous children
 	for _, child in instance:GetChildren() do
-		if not child:IsA("UIListLayout") and not child:IsA("UIGridLayout") and not child:IsA("UIPadding") and not child:IsA("UIStroke") and not child:IsA("UICorner") then
+		if not child:IsA("UIListLayout") 
+			and not child:IsA("UIGridLayout") 
+			and not child:IsA("UIPadding") 
+			and not child:IsA("UIStroke") 
+			and not child:IsA("UICorner") 
+			and not child:IsA("LocalScript") 
+			and not child:IsA("Script") then
 			child:Destroy()
 		end
 	end

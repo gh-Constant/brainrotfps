@@ -91,6 +91,20 @@ end
     @param frame - The slot frame (ImageLabel or Frame)
     @param data - The render data, or nil to clear the slot
 ]]
+local VisualUtils = require(script.Parent:WaitForChild("VisualUtils"))
+
+-- ... (Types remain)
+
+-- ... (Helpers remain)
+
+--[[
+    Renders item data to a slot frame.
+    Updates all UI elements: icon, name, quantity, rarity, events, background.
+    Supports 3D models via ViewportFrame.
+    
+    @param frame - The slot frame (ImageLabel or Frame)
+    @param data - The render data, or nil to clear the slot
+]]
 function SlotRenderer.RenderSlot(frame: GuiObject, data: SlotRenderData?)
     if not data then
         SlotRenderer.ClearSlot(frame)
@@ -99,6 +113,18 @@ function SlotRenderer.RenderSlot(frame: GuiObject, data: SlotRenderData?)
     
     -- Cache element lookups
     local toolIcon = frame:FindFirstChild("ToolIcon") :: ImageLabel?
+    local viewport = frame:FindFirstChild("ViewportFrame") :: ViewportFrame?
+    
+    -- Create viewport if missing
+    if not viewport then
+        viewport = Instance.new("ViewportFrame")
+        viewport.Name = "ViewportFrame"
+        viewport.Size = UDim2.fromScale(1, 1)
+        viewport.BackgroundTransparency = 1
+        viewport.ZIndex = 2
+        viewport.Parent = frame
+    end
+    
     local nameLabel = (frame:FindFirstChild("NameLabel") or frame:FindFirstChild("ToolNameLabel")) :: TextLabel?
     local quantityLabel = frame:FindFirstChild("QuantityLabel") :: TextLabel?
     local eventsLabel = frame:FindFirstChild("EventsLabel") :: TextLabel?
@@ -106,11 +132,87 @@ function SlotRenderer.RenderSlot(frame: GuiObject, data: SlotRenderData?)
     local toolBarPosLabel = frame:FindFirstChild("ToolBarPos") :: TextLabel?
     local hotkeyLabel = frame:FindFirstChild("HotkeyLabel") :: TextLabel?
     
-    -- Update Icon
-    if toolIcon then
-        local imageId = ItemUtils.GetItemImage(data.TemplateId)
-        toolIcon.Image = if imageId ~= "" then imageId else DEFAULT_ICON
-        toolIcon.Visible = true
+    -- 3D Model Display
+    local is3D = false
+    local itemModel, isCustom = VisualUtils.FindItemModel(data.TemplateId)
+    
+    if itemModel then
+        -- Setup 3D
+        if viewport then
+            viewport.Visible = true
+            viewport:ClearAllChildren()
+            
+            local modelClone = VisualUtils.CloneModelForDisplay(itemModel, isCustom)
+            if modelClone then
+                local worldModel = Instance.new("WorldModel")
+                worldModel.Name = "WorldModel"
+                worldModel.Parent = viewport
+                modelClone.Parent = worldModel
+                
+                -- Highlight logic (optional, but consistent with style)
+                local style = getEffectiveStyle(data.TemplateId, data.Rarity, data.Metadata)
+                if style then
+                     local highlight = ColorSystem.CreateHighlight(style)
+                     highlight.Parent = worldModel
+                     ColorSystem.ApplyToHighlight(highlight, style)
+                end
+                
+                -- Global Camera Setup (Zoomed in)
+                VisualUtils.SetupModelCamera(viewport, modelClone)
+                
+                -- Play Idle Animation
+                local animsFolder = ReplicatedStorage:FindFirstChild("BrainrotAnimations")
+                if animsFolder then
+                    local modelAnims = animsFolder:FindFirstChild(data.TemplateId)
+                    if modelAnims then
+                        local idleAnim = modelAnims:FindFirstChild("Idle")
+                        local animController = modelClone:FindFirstChild("AnimationController") or modelClone:FindFirstChildWhichIsA("Humanoid")
+                        
+                        if idleAnim and idleAnim:IsA("Animation") and animController then
+                            -- FIX: Ensure parts are unanchored so Motor6Ds can animate them
+                            -- except the PrimaryPart/Root which holds it in place
+                            local root = modelClone.PrimaryPart or modelClone:FindFirstChild("Body") or modelClone:FindFirstChild("HumanoidRootPart")
+                            
+                            for _, desc in ipairs(modelClone:GetDescendants()) do
+                                if desc:IsA("BasePart") then
+                                    if root and desc == root then
+                                        desc.Anchored = true
+                                    else
+                                        desc.Anchored = false
+                                    end
+                                end
+                            end
+
+                            local animator = animController:FindFirstChild("Animator") :: Animator?
+                            if not animator then
+                                animator = Instance.new("Animator")
+                                animator.Parent = animController
+                            end
+                            
+                            if animator then
+                                 local track = animator:LoadAnimation(idleAnim)
+                                 track:Play()
+                            end
+                        end
+                    end
+                end
+                
+                is3D = true
+            end
+        end
+    end
+    
+    -- Icon Display (Fallback or if 3D failed)
+    if not is3D then
+        if viewport then viewport.Visible = false end
+        if toolIcon then
+            local imageId = VisualUtils.GetItemImage(data.TemplateId)
+            toolIcon.Image = if imageId ~= "" then imageId else DEFAULT_ICON
+            toolIcon.Visible = true
+        end
+    else
+        -- If 3D, hide 2D icon
+        if toolIcon then toolIcon.Visible = false end
     end
     
     -- Update Name
@@ -193,6 +295,12 @@ function SlotRenderer.ClearSlot(frame: GuiObject)
     if toolIcon then
         toolIcon.Image = ""
         toolIcon.Visible = false
+    end
+    
+    local viewport = frame:FindFirstChild("ViewportFrame") :: ViewportFrame?
+    if viewport then
+        viewport:ClearAllChildren()
+        viewport.Visible = false
     end
     
     local nameLabel = (frame:FindFirstChild("NameLabel") or frame:FindFirstChild("ToolNameLabel")) :: TextLabel?

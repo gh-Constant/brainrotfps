@@ -363,10 +363,10 @@ function LootFX.SpawnLoot(config: LootConfig)
 	-- Cleanup template
 	coinTemplate:Destroy()
 	
-	-- Show text popup if provided
-	if config.text and config.text ~= "" then
-		LootFX.ShowTextPopup(config.position, config.text, config.textColor or config.color)
-	end
+	-- Text popup disabled - LootDropUI now handles XP/coin display in the HUD
+	-- if config.text and config.text ~= "" then
+	-- 	LootFX.ShowTextPopup(config.position, config.text, config.textColor or config.color)
+	-- end
 end
 
 -- ==========================================================

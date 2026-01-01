@@ -15,7 +15,7 @@
 local RunService = game:GetService("RunService")
 
 -- Configuration
-local ROTATION_SPEED = 10 -- Rotations per second
+
 
 -- Types
 type SlotElements = {
@@ -33,9 +33,7 @@ type SlotElements = {
     -- 3D Spec (Optional)
     Camera: Camera?,
     Model: Model?,
-    CenterCF: CFrame?,
-    Distance: number?,
-    StartTime: number?,
+
     
     -- State
     IsVisible: boolean,
@@ -49,8 +47,12 @@ local registeredSlots: {[GuiObject]: SlotElements} = {}
 local updateConnection: RBXScriptConnection? = nil
 
 --[[
-    The single loop that updates ALL slots.
+    The single loop that updates ALL registered slots.
     Uses os.clock() for consistent timing.
+    
+    NOTE: With VirtualScrollManager, bounds checking is no longer needed.
+    All registered slots are guaranteed to be in the visible area.
+    This loop now only handles 3D model rotation.
 ]]
 local function startUpdateLoop()
     if updateConnection then return end
@@ -60,9 +62,6 @@ local function startUpdateLoop()
         
         local currentTime = os.clock()
         
-        -- Cache container bounds to avoid repetitive AbsolutePosition/Size calls
-        local containerCache = {} 
-        
         for frame, data in pairs(registeredSlots) do
             -- 1. Validity Check
             if not frame.Parent then
@@ -70,70 +69,19 @@ local function startUpdateLoop()
                 continue
             end
             
-            -- 2. Determine Visibility
-            local isVisible = true
-            
-            if not frame.Visible then
-                isVisible = false
-            else
-                local container = frame.Parent
-                if container and container:IsA("ScrollingFrame") then
-                    -- Get container bounds (Cached)
-                    local bounds = containerCache[container]
-                    if not bounds then
-                        local cPos = container.AbsolutePosition
-                        local cSize = container.AbsoluteSize
-                        bounds = {
-                            top = cPos.Y,
-                            bottom = cPos.Y + cSize.Y
-                        }
-                        containerCache[container] = bounds
-                    end
-                    
-                    -- Get slot vertical position (Screen space)
-                    local slotPos = frame.AbsolutePosition
-                    local slotTop = slotPos.Y
-                    
-                    -- Optimization: Assume fixed height or read only if needed
-                    local slotHeight = 84 -- Default slot size + padding roughly
-                    if data.Viewport then
-                        slotHeight = frame.AbsoluteSize.Y
-                    end
-                    
-                    local slotBottom = slotTop + slotHeight
-                    
-                    -- Bounds Check
-                    if slotBottom < bounds.top or slotTop > bounds.bottom then
-                        isVisible = false
-                    end
-                end
+            -- 2. With VirtualScrollManager, all registered slots are visible
+            -- No bounds checking needed - virtual scroll only creates visible slots
+            if not data.IsVisible then
+                data.IsVisible = true
+                -- Toggle Elements on
+                if data.ToolIcon then data.ToolIcon.Visible = true end
+                if data.Viewport and data.Camera then data.Viewport.Visible = true end
+                if data.QuantityLabel then data.QuantityLabel.Visible = true end
+                if data.EventsLabel then data.EventsLabel.Visible = true end
+                if data.RarityLabel then data.RarityLabel.Visible = true end
             end
             
-            -- 3. Apply Visibility State Change
-            if isVisible ~= data.IsVisible then
-                data.IsVisible = isVisible
-                
-                -- Toggle Elements
-                if data.ToolIcon then data.ToolIcon.Visible = isVisible end
-                -- Only show viewport if it was meant to be there (has Camera/Model)
-                if data.Viewport and data.Camera then data.Viewport.Visible = isVisible end
-                if data.NameLabel then data.NameLabel.Visible = isVisible end
-                if data.QuantityLabel then data.QuantityLabel.Visible = isVisible end
-                if data.EventsLabel then data.EventsLabel.Visible = isVisible end
-                if data.RarityLabel then data.RarityLabel.Visible = isVisible end
-            end
-            
-            -- 4. Perform Rotation (Only if visible and has 3D data)
-            if isVisible and data.Viewport and data.Camera and data.Model and data.CenterCF and data.Distance and data.StartTime then
-                local elapsed = currentTime - data.StartTime
-                local angle = elapsed * ROTATION_SPEED * math.pi * 2
-                local rotatedCF = data.CenterCF * CFrame.Angles(0, angle, 0)
-                
-                data.Camera.CFrame = CFrame.new(
-                    rotatedCF.Position + Vector3.new(data.Distance, data.Distance * 0.3, data.Distance),
-                    rotatedCF.Position
-                )
-            end
+
         end
     end)
 end
@@ -173,7 +121,8 @@ function InventoryVisibilityManager.Register(
         Camera: Camera?,
         Model: Model?,
         CenterCF: CFrame?,
-        Distance: number?,
+
+
     }
 )
     registeredSlots[frame] = {
@@ -187,8 +136,7 @@ function InventoryVisibilityManager.Register(
         
         Camera = elements.Camera,
         Model = elements.Model,
-        CenterCF = elements.CenterCF,
-        Distance = elements.Distance,
+
         StartTime = if elements.Model then os.clock() else nil,
         
         IsVisible = true, -- Assume visible initially

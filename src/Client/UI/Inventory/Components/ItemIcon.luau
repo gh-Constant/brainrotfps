@@ -8,6 +8,8 @@ local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("Color
 
 type InventoryItem = Inventory.InventoryItem
 
+local VisualUtils = require(script.Parent.Parent:WaitForChild("VisualUtils"))
+
 local ItemIcon = {}
 
 -- Helper to find item config (Should be shared utility ideally)
@@ -38,30 +40,99 @@ function ItemIcon.Mount(instance: GuiObject, item: InventoryItem, props: any)
 		local displayName = item.TemplateId
 		local config = getItemConfig(item.TemplateId)
 		if config then
-			local dn = config:GetAttribute("DisplayName")
+			local dn = config:GetAttribute("DisplayName") :: string?
 			if dn and dn ~= "" then displayName = dn end
 		end
 		nameLabel.Text = displayName
 	end
 
-	-- 2. Set Icon (ToolIcon)
+	-- 2. Visuals (3D Model or Icon)
 	local toolIcon = instance:FindFirstChild("ToolIcon") :: ImageLabel?
-	if toolIcon then
-		local textureId = ""
-		local config = getItemConfig(item.TemplateId)
-		if config then
-			textureId = config:GetAttribute("Image") or ""
-			if textureId == "" then
-				local tool = config:FindFirstChildWhichIsA("Tool")
-				if tool then textureId = tool.TextureId end
-			end
-		end
-		
-		if textureId ~= "" and not string.find(textureId, "://") then
-			textureId = "rbxassetid://" .. textureId
-		end
-		toolIcon.Image = textureId
-	end
+    local viewport = instance:FindFirstChild("ViewportFrame") :: ViewportFrame?
+
+    -- Create Viewport if missing
+    if not viewport then
+        viewport = Instance.new("ViewportFrame")
+        viewport.Name = "ViewportFrame"
+        viewport.Size = UDim2.fromScale(1, 1)
+        viewport.BackgroundTransparency = 1
+        viewport.ZIndex = 2
+        viewport.Parent = instance
+    end
+    
+    -- Try 3D Model first
+    local itemModel, isCustom = VisualUtils.FindItemModel(item.TemplateId)
+    local setupSuccessful = false
+    
+    if itemModel then
+        viewport.Visible = true
+        if toolIcon then toolIcon.Visible = false end
+        
+        -- Clear old model
+        viewport:ClearAllChildren()
+        
+        local modelClone = VisualUtils.CloneModelForDisplay(itemModel, isCustom)
+        if modelClone then
+            local worldModel = Instance.new("WorldModel")
+            worldModel.Parent = viewport
+            modelClone.Parent = worldModel
+            
+            -- Global Camera Setup (Consistent Zoom)
+            VisualUtils.SetupModelCamera(viewport, modelClone)
+            
+            -- Play Idle Animation
+            local animsFolder = ReplicatedStorage:FindFirstChild("BrainrotAnimations")
+            if animsFolder then
+                local modelAnims = animsFolder:FindFirstChild(item.TemplateId)
+                if modelAnims then
+                    local idleAnim = modelAnims:FindFirstChild("Idle")
+                    local animController = modelClone:FindFirstChild("AnimationController") or modelClone:FindFirstChildWhichIsA("Humanoid")
+                    
+                    if idleAnim and idleAnim:IsA("Animation") and animController then
+                        -- FIX: Ensure parts are unanchored so Motor6Ds can animate them
+                        -- except the PrimaryPart/Root which holds it in place
+                        local root = modelClone.PrimaryPart or modelClone:FindFirstChild("Body") or modelClone:FindFirstChild("HumanoidRootPart")
+                        
+                        for _, desc in ipairs(modelClone:GetDescendants()) do
+                            if desc:IsA("BasePart") then
+                                if root and desc == root then
+                                    desc.Anchored = true
+                                else
+                                    desc.Anchored = false
+                                end
+                            end
+                        end
+
+                        local animator = animController:FindFirstChild("Animator") :: Animator?
+                        if not animator then
+                            animator = Instance.new("Animator")
+                            animator.Parent = animController
+                        end
+                        
+                        if animator then
+                             local track = animator:LoadAnimation(idleAnim)
+                             track:Play()
+                        else
+                            warn("ItemIcon: Failed to create Animator for", item.TemplateId)
+                        end
+                    else
+                        -- warn("ItemIcon: Missing Idle Anim or Controller for", item.TemplateId)
+                    end
+                end
+            end
+            
+            setupSuccessful = true
+        end
+    end
+    
+    if not setupSuccessful then
+        -- Fallback to Icon
+        if viewport then viewport.Visible = false end
+        if toolIcon then
+            toolIcon.Image = VisualUtils.GetItemImage(item.TemplateId)
+            toolIcon.Visible = true
+        end
+    end
 
 	-- 3. Set Rarity Gradient (ItemIcon itself)
 	-- Avoid ColorSystem.ApplyToBackground as it forces BackgroundTransparency = 0.
@@ -79,7 +150,7 @@ function ItemIcon.Mount(instance: GuiObject, item: InventoryItem, props: any)
         styleName = RarityConfig.GetBackgroundStyle(rarity)
     end
 
-	local visualConfig = ColorSystem.GetColorConfig(styleName)
+	local visualConfig = if styleName then ColorSystem.GetColorConfig(styleName) else nil
 
 	-- Ensure transparency is 1
 	instance.BackgroundTransparency = 1

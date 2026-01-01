@@ -111,6 +111,13 @@ end
 --[[
     Updates a slot's display with tool information.
 ]]
+local VisualUtils = require(script.Parent:WaitForChild("VisualUtils"))
+
+-- ...
+
+--[[
+    Updates a slot's display with tool information.
+]]
 local function updateSlotDisplay(slot: ToolSlot)
     local frame = slot.Frame
     local tool = slot.Tool
@@ -119,14 +126,101 @@ local function updateSlotDisplay(slot: ToolSlot)
     local toolIcon = frame:FindFirstChild("ToolIcon") :: ImageLabel?
     local nameLabel = frame:FindFirstChild("ToolNameLabel") :: TextLabel?
     
-    if toolIcon then
-        -- Try to use tool's TextureId, fallback to a placeholder
-        if tool.TextureId ~= "" then
-            toolIcon.Image = tool.TextureId
-        else
-            toolIcon.Image = "rbxassetid://6031763426" -- Default tool icon
+    -- Visuals (3D Model or Icon)
+    -- Determine TemplateId (InventoryItemId > Attribute > Name)
+    local templateId = tool:GetAttribute("TemplateId") or tool.Name
+    if tool:GetAttribute("InventoryItemId") then
+         -- (Optional) Fetch true template ID from inventory if needed, but Attribute should be reliable
+    end
+    
+    -- Create Viewport if missing
+    local viewport = frame:FindFirstChild("ViewportFrame") :: ViewportFrame?
+    if not viewport then
+        viewport = Instance.new("ViewportFrame")
+        viewport.Name = "ViewportFrame"
+        viewport.Size = UDim2.fromScale(1, 1)
+        viewport.BackgroundTransparency = 1
+        viewport.ZIndex = 2
+        viewport.Parent = frame
+    end
+    
+    -- Try 3D Model
+    local itemModel, isCustom = VisualUtils.FindItemModel(templateId)
+    local setupSuccessful = false
+    
+    if itemModel then
+        viewport.Visible = true
+        if toolIcon then toolIcon.Visible = false end
+        
+        -- Clear old model
+        viewport:ClearAllChildren()
+        
+        local modelClone = VisualUtils.CloneModelForDisplay(itemModel, isCustom)
+        if modelClone then
+            local worldModel = Instance.new("WorldModel")
+            worldModel.Parent = viewport
+            modelClone.Parent = worldModel
+            
+            -- Global Camera Setup (Consistent Zoom)
+            VisualUtils.SetupModelCamera(viewport, modelClone)
+            
+             -- Play Idle Animation
+            local animsFolder = ReplicatedStorage:FindFirstChild("BrainrotAnimations")
+            if animsFolder then
+                local modelAnims = animsFolder:FindFirstChild(templateId)
+                if modelAnims then
+                    local idleAnim = modelAnims:FindFirstChild("Idle")
+                    local animController = modelClone:FindFirstChild("AnimationController") or modelClone:FindFirstChildWhichIsA("Humanoid")
+                    
+                    if idleAnim and idleAnim:IsA("Animation") and animController then
+                        -- FIX: Ensure parts are unanchored so Motor6Ds can animate them
+                        -- except the PrimaryPart/Root which holds it in place
+                        local root = modelClone.PrimaryPart or modelClone:FindFirstChild("Body") or modelClone:FindFirstChild("HumanoidRootPart")
+                        
+                        for _, desc in ipairs(modelClone:GetDescendants()) do
+                            if desc:IsA("BasePart") then
+                                if root and desc == root then
+                                    desc.Anchored = true
+                                else
+                                    desc.Anchored = false
+                                end
+                            end
+                        end
+
+                        local animator = animController:FindFirstChild("Animator") :: Animator?
+                        if not animator then
+                            animator = Instance.new("Animator")
+                            animator.Parent = animController
+                        end
+                        
+                        if animator then
+                             local track = animator:LoadAnimation(idleAnim)
+                             track:Play()
+                        end
+                    end
+                end
+            end
+            
+            setupSuccessful = true
         end
-        toolIcon.Visible = true
+    end
+    
+    if not setupSuccessful then
+         -- Fallback to Icon
+         if viewport then viewport.Visible = false end
+         if toolIcon then
+             local textureId = VisualUtils.GetItemImage(templateId)
+             if textureId == "" then
+                  -- Fallback to tool texture or default
+                  if tool.TextureId ~= "" then
+                      textureId = tool.TextureId
+                  else
+                      textureId = "rbxassetid://6031763426"
+                  end
+             end
+             toolIcon.Image = textureId
+             toolIcon.Visible = true
+         end
     end
     
     if nameLabel then
@@ -224,6 +318,11 @@ local function updateSlotDisplay(slot: ToolSlot)
                    if count > 0 then
                         eventsLabel.Text = tostring(count) .. " " .. (count == 1 and "Event" or "Events")
                         eventsLabel.Visible = true
+                        
+                        -- Apply dynamic color based on event count
+                        local eventRarity = RarityConfig.GetEventRarity(count)
+                        local style = RarityConfig.GetTextStyle(eventRarity)
+                        ColorSystem.ApplyToText(eventsLabel, style)
                    else
                         eventsLabel.Text = ""
                         eventsLabel.Visible = false

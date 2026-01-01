@@ -31,27 +31,27 @@ local RarityStyles: {[string]: RarityVisuals} = {
         TextStyle = "VibrantGreen",
     },
     Rare = {
-        BackgroundStyle = "Rare",
+        BackgroundStyle = "Rarity_Rare",
         TextStyle = "Rarity_Rare",
     },
     Epic = {
-        BackgroundStyle = "Epic",
+        BackgroundStyle = "Rarity_Epic",
         TextStyle = "AmethystVoid",
     },
     Legendary = {
-        BackgroundStyle = "Legendary",
+        BackgroundStyle = "Rarity_Legendary",
         TextStyle = "SolarFlare",
     },
     Mythic = {
-        BackgroundStyle = "Mythic",
+        BackgroundStyle = "Rarity_Mythic",
         TextStyle = "NeonMagenta",
     },
     God = {
-        BackgroundStyle = "God",
+        BackgroundStyle = "Rarity_God",
         TextStyle = "RainbowFlow",
     },
     Secret = {
-        BackgroundStyle = "Secret",
+        BackgroundStyle = "Rarity_Secret",
         TextStyle = "Zebra",
     },
 }
@@ -170,6 +170,31 @@ local function IsAnimated(rarityName: string): boolean
     return IsBackgroundAnimated(rarityName)
 end
 
+--[[
+    Gets the rarity name based on event count.
+    2 Events: Common
+    4 Events: Rare
+    6 Events: Epic
+    8 Events: Legendary
+    10 Events: God
+    12+ Events: Secret
+]]
+local function GetEventRarity(eventCount: number): string
+    if eventCount >= 12 then
+        return "Secret"
+    elseif eventCount >= 10 then
+        return "God"
+    elseif eventCount >= 8 then
+        return "Legendary"
+    elseif eventCount >= 6 then
+        return "Epic"
+    elseif eventCount >= 4 then
+        return "Rare"
+    else
+        return "Common"
+    end
+end
+
 return {
     -- Export the underlying mapping for reference if needed
     RarityStyles = RarityStyles,
@@ -188,4 +213,5 @@ return {
     GetConfig = GetConfig,
     GetColor = GetColor,
     IsAnimated = IsAnimated,
+    GetEventRarity = GetEventRarity,
 }

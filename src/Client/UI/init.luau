@@ -17,6 +17,7 @@ local Toolbar = require(script.Inventory.Toolbar)
 local BroadcastUI = require(script.BroadcastUI)
 local DeathScreen = require(script.DeathScreen)
 local LootFX = require(script.LootFX)
+local LootDropUI = require(script.LootDropUI)
 local DamageIndicator = require(script.DamageIndicator)
 local InventoryUI = require(script.Inventory)
 
@@ -34,6 +35,7 @@ local UI = {
     -- Shared utilities
     ProgressBar = ProgressBar,
     LootFX = LootFX,
+    LootDropUI = LootDropUI,
     
     -- Top-level UI
     Toolbar = Toolbar,
@@ -97,6 +99,7 @@ function UI.Init(context: any)
     InventoryUI.Init(uiContext)
     ButtonToggles.Init(uiContext)
     HomeButton.Init(uiContext)
+    LootDropUI.Init(uiContext)
     
     print("[UI] All systems initialized!")
 end

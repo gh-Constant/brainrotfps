@@ -102,7 +102,20 @@ local isCacheInitialized = false
     Builds the item config cache by recursively iterating through Config.Items.
     Called once on first lookup.
 ]]
-local function buildItemConfigCache()
+
+--[[
+    Builds the item config cache by recursively iterating through Config.Items.
+    Called once on first lookup, or can be called explicitly to preload.
+]]
+function ItemUtils.PreloadCache()
+    buildItemConfigCache()
+end
+
+--[[
+    Builds the item config cache by recursively iterating through Config.Items.
+    Called once on first lookup.
+]]
+function buildItemConfigCache()
     if isCacheInitialized then return end
     
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -125,6 +138,10 @@ local function buildItemConfigCache()
     
     recurse(items)
     isCacheInitialized = true
+    
+    local count = 0
+    for _ in pairs(itemConfigCache) do count += 1 end
+    print("[ItemUtils] Item cache preloaded with " .. tostring(count) .. " items")
 end
 
 function ItemUtils.FindItemConfig(templateId: string): Configuration?
