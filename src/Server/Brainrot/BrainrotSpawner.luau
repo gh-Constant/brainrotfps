@@ -363,6 +363,7 @@ local function spawnBrainrot(group: ZoneGroup)
 							trailColor = { 100, 160, 255 }, -- Light blue trail
 							count = math.floor(xpDisplayAmount / 10), -- 1 part per 10 XP, no limits
 							text = xpText,
+							amount = xpDisplayAmount,
 						},
 					}, instigator)
 					
@@ -378,6 +379,7 @@ local function spawnBrainrot(group: ZoneGroup)
 							trailColor = { 255, 200, 50 }, -- Gold trail
 							count = math.floor(goldDisplayAmount / 100), -- 1 part per 100 gold, no limits
 							text = goldText,
+							amount = goldDisplayAmount,
 						},
 					}, instigator)
 				end
@@ -769,12 +771,12 @@ function BrainrotSpawner.SpawnBrainrotWithMutation(zoneName: string, mobName: st
 					
 					Packets.lootDropFX.sendTo({
 						posX = fxPos.X - 0.5, posY = fxPos.Y + 1, posZ = fxPos.Z,
-						config = { image = xpImage, color = { 66, 135, 245 }, trailEnabled = true, trailColor = { 100, 160, 255 }, count = math.floor(xpDisplayAmount / 10), text = xpText },
+						config = { image = xpImage, color = { 66, 135, 245 }, trailEnabled = true, trailColor = { 100, 160, 255 }, count = math.floor(xpDisplayAmount / 10), text = xpText, amount = xpDisplayAmount },
 					}, instigator)
 					
 					Packets.lootDropFX.sendTo({
 						posX = fxPos.X + 0.5, posY = fxPos.Y + 1, posZ = fxPos.Z,
-						config = { image = goldImage, color = { 255, 215, 0 }, trailEnabled = true, trailColor = { 255, 200, 50 }, count = math.floor(goldDisplayAmount / 100), text = goldText },
+						config = { image = goldImage, color = { 255, 215, 0 }, trailEnabled = true, trailColor = { 255, 200, 50 }, count = math.floor(goldDisplayAmount / 100), text = goldText, amount = goldDisplayAmount },
 					}, instigator)
 				end
 			end

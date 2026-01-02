@@ -9,16 +9,7 @@ local Inventory = require(Shared:WaitForChild("Inventory"))
 
 local ToolbarUtils = {}
 
--- Helper log function
-local function log(message: string)
-    local config = ReplicatedStorage:FindFirstChild("Config")
-    if config then
-        local invConfig = config:FindFirstChild("Inventory")
-        if invConfig and invConfig:GetAttribute("Logging") == true then
-            print(message)
-        end
-    end
-end
+
 
 --[[
     Creates a new tool instance from an inventory item.
@@ -36,6 +27,7 @@ function ToolbarUtils.CreateToolInstance(item: Inventory.InventoryItem, slot: nu
     
     -- Attributes
     tool:SetAttribute("InventoryItemId", item.Id)
+    tool:SetAttribute("TemplateId", item.TemplateId)
     tool:SetAttribute("ToolbarSlot", slot)
     tool:SetAttribute("Rarity", item.Rarity)
     tool:SetAttribute("Type", item.Type)
@@ -106,7 +98,7 @@ function ToolbarUtils.SpawnToolbarTools(player: Player, inventory: any)
     if not items then return end
     
     -- Spawn each toolbar item
-    local backpack = player:WaitForChild("Backpack")
+    local backpackInstance = player:WaitForChild("Backpack")
     
     for slot, itemId in pairs(inventory.ToolbarSlots) do
         local item = Inventory.FindById(inventory.Items, itemId)
@@ -121,7 +113,7 @@ function ToolbarUtils.SpawnToolbarTools(player: Player, inventory: any)
              
              local tool = ToolbarUtils.CreateToolInstance(item, tonumber(slot) or 0, stackCount)
              if tool then
-                 tool.Parent = backpack
+                 tool.Parent = backpackInstance
              end
         end
     end

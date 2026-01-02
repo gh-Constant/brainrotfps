@@ -22,7 +22,7 @@ local Janitor = require(Packages:WaitForChild("janitor"))
 local RarityConfig = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityConfig"))
 local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
 local ItemUtils = require(Shared:WaitForChild("Inventory"):WaitForChild("ItemUtils"))
-local Logger = require(Shared:WaitForChild("Inventory"):WaitForChild("Logger"))
+local _Logger = require(Shared:WaitForChild("Inventory"):WaitForChild("Logger"))
 local InventoryStore = require(script.Parent:WaitForChild("InventoryStore"))
 
 local LocalPlayer = Players.LocalPlayer
@@ -128,8 +128,13 @@ local function updateSlotDisplay(slot: ToolSlot)
     local nameLabel = frame:FindFirstChild("ToolNameLabel") :: TextLabel?
     
     -- Visuals (3D Model or Icon)
-    -- Determine TemplateId (InventoryItemId > Attribute > Name)
-    local templateId = tool:GetAttribute("TemplateId") or tool.Name
+    -- Determine TemplateId (InventoryItemId > Attribute > StackTemplateId > Name)
+    local templateId = (tool:GetAttribute("TemplateId") :: string?) or (tool:GetAttribute("StackTemplateId") :: string?) or tool.Name
+    
+    -- Cleanup Name if it has stack suffix (fallback for tools without attributes)
+    if not (tool:GetAttribute("TemplateId") or tool:GetAttribute("StackTemplateId")) then
+        templateId = string.gsub(templateId, "%s%(x%d+%)", "")
+    end
     if tool:GetAttribute("InventoryItemId") then
          -- (Optional) Fetch true template ID from inventory if needed, but Attribute should be reliable
     end
@@ -225,9 +230,10 @@ local function updateSlotDisplay(slot: ToolSlot)
     end
     
     if nameLabel then
-        -- Use DisplayName attribute if available
-        local displayName = tool:GetAttribute("DisplayName") :: string?
-        nameLabel.Text = if displayName and displayName ~= "" then displayName else tool.Name
+        -- Prefer Config DisplayName, fallback to tool Name
+        local finalName = ItemUtils.GetDisplayName(templateId)
+        
+        nameLabel.Text = finalName
         nameLabel.Visible = true
     end
     
@@ -258,21 +264,11 @@ local function updateSlotDisplay(slot: ToolSlot)
     local invTemplateId = nil
     
     if inventoryItemId then
-        -- Access inventory module to get actual item rarity
-        local Client = script.Parent
-        local InventoryModule = Client:FindFirstChild("Inventory")
-        if InventoryModule then
-            local InventoryUI = require(InventoryModule)
-            local inventory = InventoryUI.GetInventory()
-            if inventory then
-                for _, invItem in inventory do
-                    if invItem.Id == inventoryItemId then
-                        rarity = invItem.Rarity :: string?
-                        invTemplateId = invItem.TemplateId
-                        break
-                    end
-                end
-            end
+        -- Access inventory store to get actual item data
+        local invItem = InventoryStore.FindById(inventoryItemId)
+        if invItem then
+            rarity = invItem.Rarity :: string?
+            invTemplateId = invItem.TemplateId
         end
     end
     
@@ -282,8 +278,8 @@ local function updateSlotDisplay(slot: ToolSlot)
     end
     
     -- Check Config for CustomColor (Highest Priority)
-    local templateId = invTemplateId or (tool:GetAttribute("TemplateId") :: string?) or tool.Name
-    local itemConfig = getItemConfig(templateId)
+    local colorTemplateId = invTemplateId or (tool:GetAttribute("TemplateId") :: string?) or tool.Name
+    local itemConfig = getItemConfig(colorTemplateId)
     if itemConfig then
         customColor = itemConfig:GetAttribute("CustomColor") :: string?
     end
@@ -298,7 +294,7 @@ local function updateSlotDisplay(slot: ToolSlot)
         style = RarityConfig.GetBackgroundStyle(rarity)
     end
     
-    ColorSystem.ApplyToBackground(frame, style)
+    ColorSystem.ApplyToBackground(frame, style or "Common")
 
 
     -- Update EventsLabel (Mutations)
@@ -322,8 +318,8 @@ local function updateSlotDisplay(slot: ToolSlot)
                         
                         -- Apply dynamic color based on event count
                         local eventRarity = RarityConfig.GetEventRarity(count)
-                        local style = RarityConfig.GetTextStyle(eventRarity)
-                        ColorSystem.ApplyToText(eventsLabel, style)
+                        local eventStyle = RarityConfig.GetTextStyle(eventRarity)
+                        ColorSystem.ApplyToText(eventsLabel, eventStyle)
                    else
                         eventsLabel.Text = ""
                         eventsLabel.Visible = false
@@ -724,8 +720,8 @@ local function setupHotkeyInput()
             -- Only allow scroll switching if equipped tool is ItemType "Gun"
             if equippedTool then
                 -- Use ItemUtils for config lookup (replaces 25-line inline pattern)
-                local templateId = equippedTool:GetAttribute("TemplateId") or equippedTool.Name
-                local itemType = ItemUtils.GetItemType(templateId)
+                local gunTemplateId = (equippedTool:GetAttribute("TemplateId") :: string?) or equippedTool.Name
+                local itemType = ItemUtils.GetItemType(gunTemplateId)
                 if itemType ~= "Gun" then
                     return -- Don't allow scroll for non-Gun items
                 end

@@ -114,8 +114,13 @@ local function animateAndScheduleDismiss(slot: any)
 	
 	-- Spring animation: start at scale 0
 	frame.Size = UDim2.new(0, 0, 0, 0)
-	local targetSize = UDim2.new(0, 80, 0, 80)
+	local targetSize = UDim2.new(0.12, 0, 0.8, 0) -- Scale-based size
 	
+	-- Maintain square aspect ratio
+	local aspectRatio = Instance.new("UIAspectRatioConstraint")
+	aspectRatio.AspectRatio = 1
+	aspectRatio.Parent = frame
+
 	TweenService:Create(frame, SPRING_IN, { Size = targetSize }):Play()
 	
 	-- Track
@@ -196,6 +201,11 @@ local function showOrUpdateCurrencyDrop(currencyType: string, addAmount: number,
 		if rarityLabel then
 			rarityLabel.TextTransparency = 0
 			if rarityLabel.TextStrokeTransparency < 1 then rarityLabel.TextStrokeTransparency = 0 end
+			
+			local stroke = rarityLabel:FindFirstChildOfClass("UIStroke")
+			if stroke then
+				stroke.Transparency = 0
+			end
 		end
 		local toolIcon = existing.slot.Frame:FindFirstChild("ToolIcon")
 		if toolIcon and toolIcon:IsA("ImageLabel") then toolIcon.ImageTransparency = 0 end
@@ -206,7 +216,7 @@ local function showOrUpdateCurrencyDrop(currencyType: string, addAmount: number,
 		
 		local currentSize = existing.slot.Frame.Size
 		TweenService:Create(existing.slot.Frame, BOUNCE, { 
-			Size = UDim2.new(0, 90, 0, 90) 
+			Size = UDim2.new(currentSize.X.Scale * 1.1, 0, currentSize.Y.Scale * 1.1, 0) 
 		}):Play()
 		task.delay(0.15, function()
 			if existing.slot and existing.slot.Frame and existing.slot.Frame.Parent then
@@ -304,7 +314,9 @@ local function showOrUpdateCurrencyDrop(currencyType: string, addAmount: number,
 		-- Add clean stroke
 		local stroke = Instance.new("UIStroke")
 		stroke.Thickness = 2
+		stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
 		stroke.Color = Color3.new(0, 0, 0)
+		stroke.Transparency = 0
 		stroke.Parent = rarityLabel
 	end
 	
@@ -316,7 +328,13 @@ local function showOrUpdateCurrencyDrop(currencyType: string, addAmount: number,
 	
 	-- Spring animation
 	slot.Frame.Size = UDim2.new(0, 0, 0, 0)
-	local targetSize = UDim2.new(0, 80, 0, 80)
+	local targetSize = UDim2.new(0.12, 0, 0.8, 0) -- Scale-based size
+	
+	-- Maintain square aspect ratio
+	local aspectRatio = Instance.new("UIAspectRatioConstraint")
+	aspectRatio.AspectRatio = 1
+	aspectRatio.Parent = slot.Frame
+
 	TweenService:Create(slot.Frame, SPRING_IN, { Size = targetSize }):Play()
 	
 	-- Track for accumulation
@@ -348,10 +366,7 @@ end
 --[[
 	Parse amount from text like "+150 XP" or "+25 Gold"
 ]]
-local function parseAmountFromText(text: string): number
-	local numStr = string.match(text, "%d+")
-	return tonumber(numStr) or 0
-end
+
 
 --[[
 	Initializes the loot drop UI system.
@@ -384,9 +399,9 @@ function LootDropUI.Init(context: any)
 		local dropFrame = Instance.new("Frame")
 		dropFrame.Name = "Drop"
 		dropFrame.BackgroundTransparency = 1
-		dropFrame.Size = UDim2.new(0, 600, 0, 100)
-		dropFrame.Position = UDim2.new(0.5, -300, 1, -120)
-		dropFrame.AnchorPoint = Vector2.new(0, 0)
+		dropFrame.Size = UDim2.new(0.6, 0, 0.15, 0) -- 60% of screen width, 15% height
+		dropFrame.Position = UDim2.new(0.5, 0, 0.85, 0) -- Centered horizontally, near bottom
+		dropFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 		dropFrame.Parent = bottom
 		
 		local layout = Instance.new("UIListLayout")
@@ -422,11 +437,16 @@ function LootDropUI.Init(context: any)
 			currencyType = "XP"
 		end
 		
-		-- Parse amount from text
-		local amount = parseAmountFromText(text)
+		-- Parse amount from config or fallback to text parsing if missing (Legacy)
+		local amount = data.config.amount
+		if not amount or amount <= 0 then
+			local numStr = string.match(text, "%d+")
+			amount = tonumber(numStr) or 0
+		end
+		
 		if amount <= 0 then return end
 		
-		showOrUpdateCurrencyDrop(currencyType, amount, data.config.image, data.config.color)
+		showOrUpdateCurrencyDrop(currencyType, amount :: number, data.config.image, data.config.color)
 	end)
 	
 	print("[LootDropUI] Initialized!")

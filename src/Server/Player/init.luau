@@ -145,6 +145,7 @@ local function setupCharacter(character: Model, playerData: PlayerClass.Player?)
                         trailColor = {150, 220, 255},
                         trailEnabled = true,
                         count = math.floor(xpToSteal / 10), -- 1 part per 10 XP, no limits
+                        amount = xpToSteal,
                     },
                 }, instigator)
             end

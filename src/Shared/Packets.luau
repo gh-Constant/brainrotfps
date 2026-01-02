@@ -66,6 +66,7 @@ return ByteNet.defineNamespace("game", function()
 					text = ByteNet.optional(ByteNet.string),
 					textColor = ByteNet.optional(ByteNet.array(ByteNet.uint8)), -- RGB array
 					count = ByteNet.optional(ByteNet.uint8), -- Number of coins to spawn
+					amount = ByteNet.optional(ByteNet.float64), -- Numeric value for UI accumulation
 				}),
 			}),
 			reliabilityType = "reliable",
