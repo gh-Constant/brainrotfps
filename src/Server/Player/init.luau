@@ -191,17 +191,17 @@ local function onPlayerAdded(player: Player)
     leaderstats.Parent = player
     
     local levelsDisplay = Instance.new("StringValue")
-    levelsDisplay.Name = "Levels"
+    levelsDisplay.Name = "⚡ Levels"
     levelsDisplay.Value = "1"
     levelsDisplay.Parent = leaderstats
 
     local killsDisplay = Instance.new("StringValue")
-    killsDisplay.Name = "Kills"
+    killsDisplay.Name = "💀 Kills"
     killsDisplay.Value = "0"
     killsDisplay.Parent = leaderstats
 
     local coinsDisplay = Instance.new("StringValue")
-    coinsDisplay.Name = "Coins"
+    coinsDisplay.Name = "💰 Coins"
     coinsDisplay.Value = "0"
     coinsDisplay.Parent = leaderstats
 
