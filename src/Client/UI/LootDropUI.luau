@@ -19,6 +19,7 @@ local Shared = Rojo:WaitForChild("Shared")
 local Packets = require(Shared:WaitForChild("Packets"))
 local ItemSlot = require(script.Parent:WaitForChild("Inventory"):WaitForChild("ItemSlot"))
 local InventoryVisibilityManager = require(script.Parent:WaitForChild("Inventory"):WaitForChild("InventoryVisibilityManager"))
+local MoneyLib = require(Shared:WaitForChild("MoneyLib"))
 
 local LootDropUI = {}
 
@@ -178,7 +179,7 @@ local function showOrUpdateCurrencyDrop(currencyType: string, addAmount: number,
 		
 		-- Update text (Billboard style: "150 XP" not "+150 XP")
 		local suffix = if currencyType == "XP" then " XP" else " Gold"
-		local newText = tostring(existing.amount) .. suffix
+		local newText = MoneyLib.HandleMoney(existing.amount) .. suffix
 		
 		-- Update RarityLabel (Billboard uses RarityLabel for name)
 		local rarityLabel = existing.slot.Frame:FindFirstChild("RarityLabel") :: TextLabel?
@@ -282,7 +283,7 @@ local function showOrUpdateCurrencyDrop(currencyType: string, addAmount: number,
 	
 	-- Billboard style: "150 XP" not "+150 XP"
 	local suffix = if currencyType == "XP" then " XP" else " Gold"
-	local displayText = tostring(addAmount) .. suffix
+	local displayText = MoneyLib.HandleMoney(addAmount) .. suffix
 	
 	-- Use RarityLabel for name (like billboard does)
 	local rarityLabel = slot.Frame:FindFirstChild("RarityLabel") :: TextLabel?

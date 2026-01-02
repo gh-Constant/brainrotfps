@@ -42,6 +42,10 @@ local cache: {[string]: { data: LeaderboardPage, timestamp: number }} = {}
 -- Player info cache: { [userId]: { Username: string, DisplayName: string } }
 local playerInfoCache: {[number]: { Username: string, DisplayName: string }} = {}
 
+-- Write Buffer: { [valueName]: { [userId]: score } }
+local scoreBuffer: {[string]: {[number]: number}} = {}
+local FLUSH_INTERVAL = 60 -- Seconds between DataStore flushes
+
 --------------------------------------------------------------------------------
 -- Time Period Helpers
 --------------------------------------------------------------------------------
@@ -89,6 +93,20 @@ end
 ]]
 local function getCacheKey(valueName: string, period: LeaderboardPeriod, page: number): string
     return string.format("%s_%s_%s_%d", valueName, period, getDateKey(period), page)
+end
+
+-- Use a high multiplier to preserve precision in log space
+-- This allows us to store values up to 10^9,000,000 within a 64-bit integer
+local LOG_MULTIPLIER = 1e12
+
+local function encodeScore(score: number): number
+    if score <= 0 then return 0 end
+    return math.floor(math.log10(score) * LOG_MULTIPLIER)
+end
+
+local function decodeScore(encoded: number): number
+    if encoded <= 0 then return 0 end
+    return 10 ^ (encoded / LOG_MULTIPLIER)
 end
 
 --------------------------------------------------------------------------------
@@ -169,27 +187,26 @@ function LeaderboardService.UpdateScore(player: Player, valueName: string, score
         return
     end
     
+    -- Update periods
+    local periods: {LeaderboardPeriod} = {"Daily", "Weekly", "Monthly", "AllTime"}
+    
+    -- If this is a "Level" leaderboard, only track All-Time
+    if valueName == "Level" then
+        periods = {"AllTime"}
+    end
+    
     local userId = player.UserId
-    local key = tostring(userId)
     
     -- Update player info cache
     playerInfoCache[userId] = { Username = player.Name, DisplayName = player.DisplayName }
-    
-    -- Update all periods
-    local periods: {LeaderboardPeriod} = {"Daily", "Weekly", "Monthly", "AllTime"}
-    
+
+    -- Buffer the score for each period
     for _, period in periods do
-        task.spawn(function()
-            local dataStore = getDataStore(valueName, period)
-            local success, err = pcall(function()
-                dataStore:SetAsync(key, score)
-            end)
-            
-            if not success then
-                warn(string.format("[LeaderboardService] Failed to update %s/%s for %s: %s", 
-                    valueName, period, player.Name, tostring(err)))
-            end
-        end)
+        local bufferKey = valueName .. "_" .. period
+        if not scoreBuffer[bufferKey] then
+            scoreBuffer[bufferKey] = {}
+        end
+        scoreBuffer[bufferKey][userId] = score
     end
 end
 
@@ -207,28 +224,27 @@ function LeaderboardService.IncrementScore(player: Player, valueName: string, de
     end
     
     local userId = player.UserId
-    local key = tostring(userId)
     
     -- Update player info cache
     playerInfoCache[userId] = { Username = player.Name, DisplayName = player.DisplayName }
     
-    -- Increment all periods
+    -- Increment periods
     local periods: {LeaderboardPeriod} = {"Daily", "Weekly", "Monthly", "AllTime"}
     
+    -- If this is a "Level" leaderboard, only track All-Time
+    if valueName == "Level" then
+        periods = {"AllTime"}
+    end
+    
     for _, period in periods do
-        task.spawn(function()
-            local dataStore = getDataStore(valueName, period)
-            local success, err = pcall(function()
-                dataStore:UpdateAsync(key, function(oldValue)
-                    return (oldValue or 0) + delta
-                end)
-            end)
-            
-            if not success then
-                warn(string.format("[LeaderboardService] Failed to increment %s/%s for %s: %s", 
-                    valueName, period, player.Name, tostring(err)))
-            end
-        end)
+        local bufferKey = valueName .. "_" .. period
+        if not scoreBuffer[bufferKey] then
+            scoreBuffer[bufferKey] = {}
+        end
+        
+        -- Since we buffer, we just update the local memory value
+        -- The flush loop will eventually handle the DataStore UpdateAsync
+        scoreBuffer[bufferKey][userId] = (scoreBuffer[bufferKey][userId] or 0) + delta
     end
 end
 
@@ -284,14 +300,14 @@ function LeaderboardService.GetPage(valueName: string, period: LeaderboardPeriod
             
             for _, entry in pageData do
                 if currentRank >= targetStartRank and currentRank <= targetEndRank then
-                    local userId = tonumber(entry.key) or 0
-                    local info = getPlayerInfo(userId)
+                    local entryUserId = tonumber(entry.key) or 0
+                    local info = getPlayerInfo(entryUserId)
                     table.insert(entries, {
                         Rank = currentRank,
-                        UserId = userId,
+                        UserId = entryUserId,
                         DisplayName = info.DisplayName,
                         Username = info.Username,
-                        Value = entry.value,
+                        Value = decodeScore(entry.value),
                     })
                 end
                 
@@ -356,7 +372,7 @@ function LeaderboardService.GetPlayerRank(player: Player, valueName: string, per
         local key = tostring(player.UserId)
         
         local success, result = pcall(function()
-            return dataStore:GetAsync(key)
+            return (dataStore :: any):GetAsync(key)
         end)
         
         if not success then
@@ -364,8 +380,10 @@ function LeaderboardService.GetPlayerRank(player: Player, valueName: string, per
             return
         end
         
-        if result == nil then
-            resolve(nil :: {rank: number?, value: number}?)
+        local numericResult = result :: number?
+        
+        if numericResult == nil then
+            resolve(nil)
             return
         end
         
@@ -395,9 +413,9 @@ function LeaderboardService.GetPlayerRank(player: Player, valueName: string, per
         end)
         
         if rankSuccess and rank then
-            resolve({ rank = rank :: number, value = result :: number })
+            resolve({ rank = rank :: number, value = numericResult :: number })
         else
-            resolve({ rank = nil :: number?, value = result :: number })
+            resolve({ rank = nil, value = numericResult :: number } :: any)
         end
     end)
 end
@@ -405,6 +423,37 @@ end
 --------------------------------------------------------------------------------
 -- Network Handlers
 --------------------------------------------------------------------------------
+
+local function flushBuffer()
+    local currentBuffer = scoreBuffer
+    scoreBuffer = {} -- Swap buffers immediately to avoid race conditions during async calls
+
+    for bufferKey, entries in currentBuffer do
+        local split = string.split(bufferKey, "_")
+        local valueName = split[1]
+        local period = split[2] :: LeaderboardPeriod
+        
+        local dataStore = getDataStore(valueName, period)
+        
+        for entryUserId, score in entries do
+            task.spawn(function()
+                local key = tostring(entryUserId)
+                local success, err = pcall(function()
+                    dataStore:UpdateAsync(key, function(oldEncoded)
+                        -- For simplicity, we treat buffered values as 
+                        -- "the most recent known score" to keep it robust.
+                        return encodeScore(score)
+                    end)
+                end)
+                
+                if not success then
+                    warn(string.format("[LeaderboardService] Buffer flush failed for %s/%s/ID:%d: %s", 
+                        valueName, tostring(period), entryUserId, tostring(err)))
+                end
+            end)
+        end
+    end
+end
 
 local function setupNetworkListeners()
     Packets.requestLeaderboard.listen(function(data, player)
@@ -453,8 +502,21 @@ function LeaderboardService.Init()
     Players.PlayerAdded:Connect(function(player)
         playerInfoCache[player.UserId] = { Username = player.Name, DisplayName = player.DisplayName }
     end)
+
+    Players.PlayerRemoving:Connect(function(_player)
+        -- Optional: Flush buffer for this player specifically on leave if needed
+        -- But the global loop is usually enough.
+    end)
     
-    print("[LeaderboardService] Initialized!")
+    -- Start buffer flush loop
+    task.spawn(function()
+        while true do
+            task.wait(FLUSH_INTERVAL)
+            flushBuffer()
+        end
+    end)
+    
+    print("[LeaderboardService] Initialized with Write Buffer!")
 end
 
 return LeaderboardService

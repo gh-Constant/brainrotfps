@@ -445,37 +445,69 @@ function InventoryUI.Init(context: any)
     
     -- PERFORMANCE: Initialize VirtualScrollManager with slot pool
     if slotTemplate and screenGui and slotsContainer then
-        virtualScrollManager = VirtualScrollManager.new(slotsContainer, slotTemplate, screenGui)
+        local vsm = VirtualScrollManager.new(slotsContainer, slotTemplate, screenGui)
+        virtualScrollManager = vsm
         
-        -- Connect click handler to update InfoPanel
-        janitor:Add(virtualScrollManager.OnItemClicked:Connect(function(slotData)
-            InventoryUI.OnItemClicked:Fire(slotData)
-            if infoPanel then
-                -- Find full inventory item data to pass to InfoPanel
-                local fullItem = nil
-                for _, item in inventoryData do
-                    if item.Id == slotData.ItemIds[1] then
-                        fullItem = item
+        -- Connect click handler to update InfoPanel and handle Double Click
+        local lastClickTime = 0
+        local lastClickedItem = ""
+
+        janitor:Add(vsm.OnItemClicked:Connect(function(slotData)
+            local currentTime = tick()
+            local itemId = slotData.ItemIds[1]
+            
+            -- Detect Double Click
+            if itemId == lastClickedItem and (currentTime - lastClickTime) < 0.3 then
+                log("[InventoryUI] Double click detected on " .. slotData.TemplateId)
+                
+                -- Equip Logic: Find first empty slot or use slot 1
+                local targetSlot = 1
+                
+                for i = 1, 9 do
+                    if not toolbarSlots[i] or toolbarSlots[i] == "" then
+                        targetSlot = i
                         break
                     end
                 end
                 
-                if not fullItem then
-                    fullItem = {
-                        Id = slotData.ItemIds[1] or "",
-                        TemplateId = slotData.TemplateId,
-                        Type = slotData.Type :: any,
-                        Rarity = slotData.Rarity :: any,
-                        Metadata = slotData.Metadata
-                    }
-                end
+                -- If no empty slot, default to slot 1 (replace)
+                -- Send assignment request
+                ToolbarActions.AssignToToolbar(itemId, targetSlot)
                 
-                infoPanel:Update(fullItem)
+                lastClickTime = 0 -- Reset to prevent triple-click triggering again immediately
+            else
+                -- Single Click Logic
+                lastClickTime = currentTime
+                lastClickedItem = itemId
+                
+                InventoryUI.OnItemClicked:Fire(slotData)
+                if infoPanel then
+                    -- Find full inventory item data to pass to InfoPanel
+                    local fullItem = nil
+                    for _, item in inventoryData do
+                        if item.Id == slotData.ItemIds[1] then
+                            fullItem = item
+                            break
+                        end
+                    end
+                    
+                    if not fullItem then
+                        fullItem = {
+                            Id = slotData.ItemIds[1] or "",
+                            TemplateId = slotData.TemplateId,
+                            Type = slotData.Type :: any,
+                            Rarity = slotData.Rarity :: any,
+                            Metadata = slotData.Metadata
+                        }
+                    end
+                    
+                    infoPanel:Update(fullItem)
+                end
             end
         end), "Disconnect")
         
         -- Connect delete handler
-        janitor:Add(virtualScrollManager.OnItemDeleted:Connect(function(slotData)
+        janitor:Add(vsm.OnItemDeleted:Connect(function(slotData)
             local itemId = slotData.ItemIds[1]
             if itemId then
                 log("[InventoryUI] Deleting item: " .. itemId)
@@ -483,7 +515,7 @@ function InventoryUI.Init(context: any)
             end
         end), "Disconnect")
         
-        janitor:Add(virtualScrollManager, "Destroy")
+        janitor:Add(vsm, "Destroy")
         log("[InventoryUI] VirtualScrollManager initialized with pool of 21 slots")
     else
         warn("[InventoryUI] Failed to initialize VirtualScrollManager: missing template or screenGui")

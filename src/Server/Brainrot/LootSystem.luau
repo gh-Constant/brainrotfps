@@ -15,6 +15,8 @@ local Server = ServerScriptService:WaitForChild("Rojo"):WaitForChild("Server")
 local ItemUtils = require(Shared:WaitForChild("Inventory"):WaitForChild("ItemUtils"))
 local InventoryManager = require(Server:WaitForChild("Inventory"))
 
+local Packets = require(Shared:WaitForChild("Packets"))
+
 local LootSystem = {}
 
 --[[
@@ -26,20 +28,13 @@ local LootSystem = {}
 function LootSystem.ProcessLoot(mobModel: Model, killer: Player)
     if not killer then return end
     
+    local primaryPart = mobModel.PrimaryPart or mobModel:FindFirstChildWhichIsA("BasePart")
+    
     -- Try to find Loot module inside the mob model
     -- The mobModel here is the CLONE in workspace.
-    -- However, the user said "inside the mob config".
-    -- In BrainrotSpawner, the mob is cloned from a Template in ReplicatedStorage.Config.Brainrots.Zones...
-    -- The clone might NOT have the ModuleScript if scripts don't clone or if it wasn't there.
-    -- BUT, usually we want to read from the Template Config to avoid cloning scripts into every mob.
-    -- We can fallback to checking if the mob has a "Loot" module inside it (if user puts it there).
-    -- OR we check the Config that generated it.
-    
-    -- Strategy: Check mobModel for "Loot" ModuleScript.
     local lootModule = mobModel:FindFirstChild("Loot")
     
     if not lootModule or not lootModule:IsA("ModuleScript") then
-        -- Warn only if debug is on, otherwise silent (not all mobs drop loot)
         return
     end
     
@@ -55,22 +50,12 @@ function LootSystem.ProcessLoot(mobModel: Model, killer: Player)
         local itemName = item.Name
         local chance = item.Chance or 1 -- 1 in X chance
         
-        -- Default to 1 (always drop) if chance is nil/0
         if chance < 1 then chance = 1 end
         
-        -- Roll: 1/Chance
-        -- e.g. Chance 10 = 1/10 = 10%
         if math.random(1, chance) == 1 then
-            -- Drop Success!
-            
-            -- Get Item Config first to get correct data
             local itemConfig = ItemUtils.FindItemConfig(itemName)
-            
-            -- KEY FIX: Use the "Type" attribute (e.g. "Tool") NOT the ItemType (e.g. "Gun")
-            -- ToolbarUtils requires Type == "Tool" to allow equipping.
             local itemType = (itemConfig and itemConfig:GetAttribute("Type"))
             
-            -- Fallback if Type attribute is missing (shouldn't happen for valid items)
             if not itemType then
                 itemType = ItemUtils.GetItemType(itemName)
             end
@@ -80,13 +65,21 @@ function LootSystem.ProcessLoot(mobModel: Model, killer: Player)
                 continue
             end
             
-            -- Get Rarity
             local rarity = (itemConfig and itemConfig:GetAttribute("Rarity") or "Common") :: string
             
-            -- Add to Inventory
-            -- Note: InventoryManager handles validation and addition
             InventoryManager.AddItem(killer, itemName, itemType :: any, rarity, nil)
             
+            -- Trigger Loot FX for the item orb
+            if primaryPart then
+                Packets.lootDropFX.sendTo({
+                    posX = primaryPart.Position.X,
+                    posY = primaryPart.Position.Y + 1,
+                    posZ = primaryPart.Position.Z,
+                    config = {
+                        rarity = rarity,
+                    },
+                }, killer)
+            end
         end
     end
 end

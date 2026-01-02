@@ -56,7 +56,8 @@ return ByteNet.defineNamespace("game", function()
 				config = ByteNet.struct({
 					image = ByteNet.optional(ByteNet.string),
 					color = ByteNet.optional(ByteNet.array(ByteNet.uint8)), -- RGB array
-                    customColor = ByteNet.optional(ByteNet.string),
+					customColor = ByteNet.optional(ByteNet.string),
+					rarity = ByteNet.optional(ByteNet.string),
 					size = ByteNet.optional(ByteNet.array(ByteNet.float32)), -- {scaleX, offsetX, scaleY, offsetY}
 					trailEnabled = ByteNet.optional(ByteNet.bool),
 					trailColor = ByteNet.optional(ByteNet.array(ByteNet.uint8)), -- RGB array

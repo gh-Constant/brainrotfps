@@ -212,6 +212,55 @@ local function createCoinTemplate(imageId: string, color: Color3, trailColor: Co
 	return coinPart
 end
 
+local function createItemOrbTemplate(rarity: string): Part
+	local orbPart = Instance.new("Part")
+	orbPart.Name = "LootFXItemOrb"
+	orbPart.Shape = Enum.PartType.Ball
+	orbPart.Size = Vector3.new(1.8, 1.8, 1.8) -- 3x larger
+	orbPart.Material = Enum.Material.Neon
+	orbPart.Massless = true
+	orbPart.CastShadow = false
+	orbPart.CanTouch = false
+	orbPart.CanQuery = false
+	orbPart.CanCollide = true
+	orbPart.CollisionGroup = LOOT_FX_COLLISION_GROUP
+	orbPart.CustomPhysicalProperties = PhysicalProperties.new(1, 2.0, BOUNCINESS, 10, 1)
+
+	-- Get color from ColorSystem
+	local color = Color3.fromRGB(200, 200, 200)
+	local styleName = "Rarity_" .. rarity
+	local colorConfig = ColorSystem.GetColorConfig(styleName)
+	if colorConfig then
+		color = colorConfig.Color
+	end
+	orbPart.Color = color
+
+	-- Trail attachments
+	local attach0 = Instance.new("Attachment")
+	attach0.Position = Vector3.new(0, 0.1, 0)
+	attach0.Parent = orbPart
+
+	local attach1 = Instance.new("Attachment")
+	attach1.Position = Vector3.new(0, -0.1, 0)
+	attach1.Parent = orbPart
+
+	-- Trail
+	local trail = Instance.new("Trail")
+	trail.Attachment0 = attach0
+	trail.Attachment1 = attach1
+	trail.Color = ColorSequence.new(color)
+	trail.LightEmission = 1
+	trail.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	trail.Lifetime = 0.3
+	trail.FaceCamera = true
+	trail.Parent = orbPart
+
+	return orbPart
+end
+
 -- ==========================================================
 -- SPAWN LOOT
 -- ==========================================================
@@ -369,6 +418,81 @@ function LootFX.SpawnLoot(config: LootConfig)
 	-- end
 end
 
+function LootFX.SpawnItemOrb(config: { position: Vector3, rarity: string, targetPart: BasePart? })
+	local centerPos = config.position + Vector3.new(0, 1, 0)
+	local rarity = config.rarity or "Common"
+	
+	-- Get target part (fallback to player's HumanoidRootPart)
+	local targetPart = config.targetPart or getPlayerScreenTarget()
+	
+	-- Create orb
+	local orbPart = createItemOrbTemplate(rarity)
+	local fxFolder = getEffectsFolder()
+	
+	-- Position and velocity
+	orbPart.Position = centerPos
+	orbPart.CanCollide = false
+	orbPart.Parent = fxFolder
+	
+	local randomAngle = math.rad(math.random(0, 360))
+	local xDir = math.cos(randomAngle) * math.random(8, HORIZONTAL_SPEED + 5)
+	local zDir = math.sin(randomAngle) * math.random(8, HORIZONTAL_SPEED + 5)
+	local yDir = math.random(VERTICAL_SPEED - 5, VERTICAL_SPEED + 5)
+	
+	orbPart.AssemblyLinearVelocity = Vector3.new(xDir, yDir, zDir)
+	
+	task.delay(0.1, function()
+		if orbPart and orbPart.Parent and not orbPart.Anchored then
+			orbPart.CanCollide = true
+		end
+	end)
+	
+	-- Magnet effect
+	task.delay(WAIT_BEFORE_MAGNET, function()
+		if not orbPart or not orbPart.Parent then return end
+		
+		if not targetPart or not targetPart.Parent then
+			orbPart:Destroy()
+			return
+		end
+		
+		orbPart.Anchored = true
+		orbPart.CanCollide = false
+		
+		local currentSpeed = START_SPEED
+		local connection: RBXScriptConnection?
+		
+		connection = RunService.Heartbeat:Connect(function(dt)
+			if not orbPart or not orbPart.Parent then
+				if connection then connection:Disconnect() end
+				return
+			end
+			
+			if not targetPart or not targetPart.Parent then
+				orbPart:Destroy()
+				if connection then connection:Disconnect() end
+				return
+			end
+			
+			local targetPos = targetPart.Position
+			local currentPos = orbPart.Position
+			local direction = (targetPos - currentPos).Unit
+			local distance = (targetPos - currentPos).Magnitude
+			
+			currentSpeed = currentSpeed + (ACCELERATION * 1.5 * dt)
+			local moveAmount = direction * currentSpeed * dt
+			
+			if distance < moveAmount.Magnitude or distance < 2 then
+				playPickupSound()
+				orbPart:Destroy()
+				if connection then connection:Disconnect() end
+			else
+				orbPart.Position = currentPos + moveAmount
+			end
+		end)
+	end)
+end
+
 -- ==========================================================
 -- TEXT POPUP (for "+50 XP" style notifications)
 -- ==========================================================
@@ -457,6 +581,14 @@ function LootFX.Init()
 			floatHeight = data.config.floatHeight,
 			floatDuration = data.config.floatDuration,
 		})
+
+		-- Handle rarity items
+		if data.config.rarity and data.config.rarity ~= "" then
+			LootFX.SpawnItemOrb({
+				position = position,
+				rarity = data.config.rarity,
+			})
+		end
 	end)
 	
 	print("[LootFX] Initialized!")

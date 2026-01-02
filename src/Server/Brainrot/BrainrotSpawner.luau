@@ -23,6 +23,15 @@ local MobAI = require(Server:WaitForChild("Brainrot"):WaitForChild("MobAI"))
 local Mutations = require(Shared:WaitForChild("Mutations"))
 local IndexSystem = require(Server:WaitForChild("Index"):WaitForChild("IndexSystem"))
 local LootSystem = require(Server:WaitForChild("Brainrot"):WaitForChild("LootSystem"))
+ 
+-- Use lazy require for LeaderboardService to avoid circular dependency
+local LeaderboardService = nil
+local function getLeaderboardService()
+	if not LeaderboardService then
+		LeaderboardService = require(Server:WaitForChild("Leaderboard"):WaitForChild("LeaderboardService"))
+	end
+	return LeaderboardService
+end
 
 local BrainrotSpawner = {}
 
@@ -259,6 +268,16 @@ local function spawnBrainrot(group: ZoneGroup)
 	local maxHealth: number = if typeof(maxHealthAttr) == "number" then maxHealthAttr else 100
 	local health = Health.new(brainrot, maxHealth)
 	
+	-- Setup Damage leaderboard tracking
+	health.DamageDealt:Connect(function(instigator, amount)
+		if instigator and amount > 0 then
+			task.spawn(function()
+				local lbService = getLeaderboardService()
+				lbService.IncrementScore(instigator, "TotalDamage", amount)
+			end)
+		end
+	end)
+	
 	-- Setup AI pathfinding and animation
 	local mobAI = MobAI.new(brainrot)
 	if mobAI then
@@ -301,8 +320,29 @@ local function spawnBrainrot(group: ZoneGroup)
 					end
 				end
 				
+				-- Calculate final display amounts (with all multipliers for UI)
+				local xpDisplayAmount = xpReward * playerData.ExperienceMultiplier
+				local goldDisplayAmount = goldReward * playerData.GoldMultiplier
+				
+
+				
+				-- Floor final amounts
+				xpDisplayAmount = math.floor(xpDisplayAmount)
+				goldDisplayAmount = math.floor(goldDisplayAmount)
+				
 				playerData:AddExperience(xpReward)
 				playerData:AddGold(goldReward)
+				
+				-- Update leaderboard (BrainrotKills)
+				task.spawn(function()
+					local lbService = getLeaderboardService()
+					lbService.IncrementScore(instigator, "BrainrotKills", 1)
+				end)
+				
+				-- Format amounts with MoneyLib
+				local MoneyLib = require(Shared:WaitForChild("MoneyLib"))
+				local xpText = "+" .. MoneyLib.Format(xpDisplayAmount) .. " XP"
+				local goldText = "+" .. MoneyLib.Format(goldDisplayAmount) .. " Gold"
 				
 				-- Send Loot FX to killer client
 				if primaryPart then
@@ -321,8 +361,8 @@ local function spawnBrainrot(group: ZoneGroup)
 							color = { 66, 135, 245 }, -- Blue for XP
 							trailEnabled = true,
 							trailColor = { 100, 160, 255 }, -- Light blue trail
-							count = math.floor(xpReward / 10), -- 1 part per 10 XP, no limits
-							text = "+" .. tostring(xpReward) .. " XP",
+							count = math.floor(xpDisplayAmount / 10), -- 1 part per 10 XP, no limits
+							text = xpText,
 						},
 					}, instigator)
 					
@@ -336,8 +376,8 @@ local function spawnBrainrot(group: ZoneGroup)
 							color = { 255, 215, 0 }, -- Gold color
 							trailEnabled = true,
 							trailColor = { 255, 200, 50 }, -- Gold trail
-							count = math.floor(goldReward / 100), -- 1 part per 100 gold, no limits
-							text = "+" .. tostring(goldReward) .. " Gold",
+							count = math.floor(goldDisplayAmount / 100), -- 1 part per 100 gold, no limits
+							text = goldText,
 						},
 					}, instigator)
 				end
@@ -678,11 +718,49 @@ function BrainrotSpawner.SpawnBrainrotWithMutation(zoneName: string, mobName: st
 			if playerData then
 				local xpRewardAttr = brainrot:GetAttribute("BaseXPReward")
 				local xpReward: number = if typeof(xpRewardAttr) == "number" then xpRewardAttr else 10
-				playerData:AddExperience(xpReward)
 				
 				local goldRewardAttr = brainrot:GetAttribute("BaseGoldReward")
 				local goldReward: number = if typeof(goldRewardAttr) == "number" then goldRewardAttr else 5
+				
+				-- Calculate final display amounts (with all multipliers for UI)
+				local xpDisplayAmount = xpReward * playerData.ExperienceMultiplier
+				local goldDisplayAmount = goldReward * playerData.GoldMultiplier
+				
+				-- Apply potion buff multipliers for display
+				local potionXPBuff = instigator:GetAttribute("Buff_Potion_XP") :: number?
+				if potionXPBuff and potionXPBuff > 0 then
+					xpDisplayAmount = xpDisplayAmount * potionXPBuff
+				end
+				local potionExpBuff = instigator:GetAttribute("Buff_Potion_Experience") :: number?
+				if potionExpBuff and potionExpBuff > 0 then
+					xpDisplayAmount = xpDisplayAmount * potionExpBuff
+				end
+				local potionGoldBuff = instigator:GetAttribute("Buff_Potion_Gold") :: number?
+				if potionGoldBuff and potionGoldBuff > 0 then
+					goldDisplayAmount = goldDisplayAmount * potionGoldBuff
+				end
+				local potionCoinsBuff = instigator:GetAttribute("Buff_Potion_Coins") :: number?
+				if potionCoinsBuff and potionCoinsBuff > 0 then
+					goldDisplayAmount = goldDisplayAmount * potionCoinsBuff
+				end
+				
+				-- Floor final amounts
+				xpDisplayAmount = math.floor(xpDisplayAmount)
+				goldDisplayAmount = math.floor(goldDisplayAmount)
+				
+				playerData:AddExperience(xpReward)
 				playerData:AddGold(goldReward)
+				
+				-- Update leaderboard (BrainrotKills)
+				task.spawn(function()
+					local lbService = getLeaderboardService()
+					lbService.IncrementScore(instigator, "BrainrotKills", 1)
+				end)
+				
+				-- Format amounts with MoneyLib
+				local MoneyLib = require(Shared:WaitForChild("MoneyLib"))
+				local xpText = "+" .. MoneyLib.Format(xpDisplayAmount) .. " XP"
+				local goldText = "+" .. MoneyLib.Format(goldDisplayAmount) .. " Gold"
 				
 				if primaryPart then
 					local fxPos = primaryPart.Position
@@ -691,12 +769,12 @@ function BrainrotSpawner.SpawnBrainrotWithMutation(zoneName: string, mobName: st
 					
 					Packets.lootDropFX.sendTo({
 						posX = fxPos.X - 0.5, posY = fxPos.Y + 1, posZ = fxPos.Z,
-						config = { image = xpImage, color = { 66, 135, 245 }, trailEnabled = true, trailColor = { 100, 160, 255 }, count = math.floor(xpReward / 10) },
+						config = { image = xpImage, color = { 66, 135, 245 }, trailEnabled = true, trailColor = { 100, 160, 255 }, count = math.floor(xpDisplayAmount / 10), text = xpText },
 					}, instigator)
 					
 					Packets.lootDropFX.sendTo({
 						posX = fxPos.X + 0.5, posY = fxPos.Y + 1, posZ = fxPos.Z,
-						config = { image = goldImage, color = { 255, 215, 0 }, trailEnabled = true, trailColor = { 255, 200, 50 }, count = math.floor(goldReward / 100) },
+						config = { image = goldImage, color = { 255, 215, 0 }, trailEnabled = true, trailColor = { 255, 200, 50 }, count = math.floor(goldDisplayAmount / 100), text = goldText },
 					}, instigator)
 				end
 			end

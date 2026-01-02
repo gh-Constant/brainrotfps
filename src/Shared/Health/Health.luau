@@ -41,6 +41,7 @@ export type HealthObject = typeof(setmetatable({}, Health)) & {
     Instance: Instance,
     Died: typeof(Signal.new()),
     HealthChanged: typeof(Signal.new()), -- (newHealth, maxHealth)
+    DamageDealt: typeof(Signal.new()),   -- (instigator: Player?, amount: number)
     _janitor: typeof(Janitor.new()),
     _lastDamageTime: number?,
     _damageHistory: {[number]: number}, -- UserId -> Amount
@@ -64,6 +65,7 @@ function Health.new(instance: Instance, maxHealth: number?): HealthObject
     self.Instance = instance
     self.Died = Signal.new()
     self.HealthChanged = Signal.new()
+    self.DamageDealt = Signal.new()
     self._janitor = Janitor.new()
     self._lastDamageTime = nil
     self._damageHistory = {}
@@ -72,6 +74,7 @@ function Health.new(instance: Instance, maxHealth: number?): HealthObject
     -- Add Signals to janitor for cleanup
     self._janitor:Add(self.Died, "Destroy")
     self._janitor:Add(self.HealthChanged, "Destroy")
+    self._janitor:Add(self.DamageDealt, "Destroy")
     
     -- Store in cache
     healthCache[instance] = self
@@ -238,6 +241,9 @@ function Health:TakeDamage(amount: number, instigator: Player?)
     local newHealth = math.max(0, current - amount)
     
     self.Instance:SetAttribute(ATTR_HEALTH, newHealth)
+    
+    -- Fire damage dealt signal
+    self.DamageDealt:Fire(instigator, amount)
 end
 
 --[[

@@ -67,66 +67,80 @@ function LeaderboardExample.CreateDisplay(config: DisplayConfig): { SurfaceGui: 
     assert(config.ValueName, "ValueName is required!")
     
     local face = config.Face or Enum.NormalId.Front
+    local valueName = config.ValueName
     local period = config.Period or "AllTime"
     local pixelsPerStud = config.PixelsPerStud or 50
     local autoRefresh = config.AutoRefresh ~= false -- Default true
     local refreshInterval = config.RefreshInterval or 30
     
-    -- Create SurfaceGui
-    local surfaceGui = Instance.new("SurfaceGui")
-    surfaceGui.Name = "LeaderboardDisplay"
-    surfaceGui.Face = face
-    surfaceGui.PixelsPerStud = pixelsPerStud
-    surfaceGui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-    surfaceGui.LightInfluence = 0
-    surfaceGui.ResetOnSpawn = false
-    surfaceGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    surfaceGui.Parent = config.Part
+    -- Find or Create SurfaceGui
+    local surfaceGui = config.Part:FindFirstChild("LeaderboardDisplay") :: SurfaceGui?
+    if not surfaceGui then
+        surfaceGui = Instance.new("SurfaceGui")
+        surfaceGui.Name = "LeaderboardDisplay"
+        surfaceGui.Face = face
+        surfaceGui.PixelsPerStud = pixelsPerStud
+        surfaceGui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+        surfaceGui.LightInfluence = 0
+        surfaceGui.ResetOnSpawn = false
+        surfaceGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        surfaceGui.Parent = config.Part
+    end
+    
+    local validSurfaceGui = surfaceGui :: SurfaceGui
     
     -- Create UI with options
-    local ui = LeaderboardUI.Create(surfaceGui, {
+    local ui = LeaderboardUI.Create(validSurfaceGui, {
         ShowPeriodTabs = config.ShowPeriodTabs,
         Title = config.Title,
     })
     
-    -- Connect UI signals to controller
+    -- Connect UI buttons to controller
     ui.OnPeriodClicked:Connect(function(newPeriod: string)
-        LeaderboardController.SetPeriod(newPeriod :: any)
+        LeaderboardController.SetPeriod(valueName, newPeriod :: any)
     end)
     
     ui.OnPrevClicked:Connect(function()
-        LeaderboardController.PrevPage()
+        LeaderboardController.PrevPage(valueName)
     end)
     
     ui.OnNextClicked:Connect(function()
-        LeaderboardController.NextPage()
+        LeaderboardController.NextPage(valueName)
     end)
     
     -- Connect controller signals to UI
-    LeaderboardController.OnDataReceived:Connect(function(data)
-        ui:Render(data)
+    LeaderboardController.OnDataReceived:Connect(function(receivedValueName, data)
+        if receivedValueName == valueName then
+            ui:Render(data)
+            ui:SetPage(data.PageNumber, data.TotalPages)
+            ui:SetPeriod(data.Period)
+        end
+    end)
+
+    LeaderboardController.OnPeriodChanged:Connect(function(receivedValueName, newPeriod)
+        if receivedValueName == valueName then
+            ui:SetPeriod(newPeriod)
+        end
     end)
     
-    LeaderboardController.OnLoadingChanged:Connect(function(isLoading)
-        ui:SetLoading(isLoading)
+    LeaderboardController.OnLoadingChanged:Connect(function(receivedValueName, isLoading)
+        if receivedValueName == valueName then
+            ui:SetLoading(isLoading)
+        end
     end)
     
     -- Initial request
-    LeaderboardController.RequestPage(config.ValueName, period :: any, 1)
+    LeaderboardController.RequestPage(valueName, period :: any, 1)
     
     -- Auto-refresh loop
     if autoRefresh then
         task.spawn(function()
-            while surfaceGui.Parent do
+            while validSurfaceGui.Parent do
                 task.wait(refreshInterval)
-                if surfaceGui.Parent then
-                    local state = LeaderboardController.GetCurrentData()
-                    if state.valueName then
-                        LeaderboardController.RequestPage(
-                            state.valueName,
-                            state.period,
-                            state.pageNumber
-                        )
+                if validSurfaceGui.Parent then
+                    local state = LeaderboardController.GetCurrentData(valueName)
+                    if state and state.valueName then
+                        LeaderboardController.Refresh(valueName)
                     end
                 end
             end
@@ -134,7 +148,7 @@ function LeaderboardExample.CreateDisplay(config: DisplayConfig): { SurfaceGui: 
     end
     
     return {
-        SurfaceGui = surfaceGui,
+        SurfaceGui = validSurfaceGui,
         UI = ui,
     }
 end

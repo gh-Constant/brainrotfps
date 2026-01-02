@@ -40,6 +40,12 @@ end
 --[[
     Recalculates and applies multipliers for a player.
 ]]
+--[[
+    Recalculates and applies multipliers for a player.
+    Formula: Base(1) + FriendBonus + PremiumBonus + GamePassBonus + PotionBonus
+    where GamePassBonus = (2x - 1) = 1
+    and PotionBonus = (Nx - 1)
+]]
 local function calculateMultipliers(player: Player)
     local playerManager = getPlayerManager()
     local playerData = playerManager.GetPlayerData(player)
@@ -62,9 +68,28 @@ local function calculateMultipliers(player: Player)
     local isPremium = player.MembershipType == Enum.MembershipType.Premium
     local premiumBoost = isPremium and PREMIUM_BOOST or 0
     
-    -- 3. Final Calculation
-    local totalXPMultiplier = (1 + friendBoost + premiumBoost)
-    local totalGoldMultiplier = (1 + premiumBoost)
+    -- 3. Gamepass Bonus (Additive)
+    -- If owned, adds 100% (so +1.0)
+    local xpGamePassBonus = player:GetAttribute("GamePass_DoubleXP") and 1.0 or 0
+    local goldGamePassBonus = player:GetAttribute("GamePass_DoubleGold") and 1.0 or 0
+    
+    -- 4. Potion Bonus (Additive)
+    -- Potion 2x means +1.0 bonus. Potion 3x means +2.0 bonus.
+    -- Formula: (Multiplier - 1)
+    local potionXPVal = player:GetAttribute("Buff_Potion_XP") :: number or 1
+    local potionExpVal = player:GetAttribute("Buff_Potion_Experience") :: number or 1
+    local maxPotionXP = math.max(potionXPVal, potionExpVal)
+    local potionXPBonus = math.max(0, maxPotionXP - 1)
+    
+    local potionGoldVal = player:GetAttribute("Buff_Potion_Gold") :: number or 1
+    local potionCoinsVal = player:GetAttribute("Buff_Potion_Coins") :: number or 1
+    local maxPotionGold = math.max(potionGoldVal, potionCoinsVal)
+    local potionGoldBonus = math.max(0, maxPotionGold - 1)
+    
+    -- 5. Final Calculation (Additive)
+    -- Base (1.0) + All Bonuses
+    local totalXPMultiplier = 1.0 + friendBoost + premiumBoost + xpGamePassBonus + potionXPBonus
+    local totalGoldMultiplier = 1.0 + premiumBoost + goldGamePassBonus + potionGoldBonus
     
     -- Apply to PlayerData
     playerData.ExperienceMultiplier = totalXPMultiplier
@@ -74,8 +99,9 @@ local function calculateMultipliers(player: Player)
     player:SetAttribute("Buff_FriendBoost", friendBoost)
     player:SetAttribute("Buff_Premium", isPremium)
     
-    print(string.format("[BuffService] Updated %s: XP x%.2f (Friends: %d, Prem: %s), Gold x%.2f", 
-        player.Name, totalXPMultiplier, friendCount, tostring(isPremium), totalGoldMultiplier))
+    -- Debug print for verification
+    print(string.format("[BuffService] Updated %s: XP x%.2f (Base: 1.0, Friend: %.2f, Prem: %.2f, GP: %.1f, Pot: %.1f)", 
+        player.Name, totalXPMultiplier, friendBoost, premiumBoost, xpGamePassBonus, potionXPBonus))
 end
 
 --[[
@@ -107,6 +133,16 @@ function BuffService.Init()
             -- Update everyone else because a potential friend joined
             updateAllPlayers()
         end)
+        
+        -- GamePass Attributes (set by GamePassService)
+        player:GetAttributeChangedSignal("GamePass_DoubleXP"):Connect(function() calculateMultipliers(player) end)
+        player:GetAttributeChangedSignal("GamePass_DoubleGold"):Connect(function() calculateMultipliers(player) end)
+        
+        -- Potion Attributes (set by PotionService)
+        player:GetAttributeChangedSignal("Buff_Potion_XP"):Connect(function() calculateMultipliers(player) end)
+        player:GetAttributeChangedSignal("Buff_Potion_Experience"):Connect(function() calculateMultipliers(player) end)
+        player:GetAttributeChangedSignal("Buff_Potion_Gold"):Connect(function() calculateMultipliers(player) end)
+        player:GetAttributeChangedSignal("Buff_Potion_Coins"):Connect(function() calculateMultipliers(player) end)
     end)
     
     -- Handle Player Removing

@@ -80,6 +80,6 @@ Constants.Gradients = {
 }
 
 -- DataStore key prefix
-Constants.DATASTORE_PREFIX = "Leaderboard"
+Constants.DATASTORE_PREFIX = "Leaderboard_v2"
 
 return Constants

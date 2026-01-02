@@ -151,8 +151,27 @@ local function setupCharacter(character: Model, playerData: PlayerClass.Player?)
             
             -- Victim resets to Level 1, 0 XP
             victimData:ResetProgress()
+            
+            -- Update leaderboard (PlayerKills)
+            task.spawn(function()
+                local lbService = getLeaderboardService()
+                lbService.IncrementScore(instigator, "PlayerKills", 1)
+            end)
         end
     end)
+
+    -- Setup Damage leaderboard tracking
+    local health = Health.Get(character)
+    if health then
+        health.DamageDealt:Connect(function(instigator, amount)
+            if instigator and amount > 0 then
+                task.spawn(function()
+                    local lbService = getLeaderboardService()
+                    lbService.IncrementScore(instigator, "TotalDamage", amount)
+                end)
+            end
+        end)
+    end
 end
 
 --[[
@@ -369,19 +388,7 @@ local function onPlayerAdded(player: Player)
         end)
     end)
     
-    -- Check GamePasses (async)
-    task.spawn(function()
-        -- Double XP and Double Gold are now handled by BuffService
-        
-        -- Double Damage
-        if MonetizationService.PerformPassCheck(player, ProductConfig.GamePasses.DoubleDamage.Id) then
-            playerData.DamageMultiplier = 2
-            if damageMultiplierValue and damageMultiplierValue.Parent then
-                damageMultiplierValue.Value = 2
-            end
-            print(string.format("[PlayerManager] %s owns 2x Damage!", player.Name))
-        end
-    end)
+    -- Note: GamePass multipliers (2x XP, Gold, Damage) are now handled by GamePassService
 end
 
 --[[

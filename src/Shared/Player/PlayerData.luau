@@ -48,6 +48,7 @@ export type Player = {
     
     -- Internal
     _destroyed: boolean,
+    _player: Player?,
     
     -- Methods
     GetData: (self: Player) -> PlayerData,
@@ -222,7 +223,7 @@ function PlayerClass:AddExperience(amount: number): boolean
         return false
     end
     
-    -- Apply multiplier
+    -- Apply base multiplier (from BuffService: Friends, Premium, GP, Potions)
     amount = amount * player.ExperienceMultiplier
     
     local previousExperience = player.Experience
@@ -277,7 +278,7 @@ function PlayerClass:AddGold(amount: number): boolean
         return false
     end
     
-    -- Apply multiplier
+    -- Apply base multiplier (from BuffService: Friends, Premium, GP, Potions)
     amount = amount * player.GoldMultiplier
     
     local previousGold = player.Gold

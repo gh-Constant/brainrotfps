@@ -14,7 +14,7 @@
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
+local Players = game:GetService("Players")
 
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
 local Shared = Rojo:WaitForChild("Shared")
@@ -24,6 +24,7 @@ local Signal = require(Packages:WaitForChild("signal"))
 local LeaderboardModule = require(Shared:WaitForChild("Leaderboard"))
 local Constants = LeaderboardModule.Constants
 local MoneyLib = require(Shared:WaitForChild("MoneyLib"))
+local ExternalConfig = ReplicatedStorage:WaitForChild("Config")
 
 type LeaderboardEntry = LeaderboardModule.LeaderboardEntry
 type LeaderboardPage = LeaderboardModule.LeaderboardPage
@@ -51,17 +52,19 @@ export type LeaderboardUIInstance = typeof(setmetatable({} :: {
     Header: Frame,
     TitleLabel: TextLabel,
     PeriodTabs: Frame?,
-    ScrollFrame: ScrollingFrame,
+    ListContainer: ScrollingFrame,
     PageFrame: Frame,
     PageLabel: TextLabel,
     PrevButton: TextButton,
     NextButton: TextButton,
-    EntryPool: {Frame},
     CurrentPeriod: LeaderboardPeriod,
+    Config: LeaderboardUIOptions,
     OnPeriodClicked: any,
     OnPrevClicked: any,
     OnNextClicked: any,
-    ShowPeriodTabs: boolean,
+    LoadingIndicator: Frame?,
+    LoadingSpinner: TextLabel?,
+    _spinnerConnection: RBXScriptConnection?,
 }, LeaderboardUI))
 
 --------------------------------------------------------------------------------
@@ -73,16 +76,6 @@ local function createCorner(parent: GuiObject, radius: number): UICorner
     corner.CornerRadius = UDim.new(0, radius)
     corner.Parent = parent
     return corner
-end
-
-local function createPadding(parent: GuiObject, padding: number): UIPadding
-    local uiPadding = Instance.new("UIPadding")
-    uiPadding.PaddingTop = UDim.new(0, padding)
-    uiPadding.PaddingBottom = UDim.new(0, padding)
-    uiPadding.PaddingLeft = UDim.new(0, padding)
-    uiPadding.PaddingRight = UDim.new(0, padding)
-    uiPadding.Parent = parent
-    return uiPadding
 end
 
 local function _createStroke(parent: GuiObject, color: Color3, thickness: number): UIStroke
@@ -111,9 +104,6 @@ local function getSizeTier(rank: number): any -- Using any to bypass type issue 
     return Constants.SizeTiers[#Constants.SizeTiers]
 end
 
-local entryPool = {}
-local Players = game:GetService("Players")
-
 local function formatValue(value: number, valueName: string?): string
     if valueName == "Level" then
         return MoneyLib.FormatWithCommas(value)
@@ -122,214 +112,105 @@ local function formatValue(value: number, valueName: string?): string
     end
 end
 
---------------------------------------------------------------------------------
--- Entry Rendering
---------------------------------------------------------------------------------
-
-local function createEntryFrame(): Frame
-    local frame = Instance.new("Frame")
-    frame.Name = "Entry"
-    frame.BackgroundColor3 = Constants.Colors.Entry
-    frame.BorderSizePixel = 0
-    frame.Size = UDim2.new(1, 0, 0, 50)
-    createCorner(frame, 8)
-    
-    -- Rank Label (Leftmost)
-    local rankLabel = Instance.new("TextLabel")
-    rankLabel.Name = "RankLabel"
-    rankLabel.Size = UDim2.new(0.15, 0, 1, 0)
-    rankLabel.Position = UDim2.new(0, 0, 0, 0)
-    rankLabel.BackgroundTransparency = 1
-    rankLabel.TextColor3 = Constants.Colors.Text
-    rankLabel.Font = Enum.Font.GothamBold
-    rankLabel.TextSize = 20
-    rankLabel.TextXAlignment = Enum.TextXAlignment.Center
-    rankLabel.Parent = frame
-    
-    -- Avatar (Square, next to rank)
-    local avatar: ImageLabel = Instance.new("ImageLabel")
-    avatar.Name = "Avatar"
-    avatar.Size = UDim2.new(0.8, 0, 0.8, 0) -- Relative to height
-    avatar.SizeConstraint = Enum.SizeConstraint.RelativeYY
-    avatar.Position = UDim2.new(0.15, 5, 0.5, 0)
-    avatar.AnchorPoint = Vector2.new(0, 0.5) -- Center vertically
-    avatar.BackgroundTransparency = 1
-    avatar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-    createCorner(avatar, 100) -- Circle
-    avatar.Parent = frame
-    
-    -- Icon Label (for top 3 medals, overlay on rank)
-    local iconLabel = Instance.new("TextLabel")
-    iconLabel.Name = "IconLabel"
-    iconLabel.Size = UDim2.new(0.15, 0, 1, 0)
-    iconLabel.Position = UDim2.new(0, 0, 0, 0)
-    iconLabel.BackgroundTransparency = 1
-    iconLabel.TextColor3 = Constants.Colors.Text
-    iconLabel.Font = Enum.Font.GothamBold
-    iconLabel.TextSize = 24
-    iconLabel.Visible = false
-    iconLabel.ZIndex = 2
-    iconLabel.Parent = frame
-    
-    -- Value Label (Rightmost)
-    local valueLabel = Instance.new("TextLabel")
-    valueLabel.Name = "ValueLabel"
-    valueLabel.Size = UDim2.new(0.25, -10, 1, 0)
-    valueLabel.Position = UDim2.new(1, -10, 0, 0)
-    valueLabel.AnchorPoint = Vector2.new(1, 0)
-    valueLabel.BackgroundTransparency = 1
-    valueLabel.TextColor3 = Constants.Colors.Accent
-    valueLabel.Font = Enum.Font.GothamBold
-    valueLabel.TextSize = 18
-    valueLabel.TextXAlignment = Enum.TextXAlignment.Right
-    valueLabel.Parent = frame
-    
-    -- Info Area (Name + Subname) - Centered between Avatar and Value
-    local infoFrame = Instance.new("Frame")
-    infoFrame.Name = "Info"
-    -- Width: 100% - (Rank 15% + Avatar offset 5px + Avatar width ~40px + Value 25%)
-    -- Roughly 0.6 scale - offsets
-    infoFrame.Size = UDim2.new(0.55, -50, 0.8, 0) 
-    infoFrame.Position = UDim2.new(0.15, 55, 0.5, 0) -- Starts after avatar
-    infoFrame.AnchorPoint = Vector2.new(0, 0.5)
-    infoFrame.BackgroundTransparency = 1
-    infoFrame.Parent = frame
-    
-    -- Name Label
-    local nameLabel: TextLabel = Instance.new("TextLabel")
-    nameLabel.Name = "NameLabel"
-    nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
-    nameLabel.Position = UDim2.new(0, 0, 0, 0)
-    nameLabel.BackgroundTransparency = 1
-    nameLabel.TextColor3 = Constants.Colors.Text
-    nameLabel.Font = Enum.Font.GothamMedium
-    nameLabel.TextSize = 18
-    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-    nameLabel.TextYAlignment = Enum.TextYAlignment.Bottom
-    nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-    nameLabel.Parent = infoFrame
-    
-    -- Subname Label (@username)
-    local subnameLabel: TextLabel = Instance.new("TextLabel")
-    subnameLabel.Name = "SubnameLabel"
-    subnameLabel.Size = UDim2.new(1, 0, 0.5, 0)
-    subnameLabel.Position = UDim2.new(0, 0, 0.5, 0)
-    subnameLabel.BackgroundTransparency = 1
-    subnameLabel.TextColor3 = Constants.Colors.TextSecondary
-    subnameLabel.Font = Enum.Font.Gotham
-    subnameLabel.TextSize = 12
-    subnameLabel.TextXAlignment = Enum.TextXAlignment.Left
-    subnameLabel.TextYAlignment = Enum.TextYAlignment.Top
-    subnameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-    subnameLabel.Parent = infoFrame
-    
-    -- Glow Effect
-    local glow: ImageLabel = Instance.new("ImageLabel")
-    glow.Name = "Glow"
-    glow.Size = UDim2.new(1, 20, 1, 20)
-    glow.Position = UDim2.new(0, -10, 0, -10)
-    glow.BackgroundTransparency = 1
-    glow.Image = "rbxassetid://5028857084" 
-    glow.ImageTransparency = 0.8
-    glow.ZIndex = 0
-    glow.Visible = false
-    glow.Parent = frame
-    
-    return frame
-end
+local entryPool: {Frame} = {}
+local _entryTemplate: Frame?
 
 local function getEntryFrame(): Frame
     if #entryPool > 0 then
         return table.remove(entryPool) :: Frame
     end
-    return createEntryFrame()
+    
+    if not _entryTemplate then
+        assert(ExternalConfig, "ExternalConfig (ReplicatedStorage.Config) missing!")
+        local leaderboardNode = ExternalConfig:WaitForChild("Leaderboard", 5)
+        local templateNode = leaderboardNode and leaderboardNode:WaitForChild("Template", 5)
+        local entryPath = templateNode and templateNode:WaitForChild("EntryTemplate", 5)
+        
+        _entryTemplate = entryPath :: any
+    end
+    
+    if not _entryTemplate then
+        error("[LeaderboardUI] Could not find EntryTemplate in ReplicatedStorage.Config.Leaderboard.Template")
+    end
+    
+    return (_entryTemplate :: Frame):Clone()
 end
 
 local function updateEntry(entry: Frame, data: LeaderboardEntry, isAlt: boolean, valueName: string?)
-    local tier = getSizeTier(data.Rank)
+    local rank = data.Rank
+    local tier = getSizeTier(rank)
     
-    -- Update size
-    entry.Size = UDim2.new(1, 0, 0, tier.Height)
+    -- Calculate height scale based on top 3 hierarchy
+    local heightScale = 0.08 -- Default for Rank 4+
+    if rank == 1 then
+        heightScale = 0.22 -- ~2.8x base
+    elseif rank == 2 then
+        heightScale = 0.16 -- 2x base
+    elseif rank == 3 then
+        heightScale = 0.12 -- 1.5x base
+    end
     
-    -- Update background
-    if data.Rank == 1 then
+    entry.Size = UDim2.fromScale(1, heightScale)
+    
+    -- Update background colors/gradients
+    local rankGradient = entry:FindFirstChild("RankGradient") :: UIGradient?
+    if rank == 1 then
         entry.BackgroundColor3 = Color3.fromRGB(60, 50, 20)
-        local gradient = entry:FindFirstChild("RankGradient") :: UIGradient?
-        if not gradient then
-            gradient = createGradient(entry, Constants.Gradients.Gold, -90)
-            gradient.Name = "RankGradient"
+        if not rankGradient then
+            rankGradient = createGradient(entry, Constants.Gradients.Gold, -90)
+            rankGradient.Name = "RankGradient"
         else
-            gradient.Color = Constants.Gradients.Gold
+            rankGradient.Color = Constants.Gradients.Gold
         end
-    elseif data.Rank == 2 then
+    elseif rank == 2 then
         entry.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
-        local gradient = entry:FindFirstChild("RankGradient") :: UIGradient?
-        if not gradient then
-            gradient = createGradient(entry, Constants.Gradients.Silver, -90)
-            gradient.Name = "RankGradient"
+        if not rankGradient then
+            rankGradient = createGradient(entry, Constants.Gradients.Silver, -90)
+            rankGradient.Name = "RankGradient"
         else
-            gradient.Color = Constants.Gradients.Silver
+            rankGradient.Color = Constants.Gradients.Silver
         end
-    elseif data.Rank == 3 then
+    elseif rank == 3 then
         entry.BackgroundColor3 = Color3.fromRGB(55, 40, 25)
-        local gradient = entry:FindFirstChild("RankGradient") :: UIGradient?
-        if not gradient then
-            gradient = createGradient(entry, Constants.Gradients.Bronze, -90)
-            gradient.Name = "RankGradient"
+        if not rankGradient then
+            rankGradient = createGradient(entry, Constants.Gradients.Bronze, -90)
+            rankGradient.Name = "RankGradient"
         else
-            gradient.Color = Constants.Gradients.Bronze
+            rankGradient.Color = Constants.Gradients.Bronze
         end
     else
         entry.BackgroundColor3 = isAlt and Constants.Colors.EntryAlt or Constants.Colors.Entry
-        local gradient = entry:FindFirstChild("RankGradient")
-        if gradient then
-            gradient:Destroy()
+        if rankGradient then
+            rankGradient:Destroy()
         end
     end
     
     -- Update labels
-    local rankLabel = entry:FindFirstChild("RankLabel") :: TextLabel
-    local avatar = entry:FindFirstChild("Avatar") :: ImageLabel
-    local infoFrame = entry:FindFirstChild("Info") :: Frame
-    local nameLabel = infoFrame:FindFirstChild("NameLabel") :: TextLabel
-    local subnameLabel = infoFrame:FindFirstChild("SubnameLabel") :: TextLabel
-    local valueLabel = entry:FindFirstChild("ValueLabel") :: TextLabel
-    local iconLabel = entry:FindFirstChild("IconLabel") :: TextLabel
-    local glow = entry:FindFirstChild("Glow") :: ImageLabel
+    local rankLabel = entry:FindFirstChild("RankLabel") :: TextLabel?
+    local avatar = entry:FindFirstChild("Avatar") :: ImageLabel?
+    local infoFrame = entry:FindFirstChild("Info") :: Frame?
+    local nameLabel = infoFrame and infoFrame:FindFirstChild("NameLabel") :: TextLabel?
+    local subnameLabel = infoFrame and infoFrame:FindFirstChild("SubnameLabel") :: TextLabel?
+    local valueLabel = entry:FindFirstChild("ValueLabel") :: TextLabel?
+    local iconLabel = entry:FindFirstChild("IconLabel") :: TextLabel?
+    local glow = entry:FindFirstChild("Glow") :: ImageLabel?
     
     if rankLabel then
         rankLabel.Text = "#" .. tostring(data.Rank)
-        rankLabel.TextSize = tier.FontSize
-        
-        if tier.GlowColor then
-            rankLabel.TextColor3 = tier.GlowColor
-        else
-            rankLabel.TextColor3 = Constants.Colors.Text
-        end
+        rankLabel.TextColor3 = tier.GlowColor or Constants.Colors.Text
     end
     
     if avatar then
         task.spawn(function()
             local content, isReady = Players:GetUserThumbnailAsync(data.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size48x48)
-            if isReady then
-                avatar.Image = content
-            else
-                avatar.Image = "rbxassetid://0" -- Fallback or placeholder
-            end
+            avatar.Image = isReady and content or "rbxassetid://0"
         end)
-        
-         -- Adjust InfoFrame position dynamically based on actual avatar size being relative
-         -- UDim2.new(0.15, 55, 0, 0) assumes a certain offset.
-         -- Using binding or just static offset is fine for now as Avatar is RelativeYY
-         -- Since Parent is scrolling frame width (e.g. 500px), 0.8 * 50 = 40px width.
-         -- Offset 55 covers it.
     end
     
     if iconLabel then
         if tier.Icon then
             iconLabel.Text = tier.Icon
             iconLabel.Visible = true
-            iconLabel.TextSize = tier.FontSize
         else
             iconLabel.Visible = false
         end
@@ -337,20 +218,14 @@ local function updateEntry(entry: Frame, data: LeaderboardEntry, isAlt: boolean,
     
     if nameLabel then
         nameLabel.Text = data.DisplayName
-        nameLabel.TextSize = math.max(14, tier.FontSize - 4)
     end
     
     if subnameLabel then
-        if data.Username and data.Username ~= "" then
-            subnameLabel.Text = "@" .. data.Username
-        else
-            subnameLabel.Text = ""
-        end
+        subnameLabel.Text = (data.Username and data.Username ~= "") and ("@" .. data.Username) or ""
     end
     
     if valueLabel then
         valueLabel.Text = formatValue(data.Value, valueName)
-        valueLabel.TextSize = math.max(14, tier.FontSize - 4)
     end
     
     if glow then
@@ -363,8 +238,9 @@ local function updateEntry(entry: Frame, data: LeaderboardEntry, isAlt: boolean,
     end
 end
 
-
 function LeaderboardUI:Render(data: LeaderboardPage)
+    if not data then return end
+    
     -- Update title if provided
     if self.Config.Title and self.TitleLabel then
         self.TitleLabel.Text = self.Config.Title
@@ -376,22 +252,25 @@ function LeaderboardUI:Render(data: LeaderboardPage)
     end
     
     -- Clear current entries
-    for _, child in self.ListContainer:GetChildren() do
-        if child:IsA("Frame") then
-            -- Push to pool
-            child.Parent = nil
-            table.insert(entryPool, child)
+    if self.ListContainer then
+        for _, child in self.ListContainer:GetChildren() do
+            if child:IsA("Frame") then
+                -- Push to pool
+                child.Parent = nil
+                table.insert(entryPool, child)
+            end
         end
     end
     
     -- Render new entries
     for i, entryData in ipairs(data.Entries) do
-        local entryFrame = getEntryFrame()
+        local entryFrame = getEntryFrame() :: any
         entryFrame.LayoutOrder = i
         entryFrame.Parent = self.ListContainer
         
         -- Flash effect for local player
-        local isLocalPlayer = entryData.UserId == Players.LocalPlayer.UserId
+        local localPlayer = Players.LocalPlayer
+        local isLocalPlayer = localPlayer and entryData.UserId == localPlayer.UserId
         
         updateEntry(entryFrame, entryData, i % 2 == 0, data.ValueName)
         
@@ -401,7 +280,7 @@ function LeaderboardUI:Render(data: LeaderboardPage)
              if not stroke then
                  stroke = Instance.new("UIStroke")
                  stroke.Name = "LocalPlayerStroke"
-                 stroke.Color = Constants.Colors.Accent
+                 stroke.Color = (Constants :: any).Colors.Accent
                  stroke.Thickness = 2
                  stroke.Parent = entryFrame
              end
@@ -425,12 +304,15 @@ function LeaderboardUI:Render(data: LeaderboardPage)
     end
     
     -- Update period tabs
-    if self.Config.ShowPeriodTabs then
-        for period, button in self.PeriodTabs do
-            if period == data.Period then
-                button.BackgroundColor3 = Constants.Colors.TabActive
-            else
-                button.BackgroundColor3 = Constants.Colors.TabInactive
+    if self.Config.ShowPeriodTabs and self.PeriodTabs then
+        for _, tab in self.PeriodTabs:GetChildren() do
+            if tab:IsA("TextButton") then
+                local tabPeriod = string.gsub(tab.Name, "Tab", "")
+                if tabPeriod == data.Period then
+                    tab.BackgroundColor3 = Constants.Colors.TabActive
+                else
+                    tab.BackgroundColor3 = Constants.Colors.TabInactive
+                end
             end
         end
     end
@@ -449,7 +331,7 @@ end
     @param options - Optional configuration (ShowPeriodTabs, Title)
     @return LeaderboardUIInstance
 ]]
-function LeaderboardUI.Create(parent: GuiObject, options: LeaderboardUIOptions?): LeaderboardUIInstance
+function LeaderboardUI.Create(parent: Instance, options: LeaderboardUIOptions?): LeaderboardUIInstance
     local self = setmetatable({}, LeaderboardUI)
     
     -- Store Config
@@ -460,53 +342,58 @@ function LeaderboardUI.Create(parent: GuiObject, options: LeaderboardUIOptions?)
     self.ShowPeriodTabs = showPeriodTabs
     
     -- Main Container
-    local mainFrame = Instance.new("Frame")
+    local mainFrame: Frame = Instance.new("Frame")
     mainFrame.Name = "LeaderboardUI"
-    mainFrame.Size = UDim2.new(1, 0, 1, 0)
+    mainFrame.Size = UDim2.fromScale(1, 1)
     mainFrame.BackgroundColor3 = Constants.Colors.Background
     mainFrame.BorderSizePixel = 0
     createCorner(mainFrame, 16)
     mainFrame.Parent = parent
     self.Frame = mainFrame
     
-    createPadding(mainFrame, 15)
+    local padding = Instance.new("UIPadding")
+    padding.PaddingTop = UDim.new(0.04, 0)
+    padding.PaddingBottom = UDim.new(0.04, 0)
+    padding.PaddingLeft = UDim.new(0.04, 0)
+    padding.PaddingRight = UDim.new(0.04, 0)
+    padding.Parent = mainFrame
     
-    -- Header height depends on whether tabs are shown
-    local headerHeight = showPeriodTabs and 80 or 50
-    local scrollY = showPeriodTabs and 90 or 60
+    -- Layout constants
+    local headerScale = showPeriodTabs and 0.18 or 0.1
+    local footerScale = 0.1
+    local listScale = 1 - headerScale - footerScale - 0.05
     
     -- Header
-    local header = Instance.new("Frame")
+    local header: Frame = Instance.new("Frame")
     header.Name = "Header"
-    header.Size = UDim2.new(1, 0, 0, headerHeight)
-    header.Position = UDim2.new(0, 0, 0, 0)
+    header.Size = UDim2.fromScale(1, headerScale)
+    header.Position = UDim2.fromScale(0, 0)
     header.BackgroundColor3 = Constants.Colors.Header
     header.BorderSizePixel = 0
     createCorner(header, 12)
     header.Parent = mainFrame
+    header.ZIndex = 10
     self.Header = header
     
     -- Title
-    local titleLabel = Instance.new("TextLabel")
-    titleLabel.Name = "Title"
-    titleLabel.Size = UDim2.new(1, 0, 0, headerHeight)
-    titleLabel.Position = UDim2.new(0, 0, 0, 0)
+    local titleLabel: TextLabel = Instance.new("TextLabel")
+    titleLabel.Name = "TitleLabel"
+    titleLabel.Size = UDim2.fromScale(1, showPeriodTabs and 0.5 or 1)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text = customTitle or "🏆 LEADERBOARD 🏆"
-    titleLabel.TextColor3 = Constants.Colors.Gold
+    titleLabel.TextColor3 = Constants.Colors.Text
     titleLabel.Font = Enum.Font.GothamBold
-    titleLabel.TextSize = 28
+    titleLabel.TextScaled = true
+    titleLabel.Text = customTitle or "LEADERBOARD"
     titleLabel.Parent = header
     self.TitleLabel = titleLabel
-    
-    -- Period Tabs Container (only if enabled)
+
+    -- Period Tabs (if enabled)
     self.OnPeriodClicked = Signal.new()
-    
     if showPeriodTabs then
         local periodTabs = Instance.new("Frame")
         periodTabs.Name = "PeriodTabs"
-        periodTabs.Size = UDim2.new(1, -20, 0, 30)
-        periodTabs.Position = UDim2.new(0, 10, 0, 45)
+        periodTabs.Size = UDim2.fromScale(1, 0.4)
+        periodTabs.Position = UDim2.fromScale(0, 0.55)
         periodTabs.BackgroundTransparency = 1
         periodTabs.Parent = header
         self.PeriodTabs = periodTabs
@@ -514,140 +401,154 @@ function LeaderboardUI.Create(parent: GuiObject, options: LeaderboardUIOptions?)
         local tabLayout = Instance.new("UIListLayout")
         tabLayout.FillDirection = Enum.FillDirection.Horizontal
         tabLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-        tabLayout.Padding = UDim.new(0, 10)
+        tabLayout.Padding = UDim.new(0.02, 0)
         tabLayout.Parent = periodTabs
         
-        -- Create period tabs
         local periods = {"Daily", "Weekly", "Monthly", "AllTime"}
-        local periodLabels = {
-            Daily = "Daily",
-            Weekly = "Weekly", 
-            Monthly = "Monthly",
-            AllTime = "All Time"
-        }
+        local periodLabels = { Daily = "Daily", Weekly = "Weekly", Monthly = "Monthly", AllTime = "All Time" }
         
         for _, period in periods do
             local tab = Instance.new("TextButton")
             tab.Name = period .. "Tab"
-            tab.Size = UDim2.new(0, 90, 1, 0)
-            tab.BackgroundColor3 = Constants.Colors.TabInactive
+            tab.Size = UDim2.fromScale(0.22, 1)
+            local colors = (Constants :: any).Colors
+            tab.BackgroundColor3 = colors.TabInactive
             tab.Text = periodLabels[period] or period
-            tab.TextColor3 = Constants.Colors.Text
+            tab.TextColor3 = colors.Text
             tab.Font = Enum.Font.GothamMedium
-            tab.TextSize = 14
+            tab.TextScaled = true
             tab.BorderSizePixel = 0
-            tab.AutoButtonColor = false
             createCorner(tab, 6)
             tab.Parent = periodTabs
             
             tab.MouseButton1Click:Connect(function()
                 self.OnPeriodClicked:Fire(period)
             end)
-            
-            -- Hover effect
-            tab.MouseEnter:Connect(function()
-                if tab.BackgroundColor3 ~= Constants.Colors.TabActive then
-                    TweenService:Create(tab, TweenInfo.new(0.15), {
-                        BackgroundColor3 = Constants.Colors.PageButtonHover
-                    }):Play()
-                end
-            end)
-            
-            tab.MouseLeave:Connect(function()
-                if tab.BackgroundColor3 ~= Constants.Colors.TabActive then
-                    TweenService:Create(tab, TweenInfo.new(0.15), {
-                        BackgroundColor3 = Constants.Colors.TabInactive
-                    }):Play()
-                end
-            end)
         end
     end
-    
-    -- Scroll Container
+
+    -- Scroll List
     local listContainer = Instance.new("ScrollingFrame")
     listContainer.Name = "ListContainer"
-    listContainer.Size = UDim2.new(1, 0, 1, -(scrollY + 50)) -- Header + Page controls
-    listContainer.Position = UDim2.new(0, 0, 0, scrollY)
+    listContainer.Size = UDim2.fromScale(1, listScale)
+    listContainer.Position = UDim2.fromScale(0, headerScale + 0.02)
     listContainer.BackgroundTransparency = 1
-    listContainer.ScrollBarThickness = 6
+    listContainer.BorderSizePixel = 0
+    listContainer.ScrollBarThickness = 4
     listContainer.ScrollBarImageColor3 = Constants.Colors.Accent
-    listContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
+    listContainer.CanvasSize = UDim2.fromScale(1, 0)
     listContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
     listContainer.Parent = mainFrame
     self.ListContainer = listContainer
     
     local entryLayout = Instance.new("UIListLayout")
     entryLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    entryLayout.Padding = UDim.new(0, 5)
+    entryLayout.Padding = UDim.new(0.012, 0)
     entryLayout.Parent = listContainer
+    
+    -- Footer Area
+    local footer = Instance.new("Frame")
+    footer.Name = "Footer"
+    footer.Size = UDim2.fromScale(1, footerScale)
+    footer.Position = UDim2.fromScale(0, 1 - footerScale)
+    footer.BackgroundTransparency = 1
+    footer.Parent = mainFrame
     
     -- Page Controls
     local pageFrame = Instance.new("Frame")
-    pageFrame.Name = "PageControls"
-    pageFrame.Size = UDim2.new(1, 0, 0, 40)
-    pageFrame.Position = UDim2.new(0, 0, 1, -45)
-    pageFrame.BackgroundColor3 = Constants.Colors.Header
-    pageFrame.BorderSizePixel = 0
-    createCorner(pageFrame, 8)
-    pageFrame.Parent = mainFrame
+    pageFrame.Name = "PageFrame"
+    pageFrame.Size = UDim2.fromScale(0.6, 1)
+    pageFrame.BackgroundTransparency = 1
+    pageFrame.Parent = footer
     self.PageFrame = pageFrame
     
-    -- Prev Button
+    self.OnPrevClicked = Signal.new()
     local prevButton = Instance.new("TextButton")
-    prevButton.Name = "PrevButton"
-    prevButton.Size = UDim2.new(0, 80, 0, 30)
-    prevButton.Position = UDim2.new(0, 10, 0.5, -15)
+    prevButton.Size = UDim2.fromScale(0.3, 0.8)
+    prevButton.Position = UDim2.fromScale(0, 0.1)
     prevButton.BackgroundColor3 = Constants.Colors.PageButton
-    prevButton.Text = "◀ Prev"
+    prevButton.Text = "PREV"
     prevButton.TextColor3 = Constants.Colors.Text
-    prevButton.Font = Enum.Font.GothamMedium
-    prevButton.TextSize = 14
-    prevButton.BorderSizePixel = 0
+    prevButton.Font = Enum.Font.GothamBold
+    prevButton.TextScaled = true
     createCorner(prevButton, 6)
     prevButton.Parent = pageFrame
     self.PrevButton = prevButton
+    prevButton.MouseButton1Click:Connect(function() self.OnPrevClicked:Fire() end)
     
-    self.OnPrevClicked = Signal.new()
-    prevButton.MouseButton1Click:Connect(function()
-        self.OnPrevClicked:Fire()
-    end)
-    
-    -- Page Label
     local pageLabel = Instance.new("TextLabel")
-    pageLabel.Name = "PageLabel"
-    pageLabel.Size = UDim2.new(1, -200, 1, 0)
-    pageLabel.Position = UDim2.new(0.5, -50, 0, 0)
+    pageLabel.Size = UDim2.fromScale(0.4, 1)
+    pageLabel.Position = UDim2.fromScale(0.3, 0)
     pageLabel.BackgroundTransparency = 1
-    pageLabel.Text = "Page 1 of 1"
     pageLabel.TextColor3 = Constants.Colors.TextSecondary
     pageLabel.Font = Enum.Font.GothamMedium
-    pageLabel.TextSize = 16
+    pageLabel.TextScaled = true
+    pageLabel.Text = "Page 1 of 1"
     pageLabel.Parent = pageFrame
     self.PageLabel = pageLabel
     
-    -- Next Button
+    self.OnNextClicked = Signal.new()
     local nextButton = Instance.new("TextButton")
-    nextButton.Name = "NextButton"
-    nextButton.Size = UDim2.new(0, 80, 0, 30)
-    nextButton.Position = UDim2.new(1, -90, 0.5, -15)
+    nextButton.Size = UDim2.fromScale(0.3, 0.8)
+    nextButton.Position = UDim2.fromScale(1, 0.1)
+    nextButton.AnchorPoint = Vector2.new(1, 0)
     nextButton.BackgroundColor3 = Constants.Colors.PageButton
-    nextButton.Text = "Next ▶"
+    nextButton.Text = "NEXT"
     nextButton.TextColor3 = Constants.Colors.Text
-    nextButton.Font = Enum.Font.GothamMedium
-    nextButton.TextSize = 14
-    nextButton.BorderSizePixel = 0
+    nextButton.Font = Enum.Font.GothamBold
+    nextButton.TextScaled = true
     createCorner(nextButton, 6)
     nextButton.Parent = pageFrame
     self.NextButton = nextButton
+    nextButton.MouseButton1Click:Connect(function() self.OnNextClicked:Fire() end)
+
+    -- Inline Loading Indicator (small text + spinner)
+    local loadingIndicator = Instance.new("Frame")
+    loadingIndicator.Name = "LoadingIndicator"
+    loadingIndicator.Size = UDim2.fromScale(0.35, 0.7)
+    loadingIndicator.Position = UDim2.fromScale(1, 0.15)
+    loadingIndicator.AnchorPoint = Vector2.new(1, 0)
+    loadingIndicator.BackgroundTransparency = 1
+    loadingIndicator.Visible = false
+    loadingIndicator.Parent = footer
+    self.LoadingIndicator = loadingIndicator
     
-    self.OnNextClicked = Signal.new()
-    nextButton.MouseButton1Click:Connect(function()
-        self.OnNextClicked:Fire()
-    end)
+    local loadingLayout = Instance.new("UIListLayout")
+    loadingLayout.FillDirection = Enum.FillDirection.Horizontal
+    loadingLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+    loadingLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    loadingLayout.Padding = UDim.new(0, 4)
+    loadingLayout.Parent = loadingIndicator
     
-    self.CurrentPeriod = "AllTime"
+    local loadingSpinner = Instance.new("TextLabel")
+    loadingSpinner.Name = "Spinner"
+    loadingSpinner.Size = UDim2.fromScale(0.25, 1)
+    loadingSpinner.BackgroundTransparency = 1
+    loadingSpinner.Text = "◐" -- Will be animated
+    loadingSpinner.TextColor3 = Constants.Colors.Gold
+    loadingSpinner.Font = Enum.Font.GothamBold
+    loadingSpinner.TextScaled = true
+    loadingSpinner.LayoutOrder = 1
+    loadingSpinner.Parent = loadingIndicator
+    self.LoadingSpinner = loadingSpinner
     
-    return self :: any
+    local loadingText = Instance.new("TextLabel")
+    loadingText.Name = "LoadingText"
+    loadingText.Size = UDim2.fromScale(0.7, 1)
+    loadingText.BackgroundTransparency = 1
+    loadingText.Text = "Loading..."
+    loadingText.TextColor3 = Constants.Colors.TextSecondary
+    loadingText.Font = Enum.Font.GothamMedium
+    loadingText.TextScaled = true
+    loadingText.TextXAlignment = Enum.TextXAlignment.Right
+    loadingText.LayoutOrder = 2
+    loadingText.Parent = loadingIndicator
+    
+
+
+    self.CurrentPeriod = "AllTime" :: any
+    
+    return self
 end
 
 --------------------------------------------------------------------------------
@@ -680,39 +581,50 @@ end
     Updates the page label and button states.
 ]]
 function LeaderboardUI:SetPage(current: number, total: number)
-    self.PageLabel.Text = string.format("Page %d of %d", current, total)
+    if self.PageLabel then
+        self.PageLabel.Text = string.format("Page %d of %d", current, total)
+    end
     
-    -- Update button states
-    self.PrevButton.BackgroundColor3 = current > 1 
-        and Constants.Colors.PageButton 
-        or Constants.Colors.TabInactive
-    self.PrevButton.TextTransparency = current > 1 and 0 or 0.5
+    if self.PrevButton then
+        self.PrevButton.BackgroundColor3 = current > 1 
+            and Constants.Colors.PageButton 
+            or Constants.Colors.TabInactive
+        self.PrevButton.TextTransparency = current > 1 and 0 or 0.5
+    end
     
-    self.NextButton.BackgroundColor3 = current < total 
-        and Constants.Colors.PageButton 
-        or Constants.Colors.TabInactive
-    self.NextButton.TextTransparency = current < total and 0 or 0.5
+    if self.NextButton then
+        self.NextButton.BackgroundColor3 = current < total 
+            and Constants.Colors.PageButton 
+            or Constants.Colors.TabInactive
+        self.NextButton.TextTransparency = current < total and 0 or 0.5
+    end
 end
 
 --[[
-    Shows a loading indicator.
+    Shows a loading indicator with spinning animation.
 ]]
+local SPINNER_FRAMES = {"◐", "◓", "◑", "◒"}
+
 function LeaderboardUI:SetLoading(isLoading: boolean)
-    if self.LoadingFrame then
-        self.LoadingFrame.Visible = isLoading
-        return
+    if self.LoadingIndicator then
+        self.LoadingIndicator.Visible = isLoading
     end
     
-    -- Fallback opacity on list
-    if self.ListContainer then
-        for _, child in self.ListContainer:GetChildren() do
-            if child:IsA("Frame") then
-                 child.BackgroundTransparency = isLoading and 0.5 or (child.Name == "rank1" and 0 or Constants.Colors.Entry == child.BackgroundColor3 and 0 or 0)
-                 -- Simplified: just set visible children opacity if needed, 
-                 -- but actually 'Render' clears children or uses pool.
-                 -- If loading, typically we clear or show spinner.
-                 -- For now, do nothing.
-            end
+    -- Manage spinner animation
+    if isLoading then
+        if not self._spinnerConnection and self.LoadingSpinner then
+            local frameIndex = 1
+            self._spinnerConnection = game:GetService("RunService").Heartbeat:Connect(function()
+                frameIndex = (frameIndex % #SPINNER_FRAMES) + 1
+                if self.LoadingSpinner then
+                    self.LoadingSpinner.Text = SPINNER_FRAMES[frameIndex]
+                end
+            end)
+        end
+    else
+        if self._spinnerConnection then
+            self._spinnerConnection:Disconnect()
+            self._spinnerConnection = nil
         end
     end
 end
@@ -721,13 +633,19 @@ end
     Destroys the UI.
 ]]
 function LeaderboardUI:Destroy()
+    -- Stop spinner animation
+    if self._spinnerConnection then
+        self._spinnerConnection:Disconnect()
+        self._spinnerConnection = nil
+    end
+    
     if self.Frame then
         self.Frame:Destroy()
     end
     
-    self.OnPeriodClicked:Destroy()
-    self.OnPrevClicked:Destroy()
-    self.OnNextClicked:Destroy()
+    if self.OnPeriodClicked then self.OnPeriodClicked:Destroy() end
+    if self.OnPrevClicked then self.OnPrevClicked:Destroy() end
+    if self.OnNextClicked then self.OnNextClicked:Destroy() end
 end
 
 return LeaderboardUI

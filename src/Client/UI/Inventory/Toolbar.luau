@@ -23,6 +23,7 @@ local RarityConfig = require(Shared:WaitForChild("Rarity"):WaitForChild("RarityC
 local ColorSystem = require(Shared:WaitForChild("Inventory"):WaitForChild("ColorSystem"))
 local ItemUtils = require(Shared:WaitForChild("Inventory"):WaitForChild("ItemUtils"))
 local Logger = require(Shared:WaitForChild("Inventory"):WaitForChild("Logger"))
+local InventoryStore = require(script.Parent:WaitForChild("InventoryStore"))
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -485,6 +486,12 @@ end
 local function removeTool(tool: Tool)
     local slot = toolSlots[tool]
     if not slot then
+        -- Check if it's in slotOrder still (sometimes tool instance might be lost but slot remains)
+        for i = 1, CONFIG.MaxSlots do
+            if slotOrder[i] == tool then
+                slotOrder[i] = nil
+            end
+        end
         return
     end
     
@@ -494,10 +501,14 @@ local function removeTool(tool: Tool)
     end
     
     -- Destroy the frame
-    slot.Frame:Destroy()
+    if slot.Frame then
+        slot.Frame:Destroy()
+    end
     
     -- Clear from tracking
-    slotOrder[slot.Index] = nil
+    if slotOrder[slot.Index] == tool then
+        slotOrder[slot.Index] = nil
+    end
     toolSlots[tool] = nil
 end
 
@@ -814,6 +825,38 @@ end
     Useful when inventory data changes that affects visuals (like rarity colors).
 ]]
 function Toolbar.Refresh()
+    -- Authoritative sync with InventoryStore to catch any desyncs from Roblox tool events
+    local currentToolbarSlots = InventoryStore.GetToolbarSlots()
+    
+    -- Create map of assigned item IDs for O(1) check
+    local assignedIds = {}
+    for _, id in pairs(currentToolbarSlots) do
+        assignedIds[id] = true
+    end
+    
+    -- Prune tools that are no longer in inventory or unassigned
+    for tool, slot in pairs(toolSlots) do
+        local invId = tool:GetAttribute("InventoryItemId") :: string?
+        if invId then
+            -- If it's an inventory item, check if it's still assigned to toolbar AND exists in inventory
+            local existsInInventory = InventoryStore.FindById(invId) ~= nil
+            if not assignedIds[invId] or not existsInInventory or tool.Parent == nil then
+                removeTool(tool)
+            end
+        end
+    end
+    
+    -- Re-verify slotOrder to ensure no ghost slots
+    for i = 1, CONFIG.MaxSlots do
+        local tool = slotOrder[i]
+        if tool then
+            if tool.Parent == nil or not tool:IsDescendantOf(game) then
+                removeTool(tool)
+            end
+        end
+    end
+
+    -- Update visuals for all active slots
     for _, slot in pairs(toolSlots) do
         updateSlotDisplay(slot)
     end

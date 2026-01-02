@@ -107,7 +107,7 @@ local function updateStats()
             local dps = math.floor(totalDamage * shotsPerSecond * bullets)
             damageLabel.Text = "DPS: " .. formatNumber(dps)
         else
-            damageLabel.Text = "Damage: " .. formatNumber(totalDamage)
+            damageLabel.Text = "DPS: 0"
         end
     end
 end

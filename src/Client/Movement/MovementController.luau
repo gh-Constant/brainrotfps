@@ -250,6 +250,7 @@ end
 function MovementController._getWishDirection(self: MovementController): Vector3
 	local inputVector = Vector3.zero
 	
+	-- Check keyboard input (WASD)
 	if UserInputService:IsKeyDown(Enum.KeyCode.W) then
 		inputVector += Vector3.new(0, 0, -1)
 	end
@@ -263,7 +264,13 @@ function MovementController._getWishDirection(self: MovementController): Vector3
 		inputVector += Vector3.new(1, 0, 0)
 	end
 	
+	-- If no keyboard input, fall back to Humanoid.MoveDirection (mobile joystick / gamepad)
 	if inputVector.Magnitude < 0.01 then
+		local moveDir = self._humanoid.MoveDirection
+		if moveDir.Magnitude > 0.01 then
+			-- MoveDirection is already a world-space vector, so return it directly
+			return moveDir.Unit
+		end
 		return Vector3.zero
 	end
 	
@@ -288,6 +295,7 @@ function MovementController._getWishDirection(self: MovementController): Vector3
 	
 	return Vector3.zero
 end
+
 
 function MovementController._applyGroundMovement(
 	self: MovementController,

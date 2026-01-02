@@ -371,7 +371,7 @@ local function UpdateLoot(display: MobDisplay)
 						if existingWorldModel and existingWorldModel:IsA("WorldModel") then
 							-- Clear existing models
 							for _, child in existingWorldModel:GetChildren() do
-								if child:IsA("Model") then child:Destroy() end
+								if child:IsA("Model") or child:IsA("Highlight") then child:Destroy() end
 							end
 							worldModel = existingWorldModel
 						else
@@ -384,44 +384,15 @@ local function UpdateLoot(display: MobDisplay)
 						modelClone.Name = drop.Name
 						modelClone.Parent = worldModel
 						
-						-- CRITICAL: Explicitly move model to origin (CloneModelForDisplay might not be doing this)
-						-- Preserve rotation, move pivot to 0,0,0
-						if modelClone.PrimaryPart then
-							local currentPivot = modelClone:GetPivot()
-							modelClone:PivotTo(CFrame.new(0, 0, 0) * currentPivot.Rotation)
-						else
-							-- Try to find a primary part
-							local hrp = modelClone:FindFirstChild("HumanoidRootPart") or 
-							            modelClone:FindFirstChild("Handle") or 
-							            modelClone:FindFirstChildWhichIsA("BasePart")
-							if hrp and hrp:IsA("BasePart") then
-								modelClone.PrimaryPart = hrp
-								local currentPivot = modelClone:GetPivot()
-								modelClone:PivotTo(CFrame.new(0, 0, 0) * currentPivot.Rotation)
-							end
-						end
+						-- Highlight (same as Inventory ItemSlot)
+						local style = RarityConfig.GetBackgroundStyle(drop.Rarity or "Common")
+						local highlight = ColorSystem.CreateHighlight(style)
+						highlight.Parent = worldModel
+						ColorSystem.ApplyToHighlight(highlight, style)
 						
-						-- Setup Camera based on model's CURRENT position (should now be at origin)
-						local cf, size = modelClone:GetBoundingBox()						
-						local maxSize = math.max(size.X, size.Y, size.Z)
-						local distance = maxSize * 0.9
-						if distance < 2 then distance = 2 end
-						
-						local center = cf.Position
-						local cameraPos = center + Vector3.new(-distance * 0.7, distance * 0.2, distance * 0.7)
-						
-						local existingCam = vp:FindFirstChild("Camera")
-						local cam: Camera
-						if existingCam and existingCam:IsA("Camera") then
-							cam = existingCam
-						else
-							local newCam = Instance.new("Camera")
-							newCam.Name = "Camera"
-							newCam.Parent = vp
-							cam = newCam
-						end
-						vp.CurrentCamera = cam
-						cam.CFrame = CFrame.lookAt(cameraPos, center)
+						-- Use VisualUtils.SetupModelCamera (same as Inventory)
+						-- This handles custom cameras and consistent zoom
+						VisualUtils.SetupModelCamera(vp, modelClone)
 						
 						-- Show viewport, hide icon
 						vp.Visible = true
@@ -429,19 +400,39 @@ local function UpdateLoot(display: MobDisplay)
 						vp.LightColor = Color3.new(1, 1, 1)
 						if toolIcon then toolIcon.Visible = false end
 						
-						-- Animation: Play Idle
-						local humanoid = modelClone:FindFirstChildOfClass("Humanoid")
-						local brainrotAnimations = ReplicatedStorage:FindFirstChild("BrainrotAnimations")
-						local animFolder = brainrotAnimations and brainrotAnimations:FindFirstChild(drop.Name)
-						
-						if humanoid and animFolder then
-							local animator = humanoid:FindFirstChildOfClass("Animator")
-							if animator then
-								local idleAnim = animFolder:FindFirstChild("Idle") or animFolder:FindFirstChild("Run")
-								if idleAnim and idleAnim:IsA("Animation") then
-									local track = animator:LoadAnimation(idleAnim)
-									track.Looped = true
-									track:Play()
+						-- Animation: Play Idle (same as Inventory ItemSlot)
+						local animsFolder = ReplicatedStorage:FindFirstChild("BrainrotAnimations")
+						if animsFolder then
+							local modelAnims = animsFolder:FindFirstChild(drop.Name)
+							if modelAnims then
+								local idleAnim = modelAnims:FindFirstChild("Idle")
+								local animController = modelClone:FindFirstChild("AnimationController") or modelClone:FindFirstChildWhichIsA("Humanoid")
+								
+								if idleAnim and idleAnim:IsA("Animation") and animController then
+									-- Ensure parts are unanchored so Motor6Ds can animate them
+									-- except the PrimaryPart/Root which holds it in place
+									local root = modelClone.PrimaryPart or modelClone:FindFirstChild("Body") or modelClone:FindFirstChild("HumanoidRootPart")
+									
+									for _, desc in ipairs(modelClone:GetDescendants()) do
+										if desc:IsA("BasePart") then
+											if root and desc == root then
+												desc.Anchored = true
+											else
+												desc.Anchored = false
+											end
+										end
+									end
+
+									local animator = (animController :: Instance):FindFirstChild("Animator") :: Animator?
+									if not animator then
+										animator = Instance.new("Animator")
+										animator.Parent = animController :: Instance
+									end
+									
+									if animator then
+										local track = animator:LoadAnimation(idleAnim)
+										track:Play()
+									end
 								end
 							end
 						end

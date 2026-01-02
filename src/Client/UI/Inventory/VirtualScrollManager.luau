@@ -16,6 +16,8 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local UserInputService = game:GetService("UserInputService")
+
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
 local Packages = Rojo:WaitForChild("Packages")
 local Shared = Rojo:WaitForChild("Shared")
@@ -234,9 +236,7 @@ function VirtualScrollManagerModule:_updateSlot(slot: ItemSlot.ItemSlot, dataInd
         
         -- Setup Drag Drop
         if self._screenGui then
-            local oldDetector = slot.Frame:FindFirstChild("ItemDragDetector")
-            if oldDetector then oldDetector:Destroy() end
-            
+            -- setup Drag Drop
             local dragData = {
                 ItemId = itemData.ItemIds[1] or "",
                 TemplateId = itemData.TemplateId,
@@ -245,7 +245,11 @@ function VirtualScrollManagerModule:_updateSlot(slot: ItemSlot.ItemSlot, dataInd
                 SourceSlot = slot.Frame :: any,
                 SourceToolbarSlot = itemData.EquippedSlot,
             }
-            DragDrop.MakeDraggable(slot.Frame :: any, dragData, self._screenGui)
+            
+            -- Dragging disabled on mobile, enabled on PC
+            if not UserInputService.TouchEnabled then
+               DragDrop.MakeDraggable(slot.Frame :: any, dragData, self._screenGui)
+            end
         end
     end
     

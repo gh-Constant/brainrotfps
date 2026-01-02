@@ -30,27 +30,22 @@ local LeaderboardController = {
     Priority = 50
 }
 
--- Current state
-local currentState: {
-    valueName: string?,
+-- State per valueName
+type BoardState = {
+    valueName: string,
     period: LeaderboardPeriod,
     pageNumber: number,
     totalPages: number,
     entries: {LeaderboardEntry},
     isLoading: boolean,
-} = {
-    valueName = nil,
-    period = "AllTime",
-    pageNumber = 1,
-    totalPages = 1,
-    entries = {},
-    isLoading = false,
 }
+
+local states: {[string]: BoardState} = {}
 
 -- Cache for received data: { [cacheKey]: LeaderboardPage }
 local pageCache: {[string]: LeaderboardPage} = {}
 
--- Signals
+-- Signals (first argument is always valueName)
 local OnDataReceived = Signal.new()
 local OnPeriodChanged = Signal.new()
 local OnPageChanged = Signal.new()
@@ -64,10 +59,25 @@ local function getCacheKey(valueName: string, period: LeaderboardPeriod, page: n
     return string.format("%s_%s_%d", valueName, period, page)
 end
 
-local function setLoading(loading: boolean)
-    if currentState.isLoading ~= loading then
-        currentState.isLoading = loading
-        OnLoadingChanged:Fire(loading)
+local function getState(valueName: string): BoardState
+    if not states[valueName] then
+        states[valueName] = {
+            valueName = valueName,
+            period = "AllTime",
+            pageNumber = 1,
+            totalPages = 1,
+            entries = {},
+            isLoading = false,
+        }
+    end
+    return states[valueName]
+end
+
+local function setLoading(valueName: string, loading: boolean)
+    local state = getState(valueName)
+    if state.isLoading ~= loading then
+        state.isLoading = loading
+        OnLoadingChanged:Fire(valueName, loading)
     end
 end
 
@@ -77,12 +87,8 @@ end
 
 --[[
     Requests a specific page of leaderboard data.
-    
-    @param valueName - The leaderboard identifier
-    @param period - The time period
-    @param pageNumber - Page number (1-indexed)
 ]]
-function LeaderboardController.RequestPage(valueName: string, period: LeaderboardPeriod, pageNumber: number)
+function LeaderboardController.RequestPage(valueName: string, period: LeaderboardPeriod, pageNumber: number, force: boolean?)
     -- Validate inputs
     if not valueName or valueName == "" then
         warn("[LeaderboardController] RequestPage called with nil/empty valueName!")
@@ -93,71 +99,81 @@ function LeaderboardController.RequestPage(valueName: string, period: Leaderboar
         return
     end
     
-    -- Ensure period is a valid string
+    local state = getState(valueName)
     local periodStr = tostring(period)
     
     -- Check cache first
     local cacheKey = getCacheKey(valueName, period, pageNumber)
     local cached = pageCache[cacheKey]
-    if cached then
-        currentState.valueName = valueName
-        currentState.period = period
-        currentState.pageNumber = cached.PageNumber
-        currentState.totalPages = cached.TotalPages
-        currentState.entries = cached.Entries
-        OnDataReceived:Fire(cached)
+    if cached and not force then
+        state.period = period
+        state.pageNumber = cached.PageNumber
+        state.totalPages = cached.TotalPages
+        state.entries = cached.Entries
+        OnDataReceived:Fire(valueName, cached)
         return
     end
     
     -- Request from server
-    setLoading(true)
+    setLoading(valueName, true)
     
     print(string.format("[LeaderboardController] Requesting page %d of %s/%s", pageNumber, valueName, periodStr))
     
     Packets.requestLeaderboard.send({
         valueName = valueName,
         period = periodStr,
-        page = math.clamp(pageNumber, 1, 255), -- uint8 limit
+        page = math.clamp(pageNumber, 1, 255),
     })
 end
 
 --[[
-    Gets the current leaderboard data.
+    Gets the current leaderboard data for a specific valueName.
 ]]
-function LeaderboardController.GetCurrentData(): {
-    valueName: string?,
-    period: LeaderboardPeriod,
-    pageNumber: number,
-    totalPages: number,
-    entries: {LeaderboardEntry},
-    isLoading: boolean,
-}
-    return currentState
+function LeaderboardController.GetCurrentData(valueName: string): BoardState?
+    return states[valueName]
 end
 
 --[[
     Changes the current time period and requests page 1.
 ]]
-function LeaderboardController.SetPeriod(period: LeaderboardPeriod)
-    if currentState.period ~= period then
-        currentState.period = period
-        OnPeriodChanged:Fire(period)
+function LeaderboardController.SetPeriod(valueName: string, period: LeaderboardPeriod)
+    local state = getState(valueName)
+    if state.period ~= period then
+        state.period = period
+        OnPeriodChanged:Fire(valueName, period)
+        LeaderboardController.RequestPage(valueName, period, 1)
+    end
+end
+
+--[[
+    Refreshes the current leaderboard data by bypassing the cache.
+]]
+function LeaderboardController.Refresh(valueName: string)
+    local state = getState(valueName)
+    if state.valueName then
+        -- Clear current page from cache to force refresh
+        local cacheKey = getCacheKey(state.valueName, state.period, state.pageNumber)
+        pageCache[cacheKey] = nil
         
-        if currentState.valueName then
-            LeaderboardController.RequestPage(currentState.valueName, period, 1)
-        end
+        LeaderboardController.RequestPage(
+            state.valueName,
+            state.period,
+            state.pageNumber,
+            true
+        )
     end
 end
 
 --[[
     Navigates to the next page.
 ]]
-function LeaderboardController.NextPage()
-    if currentState.pageNumber < currentState.totalPages and currentState.valueName then
+function LeaderboardController.NextPage(valueName: string)
+    local state = getState(valueName)
+    if state.pageNumber < state.totalPages then
         LeaderboardController.RequestPage(
-            currentState.valueName,
-            currentState.period,
-            currentState.pageNumber + 1
+            state.valueName,
+            state.period,
+            state.pageNumber + 1
         )
     end
 end
@@ -165,12 +181,13 @@ end
 --[[
     Navigates to the previous page.
 ]]
-function LeaderboardController.PrevPage()
-    if currentState.pageNumber > 1 and currentState.valueName then
+function LeaderboardController.PrevPage(valueName: string)
+    local state = getState(valueName)
+    if state.pageNumber > 1 then
         LeaderboardController.RequestPage(
-            currentState.valueName,
-            currentState.period,
-            currentState.pageNumber - 1
+            state.valueName,
+            state.period,
+            state.pageNumber - 1
         )
     end
 end
@@ -178,16 +195,15 @@ end
 --[[
     Navigates to a specific page.
 ]]
-function LeaderboardController.GoToPage(page: number)
-    if currentState.valueName then
-        local clampedPage = math.clamp(page, 1, currentState.totalPages)
-        if clampedPage ~= currentState.pageNumber then
-            LeaderboardController.RequestPage(
-                currentState.valueName,
-                currentState.period,
-                clampedPage
-            )
-        end
+function LeaderboardController.GoToPage(valueName: string, page: number)
+    local state = getState(valueName)
+    local clampedPage = math.clamp(page, 1, state.totalPages)
+    if clampedPage ~= state.pageNumber then
+        LeaderboardController.RequestPage(
+            state.valueName,
+            state.period,
+            clampedPage
+        )
     end
 end
 
@@ -196,20 +212,6 @@ end
 ]]
 function LeaderboardController.GetPeriods(): {string}
     return {"Daily", "Weekly", "Monthly", "AllTime"}
-end
-
---[[
-    Checks if currently on first page.
-]]
-function LeaderboardController.IsFirstPage(): boolean
-    return currentState.pageNumber <= 1
-end
-
---[[
-    Checks if currently on last page.
-]]
-function LeaderboardController.IsLastPage(): boolean
-    return currentState.pageNumber >= currentState.totalPages
 end
 
 --------------------------------------------------------------------------------
@@ -227,14 +229,14 @@ LeaderboardController.OnLoadingChanged = OnLoadingChanged
 
 local function setupNetworkListeners()
     Packets.leaderboardData.listen(function(data)
-        setLoading(false)
+        setLoading(data.valueName, false)
         
         -- Convert packet entries to typed entries
         local entries: {LeaderboardEntry} = {}
         for _, entry in data.entries do
             table.insert(entries, {
                 Rank = entry.rank,
-                UserId = math.floor(entry.userId), -- Convert float64 back to int
+                UserId = math.floor(entry.userId),
                 DisplayName = entry.displayName,
                 Username = entry.username,
                 Value = math.floor(entry.value),
@@ -254,14 +256,14 @@ local function setupNetworkListeners()
         pageCache[cacheKey] = page
         
         -- Update state
-        currentState.valueName = page.ValueName
-        currentState.period = page.Period
-        currentState.pageNumber = page.PageNumber
-        currentState.totalPages = page.TotalPages
-        currentState.entries = page.Entries
+        local state = getState(data.valueName)
+        state.period = page.Period
+        state.pageNumber = page.PageNumber
+        state.totalPages = page.TotalPages
+        state.entries = page.Entries
         
-        OnDataReceived:Fire(page)
-        OnPageChanged:Fire(page.PageNumber, page.TotalPages)
+        OnDataReceived:Fire(data.valueName, page)
+        OnPageChanged:Fire(data.valueName, page.PageNumber, page.TotalPages)
     end)
 end
 
