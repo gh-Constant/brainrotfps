@@ -34,7 +34,7 @@ local function initLeaderboard(name: string, valueName: string, period: any, tit
         Period = period,
         PixelsPerStud = 50,
         AutoRefresh = true,
-        RefreshInterval = 30,
+        RefreshInterval = 300,
         ShowPeriodTabs = false,
         Title = title,
     })

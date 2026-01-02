@@ -42,9 +42,13 @@ local cache: {[string]: { data: LeaderboardPage, timestamp: number }} = {}
 -- Player info cache: { [userId]: { Username: string, DisplayName: string } }
 local playerInfoCache: {[number]: { Username: string, DisplayName: string }} = {}
 
--- Write Buffer: { [valueName]: { [userId]: score } }
+-- Write Buffer: { [bufferKey]: { [userId]: score } }
 local scoreBuffer: {[string]: {[number]: number}} = {}
 local FLUSH_INTERVAL = 60 -- Seconds between DataStore flushes
+
+-- Player Score Cache: Stores loaded DataStore scores per player/valueName/period
+-- Format: { [userId]: { ["TotalXP_Daily"]: 1500, ["BrainrotKills_AllTime"]: 42 } }
+local playerScoreCache: {[number]: {[string]: number}} = {}
 
 --------------------------------------------------------------------------------
 -- Time Period Helpers
@@ -242,9 +246,67 @@ function LeaderboardService.IncrementScore(player: Player, valueName: string, de
             scoreBuffer[bufferKey] = {}
         end
         
-        -- Since we buffer, we just update the local memory value
-        -- The flush loop will eventually handle the DataStore UpdateAsync
-        scoreBuffer[bufferKey][userId] = (scoreBuffer[bufferKey][userId] or 0) + delta
+        -- Get cached DataStore value (loaded on player join) or current buffer value
+        local cachedScore = 0
+        if playerScoreCache[userId] and playerScoreCache[userId][bufferKey] then
+            cachedScore = playerScoreCache[userId][bufferKey]
+        end
+        local currentBufferValue = scoreBuffer[bufferKey][userId] or cachedScore
+        
+        -- Update with delta
+        local newScore = currentBufferValue + delta
+        scoreBuffer[bufferKey][userId] = newScore
+        
+        -- Also update the cache so subsequent increments use the new value
+        if playerScoreCache[userId] then
+            playerScoreCache[userId][bufferKey] = newScore
+        end
+    end
+end
+
+--[[
+    Loads existing scores from DataStore for a player.
+    Called on PlayerAdded to ensure increments add to persisted totals.
+    
+    @param player - The player
+]]
+function LeaderboardService.LoadPlayerScores(player: Player)
+    local userId = player.UserId
+    
+    -- Initialize cache for this player
+    if not playerScoreCache[userId] then
+        playerScoreCache[userId] = {}
+    end
+    
+    -- Load scores for each registered leaderboard
+    for valueName, _ in pairs(registeredLeaderboards) do
+        -- Determine which periods to load
+        local periods: {LeaderboardPeriod} = {"Daily", "Weekly", "Monthly", "AllTime"}
+        if valueName == "Level" then
+            periods = {"AllTime"}
+        end
+        
+        for _, period in periods do
+            local bufferKey = valueName .. "_" .. period
+            local dataStore = getDataStore(valueName, period :: LeaderboardPeriod)
+            local key = tostring(userId)
+            
+            task.spawn(function()
+                local success, result = pcall(function()
+                    return dataStore:GetAsync(key)
+                end)
+                
+                if success and result then
+                    -- Decode the score and store in cache
+                    local decodedScore = decodeScore(result)
+                    playerScoreCache[userId] = playerScoreCache[userId] or {}
+                    playerScoreCache[userId][bufferKey] = decodedScore
+                elseif not success then
+                    warn(string.format("[LeaderboardService] Failed to load %s for %s: %s", 
+                        bufferKey, player.Name, tostring(result)))
+                end
+            end)
+        end
     end
 end
 
@@ -494,18 +556,50 @@ end
 function LeaderboardService.Init()
     setupNetworkListeners()
     
-    -- Cache info for all current players
+    -- Cache info for all current players and load their scores
     for _, player in Players:GetPlayers() do
         playerInfoCache[player.UserId] = { Username = player.Name, DisplayName = player.DisplayName }
+        LeaderboardService.LoadPlayerScores(player)
     end
     
     Players.PlayerAdded:Connect(function(player)
         playerInfoCache[player.UserId] = { Username = player.Name, DisplayName = player.DisplayName }
+        
+        -- Load existing scores from DataStore for this player
+        LeaderboardService.LoadPlayerScores(player)
     end)
 
-    Players.PlayerRemoving:Connect(function(_player)
-        -- Optional: Flush buffer for this player specifically on leave if needed
-        -- But the global loop is usually enough.
+    Players.PlayerRemoving:Connect(function(player)
+        -- Flush this player's buffer immediately to ensure data saves
+        local userId = player.UserId
+        
+        -- Force flush any buffered scores for this player
+        for bufferKey, entries in pairs(scoreBuffer) do
+            if entries[userId] then
+                local split = string.split(bufferKey, "_")
+                local valueName = split[1]
+                local period = split[2] :: LeaderboardPeriod
+                local dataStore = getDataStore(valueName, period)
+                local key = tostring(userId)
+                local score = entries[userId]
+                
+                task.spawn(function()
+                    local success, err = pcall(function()
+                        dataStore:UpdateAsync(key, function(_oldEncoded)
+                            return encodeScore(score)
+                        end)
+                    end)
+                    if not success then
+                        warn(string.format("[LeaderboardService] Failed to save score on leave for %s: %s", player.Name, tostring(err)))
+                    end
+                end)
+                
+                entries[userId] = nil
+            end
+        end
+        
+        -- Clear player score cache
+        playerScoreCache[userId] = nil
     end)
     
     -- Start buffer flush loop

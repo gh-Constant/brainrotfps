@@ -472,25 +472,6 @@ local function updateBuffs()
                 corner.CornerRadius = UDim.new(0, 8)
                 corner.Parent = newFrame
                 
-                -- x2 indicator (overlay)
-                local boostLabel = Instance.new("TextLabel")
-                boostLabel.Name = "Boost"
-                boostLabel.Size = UDim2.new(0, 30, 0, 15)
-                boostLabel.Position = UDim2.new(1, -30, 1, -15)
-                boostLabel.BackgroundTransparency = 0.5
-                boostLabel.BackgroundColor3 = Color3.new(0, 0, 0)
-                boostLabel.BorderSizePixel = 0
-                boostLabel.Font = Enum.Font.GothamBold
-                boostLabel.TextColor3 = Color3.new(1, 1, 1)
-                boostLabel.TextSize = 12
-                boostLabel.Text = "x2"
-                
-                local lblCorner = Instance.new("UICorner")
-                lblCorner.CornerRadius = UDim.new(0, 4)
-                lblCorner.Parent = boostLabel
-                
-                boostLabel.Parent = newFrame
-                
                 -- Tooltip/Name on hover?
                 -- For now, just the icon as requested.
                 
