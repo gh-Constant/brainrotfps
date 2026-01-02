@@ -18,6 +18,8 @@ local GamePassService = require(script.Monetization.GamePassService)
 local LeaderboardService = require(script.Leaderboard.LeaderboardService)
 
 local IndexSystem = require(script.Index.IndexSystem)
+local DailyRewardsService = require(script.Rewards.DailyRewardsService)
+local HourlyRewardsService = require(script.Rewards.HourlyRewardsService)
 
 print("[Server] Server initialized!")
 
@@ -36,6 +38,8 @@ BrainrotSpawner.Init()   -- Handles brainrot spawning in zones
 GrenadeService.Init()    -- Handles grenades
 PotionService.Init()     -- Handles potions
 IndexSystem.Init()       -- Handles mob index
+DailyRewardsService.Init() -- Handles daily login rewards
+HourlyRewardsService.Init() -- Handles hourly playtime rewards
 
 -- Initialize Leaderboard System (Register BEFORE Init so scores load correctly)
 LeaderboardService.RegisterLeaderboard("TotalXP", { DisplayName = "Total XP" })

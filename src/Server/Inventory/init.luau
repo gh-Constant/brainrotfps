@@ -221,13 +221,13 @@ function InventoryManager.GetInventory(player: Player): InventoryData?
     return table.freeze(snapshot)
 end
 
-function InventoryManager.AddItem(player: Player, templateId: string, itemType: ItemType, rarity: RarityType?, metadata: any): InventoryItem?
+function InventoryManager.AddItem(player: Player, templateId: string, itemType: ItemType?, rarity: RarityType?, metadata: any): InventoryItem?
     local inventory = ActiveInventories[player.UserId]
     local index = ActiveIndices[player.UserId]
     return Actions.AddItem(player, inventory, index, templateId, itemType, rarity, metadata, DupedItems)
 end
 
-function InventoryManager.AddItems(player: Player, templateId: string, itemType: ItemType, count: number, rarity: RarityType?, metadata: any): {InventoryItem}
+function InventoryManager.AddItems(player: Player, templateId: string, itemType: ItemType?, count: number, rarity: RarityType?, metadata: any): {InventoryItem}
     local inventory = ActiveInventories[player.UserId]
     local index = ActiveIndices[player.UserId]
     return Actions.AddItems(player, inventory, index, templateId, itemType, count, rarity, metadata, DupedItems)

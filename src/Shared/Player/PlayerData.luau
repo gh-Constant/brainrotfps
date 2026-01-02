@@ -22,6 +22,12 @@ export type PlayerData = {
     Credits: number,
     TotalCreditsEarned: number,
     PlayerKills: number,
+    -- Daily Rewards
+    LastDailyRewardClaim: number, -- Unix timestamp of last claim
+    DailyRewardStreak: number, -- Current day in cycle (1-7)
+    
+    -- Buffs
+    ActiveBuffs: {[string]: number}, -- BuffType -> EndTime
 }
 
 export type Player = {
@@ -34,6 +40,13 @@ export type Player = {
     TotalGoldEarned: number,
     Credits: number,
     TotalCreditsEarned: number,
+    PlayerKills: number,
+    -- Daily Rewards
+    LastDailyRewardClaim: number,
+    DailyRewardStreak: number,
+    
+    -- Buffs
+    ActiveBuffs: {[string]: number},
     
     -- Multipliers
     GoldMultiplier: number,
@@ -78,6 +91,12 @@ local DEFAULT_DATA: PlayerData = {
     Credits = 0,
     TotalCreditsEarned = 0,
     PlayerKills = 0,
+    -- Daily Rewards
+    LastDailyRewardClaim = 0,
+    DailyRewardStreak = 1,
+    
+    -- Buffs
+    ActiveBuffs = {},
 }
 
 -- Experience curve settings
@@ -117,6 +136,12 @@ function PlayerClass.new(robloxPlayer: Player, initialData: PlayerData?): Player
     self.Credits = data.Credits or 0
     self.TotalCreditsEarned = data.TotalCreditsEarned or 0
     self.PlayerKills = data.PlayerKills or 0
+    -- Daily Rewards
+    self.LastDailyRewardClaim = data.LastDailyRewardClaim or 0
+    self.DailyRewardStreak = data.DailyRewardStreak or 1
+    
+    -- Buffs
+    self.ActiveBuffs = data.ActiveBuffs or {}
     
     -- Create signals for changes (using Signal library)
     self.OnLevelUp = Signal.new()
@@ -160,6 +185,9 @@ function PlayerClass:GetData(): PlayerData
         Credits = self.Credits,
         TotalCreditsEarned = self.TotalCreditsEarned,
         PlayerKills = self.PlayerKills,
+        LastDailyRewardClaim = self.LastDailyRewardClaim,
+        DailyRewardStreak = self.DailyRewardStreak,
+        ActiveBuffs = self.ActiveBuffs,
     }
 end
 
@@ -176,6 +204,9 @@ function PlayerClass:SetData(data: PlayerData)
     self.Credits = data.Credits or DEFAULT_DATA.Credits
     self.TotalCreditsEarned = data.TotalCreditsEarned or DEFAULT_DATA.TotalCreditsEarned
     self.PlayerKills = data.PlayerKills or DEFAULT_DATA.PlayerKills
+    self.LastDailyRewardClaim = data.LastDailyRewardClaim or DEFAULT_DATA.LastDailyRewardClaim
+    self.DailyRewardStreak = data.DailyRewardStreak or DEFAULT_DATA.DailyRewardStreak
+    self.ActiveBuffs = data.ActiveBuffs or DEFAULT_DATA.ActiveBuffs
 end
 
 --[[

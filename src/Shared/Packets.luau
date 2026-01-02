@@ -249,5 +249,83 @@ return ByteNet.defineNamespace("game", function()
 			}),
 			reliabilityType = "reliable",
 		}),
+
+		-- ============================================
+		-- DAILY REWARDS PACKETS
+		-- ============================================
+
+		-- Request daily rewards state (Client -> Server)
+		requestDailyRewards = ByteNet.definePacket({
+			value = ByteNet.struct({}),
+			reliabilityType = "reliable",
+		}),
+
+		-- Daily rewards state response (Server -> Client)
+		dailyRewardsData = ByteNet.definePacket({
+			value = ByteNet.struct({
+				currentDay = ByteNet.uint8, -- 1-7
+				claimedDays = ByteNet.array(ByteNet.uint8), -- Array of claimed day numbers
+				canClaim = ByteNet.bool, -- Whether player can claim today
+				timeUntilNextClaim = ByteNet.float64, -- Seconds until next claim available
+			}),
+			reliabilityType = "reliable",
+		}),
+
+		-- Claim daily reward (Client -> Server)
+		claimDailyReward = ByteNet.definePacket({
+			value = ByteNet.struct({
+				day = ByteNet.uint8, -- Day to claim (1-7)
+			}),
+			reliabilityType = "reliable",
+		}),
+
+		-- Daily reward claimed confirmation (Server -> Client)
+		dailyRewardClaimed = ByteNet.definePacket({
+			value = ByteNet.struct({
+				success = ByteNet.bool,
+				day = ByteNet.uint8,
+				coins = ByteNet.optional(ByteNet.float64),
+				xp = ByteNet.optional(ByteNet.float64),
+				itemTemplateId = ByteNet.optional(ByteNet.string), -- If item was given
+			}),
+			reliabilityType = "reliable",
+		}),
+
+		-- ============================================
+		-- HOURLY REWARDS PACKETS
+		-- ============================================
+
+		-- Request hourly rewards state (Client -> Server)
+		requestHourlyRewards = ByteNet.definePacket({
+			value = ByteNet.struct({}),
+			reliabilityType = "reliable",
+		}),
+
+		-- Hourly rewards state response (Server -> Client)
+		hourlyRewardsData = ByteNet.definePacket({
+			value = ByteNet.struct({
+				claimedIds = ByteNet.array(ByteNet.uint8), -- Array of claimed reward IDs
+				playtimeSeconds = ByteNet.float64, -- Total playtime this session
+			}),
+			reliabilityType = "reliable",
+		}),
+
+		-- Claim hourly reward (Client -> Server)
+		claimHourlyReward = ByteNet.definePacket({
+			value = ByteNet.struct({
+				rewardId = ByteNet.uint8,
+			}),
+			reliabilityType = "reliable",
+		}),
+
+		-- Hourly reward claimed confirmation (Server -> Client)
+		hourlyRewardClaimed = ByteNet.definePacket({
+			value = ByteNet.struct({
+				success = ByteNet.bool,
+				rewardId = ByteNet.uint8,
+				itemTemplateId = ByteNet.optional(ByteNet.string),
+			}),
+			reliabilityType = "reliable",
+		}),
 	}
 end)

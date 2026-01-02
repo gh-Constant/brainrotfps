@@ -8,6 +8,9 @@
 Packages/
 wally.lock
 
+node_modules/
+package-lock.json
+
 # Roblox Studio
 *.rsm
 

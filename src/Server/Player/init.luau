@@ -60,6 +60,12 @@ local DATA_TEMPLATE = {
     TotalCreditsEarned = 0,
     MaxLevel = 1,
     PlayerKills = 0,
+    -- Daily Rewards
+    LastDailyRewardClaim = 0,
+    DailyRewardStreak = 1,
+    
+    -- Buffs
+    ActiveBuffs = {},
 }
 
 -- Create ProfileStore
@@ -285,6 +291,9 @@ local function onPlayerAdded(player: Player)
         Credits = profile.Data.Credits,
         TotalCreditsEarned = profile.Data.TotalCreditsEarned,
         PlayerKills = profile.Data.PlayerKills,
+        LastDailyRewardClaim = profile.Data.LastDailyRewardClaim,
+        DailyRewardStreak = profile.Data.DailyRewardStreak,
+        ActiveBuffs = profile.Data.ActiveBuffs,
     })
     
     -- Update leaderstats with loaded values
@@ -470,6 +479,9 @@ local function onPlayerRemoving(player: Player)
             profile.Data.Experience = playerData.Experience
             profile.Data.Gold = playerData.Gold
             profile.Data.TotalGoldEarned = playerData.TotalGoldEarned
+            profile.Data.LastDailyRewardClaim = playerData.LastDailyRewardClaim
+            profile.Data.DailyRewardStreak = playerData.DailyRewardStreak
+            profile.Data.ActiveBuffs = playerData.ActiveBuffs
         end
         profile:EndSession()
     end
@@ -619,6 +631,9 @@ function PlayerManager.SavePlayer(player: Player)
         profile.Data.Experience = playerData.Experience
         profile.Data.Gold = playerData.Gold
         profile.Data.TotalGoldEarned = playerData.TotalGoldEarned
+        profile.Data.LastDailyRewardClaim = playerData.LastDailyRewardClaim
+        profile.Data.DailyRewardStreak = playerData.DailyRewardStreak
+        profile.Data.ActiveBuffs = playerData.ActiveBuffs
         profile:Save()
     end
 end
@@ -636,8 +651,9 @@ function PlayerManager.SaveAllAndClose()
             if playerData then
                 profile.Data.Level = playerData.Level
                 profile.Data.Experience = playerData.Experience
-                profile.Data.Gold = playerData.Gold
-                profile.Data.TotalGoldEarned = playerData.TotalGoldEarned
+                profile.Data.LastDailyRewardClaim = playerData.LastDailyRewardClaim
+                profile.Data.DailyRewardStreak = playerData.DailyRewardStreak
+                profile.Data.ActiveBuffs = playerData.ActiveBuffs
             end
             profile:EndSession()
         end

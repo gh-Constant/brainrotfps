@@ -49,7 +49,7 @@ function Actions.AddItem(
     inventory: any,
     index: any?, -- Inventory index cache
     templateId: string,
-    itemType: ItemType,
+    itemType: ItemType?,
     rarity: RarityType?,
     metadata: {[string]: any}?,
     dupedItems: {[string]: boolean}
@@ -57,6 +57,26 @@ function Actions.AddItem(
     if not inventory then
         warn("[Actions] No inventory for player:", player.Name)
         return nil
+    end
+    
+    -- Auto-resolve attributes if missing
+    if not itemType or not rarity then
+        local itemConfig = Inventory.ItemUtils.FindItemConfig(templateId)
+        
+        if not itemType then
+            itemType = (itemConfig and itemConfig:GetAttribute("Type")) :: any
+            if not itemType then
+                itemType = Inventory.ItemUtils.GetItemType(templateId) :: any
+            end
+            if not itemType then
+                warn(string.format("[Actions] Unknown item type for: %s", templateId))
+                return nil
+            end
+        end
+        
+        if not rarity then
+             rarity = (itemConfig and itemConfig:GetAttribute("Rarity") or "Common") :: any
+        end
     end
     
     -- Security: Check inventory size limit
@@ -67,13 +87,14 @@ function Actions.AddItem(
     end
     
     -- Security: Validate templateId exists (for Tools)
-    if itemType == "Tool" and not isValidTemplateId(templateId) then
+    if (itemType :: any) == "Tool" and not isValidTemplateId(templateId) then
         warn(string.format("[Actions] Invalid templateId '%s' for %s", templateId, player.Name))
         return nil
     end
     
-    local item = Inventory.CreateItem(templateId, itemType, rarity, metadata)
+    local item = Inventory.CreateItem(templateId, itemType :: ItemType, rarity :: RarityType, metadata)
     table.insert(inventory.Items, item)
+
     
     -- Update Index
     if index then
@@ -111,7 +132,7 @@ function Actions.AddItems(
     inventory: any,
     index: any?,
     templateId: string,
-    itemType: ItemType,
+    itemType: ItemType?,
     count: number,
     rarity: RarityType?,
     metadata: {[string]: any}?,
@@ -120,8 +141,28 @@ function Actions.AddItems(
     if not inventory then return {} end
     if count <= 0 then return {} end
     
+    -- Auto-resolve attributes if missing
+    if not itemType or not rarity then
+        local itemConfig = Inventory.ItemUtils.FindItemConfig(templateId)
+        
+        if not itemType then
+            itemType = (itemConfig and itemConfig:GetAttribute("Type")) :: any
+            if not itemType then
+                itemType = Inventory.ItemUtils.GetItemType(templateId) :: any
+            end
+            if not itemType then
+                warn(string.format("[Actions] Unknown item type for: %s", templateId))
+                return {}
+            end
+        end
+        
+        if not rarity then
+             rarity = (itemConfig and itemConfig:GetAttribute("Rarity") or "Common") :: any
+        end
+    end
+    
     -- Security: Validate templateId exists (once)
-    if itemType == "Tool" and not isValidTemplateId(templateId) then
+    if (itemType :: any) == "Tool" and not isValidTemplateId(templateId) then
         warn(string.format("[Actions] Invalid templateId '%s' for %s", templateId, player.Name))
         return {}
     end
@@ -136,7 +177,7 @@ function Actions.AddItems(
              break
         end
         
-        local item = Inventory.CreateItem(templateId, itemType, rarity, metadata)
+        local item = Inventory.CreateItem(templateId, itemType :: ItemType, rarity :: RarityType, metadata)
         table.insert(inventory.Items, item)
         table.insert(addedItems, item)
         

@@ -31,6 +31,9 @@ local CombatIndicator = require(Components.CombatIndicator)
 local ButtonToggles = require(Components.ButtonToggles)
 local HomeButton = require(Components.HomeButton)
 
+-- Rewards UI
+local DailyRewardsUI = require(script.Rewards.DailyRewardsUI)
+
 local UI = {
     -- Shared utilities
     ProgressBar = ProgressBar,
@@ -100,6 +103,7 @@ function UI.Init(context: any)
     ButtonToggles.Init(uiContext)
     HomeButton.Init(uiContext)
     LootDropUI.Init(uiContext)
+    DailyRewardsUI.Init(uiContext)
     
     print("[UI] All systems initialized!")
 end

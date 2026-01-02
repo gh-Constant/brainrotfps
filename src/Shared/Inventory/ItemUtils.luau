@@ -377,7 +377,21 @@ end
 function ItemUtils.GetItemType(templateId: string): string?
     local itemConfig = ItemUtils.FindItemConfig(templateId)
     if itemConfig then
-        return itemConfig:GetAttribute("ItemType") :: string?
+        return itemConfig:GetAttribute("ItemType") or itemConfig:GetAttribute("Type") :: string?
+    end
+    return nil
+end
+
+--[[
+    Gets the Rarity attribute from an item's configuration.
+    
+    @param templateId - The template ID
+    @return string? - The item rarity or nil
+]]
+function ItemUtils.GetRarity(templateId: string): string?
+    local itemConfig = ItemUtils.FindItemConfig(templateId)
+    if itemConfig then
+        return itemConfig:GetAttribute("Rarity") :: string?
     end
     return nil
 end

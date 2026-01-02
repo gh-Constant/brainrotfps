@@ -160,6 +160,26 @@ function ButtonToggles.Init(context: any)
         end
     end)
     
+    -- Register Rewards toggle
+    task.spawn(function()
+        local rewardsButton = (buttons :: Instance):FindFirstChild("Rewards") :: GuiButton?
+        if rewardsButton then
+            local rewardsGui = playerGui:WaitForChild("Rewards", 10)
+            if rewardsGui then
+                local rewardsFrame = (rewardsGui :: any).Hub :: GuiObject?
+                if rewardsFrame then
+                    ButtonToggles.Register("Rewards", rewardsButton, rewardsFrame, false)
+                else
+                    warn("[ButtonToggles] Rewards Hub not found")
+                end
+            else
+                warn("[ButtonToggles] Rewards ScreenGui not found")
+            end
+        else
+            warn("[ButtonToggles] Rewards button not found")
+        end
+    end)
+    
     -- Register Inventory toggle
     -- Note: Inventory has its own module, but we can still register the button here
     -- for consistency if needed. Currently InventoryUI handles its own button.
