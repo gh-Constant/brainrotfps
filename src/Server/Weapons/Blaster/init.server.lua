@@ -23,6 +23,8 @@ local replicateShotRemote = remotes.ReplicateShot
 local events = ServerScriptService.Blaster.Events
 local taggedEvent = events.Tagged
 local eliminatedEvent = events.Eliminated
+local SafezoneManager = require(script.Parent.Parent.SafezoneManager)
+local MessageSystem = require(Shared:WaitForChild("MessageSystem"))
 
 -- Mutation System
 local Mutations = require(Shared:WaitForChild("Mutations"))
@@ -70,9 +72,9 @@ end
 
 -- Helper function to get player's level
 local function getPlayerLevel(player: Player): number
-	local leaderstats = player:FindFirstChild("leaderstats")
-	if leaderstats then
-		local level = leaderstats:FindFirstChild("Level")
+	local internalStats = player:FindFirstChild("InternalStats")
+	if internalStats then
+		local level = internalStats:FindFirstChild("Level")
 		if level then
 			return level.Value
 		end
@@ -87,6 +89,11 @@ local function onShootEvent(
 	origin: CFrame,
 	tagged: { [string]: Humanoid }
 )
+	-- Check if player is in safezone
+	if SafezoneManager.IsInSafezone(player) then
+		MessageSystem.Send(player, "Error", "You cannot shoot in the safezone!")
+		return
+	end
 
 	-- Validate the received arguments
 	if not validateShootArguments(timestamp, blaster, origin, tagged) then

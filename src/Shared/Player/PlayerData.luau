@@ -9,7 +9,6 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Signal = require(ReplicatedStorage.Rojo.Packages.signal)
-local MoneyLib = require(ReplicatedStorage.Rojo.Shared.MoneyLib)
 
 -- Signal type for type checking
 type Signal = typeof(Signal.new())
@@ -22,6 +21,7 @@ export type PlayerData = {
     TotalGoldEarned: number,
     Credits: number,
     TotalCreditsEarned: number,
+    PlayerKills: number,
 }
 
 export type Player = {
@@ -45,6 +45,8 @@ export type Player = {
     OnGoldChanged: Signal?,
     OnExperienceChanged: Signal?,
     OnCreditsChanged: Signal?,
+    OnDamageMultiplierChanged: Signal?,
+    OnKillsChanged: Signal?,
     
     -- Internal
     _destroyed: boolean,
@@ -58,10 +60,12 @@ export type Player = {
     SpendGold: (self: Player, amount: number) -> boolean,
     AddCredits: (self: Player, amount: number) -> boolean,
     SpendCredits: (self: Player, amount: number) -> boolean,
+    AddKill: (self: Player) -> (),
     GetExperienceForLevel: (self: Player, level: number) -> number,
     GetExperienceProgress: (self: Player) -> (number, number),
     GetMaxHealthForLevel: (self: Player, level: number) -> number,
     ResetProgress: (self: Player) -> (),
+    SetDamageMultiplier: (self: Player, multiplier: number) -> (),
     Destroy: (self: Player) -> (),
 }
 
@@ -73,6 +77,7 @@ local DEFAULT_DATA: PlayerData = {
     TotalGoldEarned = 0,
     Credits = 0,
     TotalCreditsEarned = 0,
+    PlayerKills = 0,
 }
 
 -- Experience curve settings
@@ -111,12 +116,15 @@ function PlayerClass.new(robloxPlayer: Player, initialData: PlayerData?): Player
     self.TotalGoldEarned = data.TotalGoldEarned
     self.Credits = data.Credits or 0
     self.TotalCreditsEarned = data.TotalCreditsEarned or 0
+    self.PlayerKills = data.PlayerKills or 0
     
     -- Create signals for changes (using Signal library)
     self.OnLevelUp = Signal.new()
     self.OnGoldChanged = Signal.new()
     self.OnExperienceChanged = Signal.new()
     self.OnCreditsChanged = Signal.new()
+    self.OnDamageMultiplierChanged = Signal.new()
+    self.OnKillsChanged = Signal.new()
     
     -- Track active state
     self._destroyed = false
@@ -151,6 +159,7 @@ function PlayerClass:GetData(): PlayerData
         TotalGoldEarned = self.TotalGoldEarned,
         Credits = self.Credits,
         TotalCreditsEarned = self.TotalCreditsEarned,
+        PlayerKills = self.PlayerKills,
     }
 end
 
@@ -166,6 +175,7 @@ function PlayerClass:SetData(data: PlayerData)
     self.TotalGoldEarned = data.TotalGoldEarned or DEFAULT_DATA.TotalGoldEarned
     self.Credits = data.Credits or DEFAULT_DATA.Credits
     self.TotalCreditsEarned = data.TotalCreditsEarned or DEFAULT_DATA.TotalCreditsEarned
+    self.PlayerKills = data.PlayerKills or DEFAULT_DATA.PlayerKills
 end
 
 --[[
@@ -422,6 +432,32 @@ function PlayerClass:ResetProgress()
 end
 
 --[[
+    Adds a kill to the player's kill count.
+]]
+function PlayerClass:AddKill()
+    local player = self :: Player
+    player.PlayerKills += 1
+    if player.OnKillsChanged then
+        player.OnKillsChanged:Fire(player.PlayerKills)
+    end
+end
+
+--[[
+    Sets the damage multiplier and fires the changed event.
+]]
+function PlayerClass:SetDamageMultiplier(multiplier: number)
+    local player = self :: Player
+    if player._destroyed then return end
+    
+    local previous = player.DamageMultiplier
+    player.DamageMultiplier = multiplier
+    
+    if player.OnDamageMultiplierChanged then
+        player.OnDamageMultiplierChanged:Fire(multiplier, previous)
+    end
+end
+
+--[[
     Cleans up the Player instance and its resources.
 ]]
 function PlayerClass:Destroy()
@@ -432,25 +468,27 @@ function PlayerClass:Destroy()
     self._destroyed = true
     
     -- Destroy signals (using Signal library)
-    if self.OnLevelUp then
-        self.OnLevelUp:Destroy()
-        self.OnLevelUp = nil
+    local signals = {
+        self.OnLevelUp,
+        self.OnGoldChanged,
+        self.OnCreditsChanged,
+        self.OnExperienceChanged,
+        self.OnDamageMultiplierChanged,
+        self.OnKillsChanged
+    }
+    
+    for _, sig in ipairs(signals) do
+        if sig then
+            (sig :: any):Destroy()
+        end
     end
     
-    if self.OnGoldChanged then
-        self.OnGoldChanged:Destroy()
-        self.OnGoldChanged = nil
-    end
-    
-    if self.OnCreditsChanged then
-        self.OnCreditsChanged:Destroy()
-        self.OnCreditsChanged = nil
-    end
-    
-    if self.OnExperienceChanged then
-        self.OnExperienceChanged:Destroy()
-        self.OnExperienceChanged = nil
-    end
+    self.OnLevelUp = nil
+    self.OnGoldChanged = nil
+    self.OnCreditsChanged = nil
+    self.OnExperienceChanged = nil
+    self.OnDamageMultiplierChanged = nil
+    self.OnKillsChanged = nil
 end
 
 return PlayerClass

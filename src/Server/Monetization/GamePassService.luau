@@ -41,7 +41,6 @@ local GamePassService = {}
 -- Gamepass multiplier values
 local DOUBLE_XP_MULTIPLIER = 2
 local DOUBLE_GOLD_MULTIPLIER = 2
-local DOUBLE_DAMAGE_MULTIPLIER = 2
 
 -- Track which passes players own (cached)
 local PlayerPasses: {[number]: {xp: boolean, gold: boolean, damage: boolean}} = {}
@@ -84,7 +83,6 @@ function GamePassService.ApplyGamePassMultipliers(player: Player)
     local hasDoubleDamage = monetization.PerformPassCheck(player, ProductConfig.GamePasses.DoubleDamage.Id)
     if hasDoubleDamage then
         PlayerPasses[userId].damage = true
-        playerData.DamageMultiplier = DOUBLE_DAMAGE_MULTIPLIER
         print(string.format("[GamePassService] %s owns 2x Damage!", player.Name))
     end
     
@@ -207,6 +205,12 @@ function GamePassService.Init()
     
     -- Cleanup
     Players.PlayerRemoving:Connect(onPlayerRemoving)
+    
+    -- Handle real-time purchases
+    local monetization = getMonetizationService()
+    monetization.OnGamePassPurchased:Connect(function(player, _passId)
+        GamePassService.ApplyGamePassMultipliers(player)
+    end)
     
     print("[GamePassService] Initialized!")
 end

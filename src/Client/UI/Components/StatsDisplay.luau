@@ -31,37 +31,33 @@ local function formatNumber(value: number): string
     return MoneyLib.HandleMoney(value)
 end
 
-local Mutations = require(Rojo:WaitForChild("Shared"):WaitForChild("Mutations"))
-local HttpService = game:GetService("HttpService")
-
 local function updateStats()
-    local leaderstats = player:FindFirstChild("leaderstats")
-    if not leaderstats then return end
+    local internalStats = player:FindFirstChild("InternalStats")
+    if not internalStats then return end
     
-    local levelValue = leaderstats:FindFirstChild("Level")
+    local levelValue = internalStats:FindFirstChild("Level")
     local level = levelValue and levelValue.Value or 1
     
-    -- Update Coins
+    -- Update Coins (from InternalStats for precision)
     if coinsLabel then
-        local coins = leaderstats:FindFirstChild("Gold")
-        local coinsValue = coins and coins.Value or 0
-        coinsLabel.Text = "Coins: " .. formatNumber(coinsValue)
+        local goldValue = internalStats:FindFirstChild("Gold")
+        local coins = goldValue and goldValue.Value or 0
+        coinsLabel.Text = "Coins: " .. formatNumber(coins)
     end
     
     -- Update Credits
     if creditsLabel then
-        local credits = leaderstats:FindFirstChild("Credits")
+        local credits = internalStats:FindFirstChild("Credits")
         local creditsValue = credits and credits.Value or 0
         creditsLabel.Text = "Credits: " .. formatNumber(creditsValue)
     end
     
     -- Update Damage (Base(9+Level) * GlobalMult * MutationMult)
     if damageLabel then
-        local multiplierValue = leaderstats:FindFirstChild("DamageMultiplier")
+        local multiplierValue = internalStats:FindFirstChild("DamageMultiplier")
         local globalMultiplier = multiplierValue and multiplierValue.Value or 1
         
         local mutationDamageMult = 1
-        local mutationFirerateMult = 1
         
         local currentTool = player.Character and player.Character:FindFirstChildWhichIsA("Tool")
         local isGun = false
@@ -76,34 +72,12 @@ local function updateStats()
             if baseFirerate and baseFirerate > 0 then
                 isGun = true
             end
-            
-            local mutationsJson = currentTool:GetAttribute("Mutations")
-            -- Note: FireRate is now pre-calculated in the tool attribute by ToolbarUtils.
-            -- We do NOT add the multiplier again here to avoid double counting.
-            -- DamageMultiplier is currently 1 (no mutation buff).
-            
-            -- If we re-add damage mutations, we would calculate mutationDamageMult here.
-             if mutationsJson then
-                 local success, mutations = pcall(function()
-                    return HttpService:JSONDecode(mutationsJson)
-                end)
-                if success and mutations then
-                    for name, count in pairs(mutations) do
-                         local mutationData = Mutations.GetMutation(name)
-                        if mutationData and mutationData.MultiplierModifier then
-                             -- Placeholder for future damage logic
-                        end
-                    end
-                end
-            end
         end
 
         local totalDamage = (9 + level * 5) * globalMultiplier * mutationDamageMult
         
         if isGun then
-            -- baseFirerate is already the boosted value from tool attribute
-            local finalFirerate = baseFirerate 
-            local shotsPerSecond = finalFirerate / 60
+            local shotsPerSecond = baseFirerate / 60
             local dps = math.floor(totalDamage * shotsPerSecond * bullets)
             damageLabel.Text = "DPS: " .. formatNumber(dps)
         else
@@ -132,17 +106,17 @@ function StatsDisplay.Init(context: any)
     
     -- Setup stats tracking with Promise
     Promise.try(function()
-        local leaderstats = player:WaitForChild("leaderstats", 10)
-        if not leaderstats then
-            error("leaderstats not found")
+        local internalStats = player:WaitForChild("InternalStats", 10)
+        if not internalStats then
+            error("InternalStats not found")
         end
-        return leaderstats
-    end):andThen(function(leaderstats)
+        return internalStats
+    end):andThen(function(internalStats)
         -- Wait for critical values
-        local levelValue = leaderstats:WaitForChild("Level", 10)
-        local goldValue = leaderstats:WaitForChild("Gold", 10)
-        local creditsValue = leaderstats:WaitForChild("Credits", 10)
-        local damageMultiplierValue = leaderstats:WaitForChild("DamageMultiplier", 10)
+        local levelValue = internalStats:WaitForChild("Level", 10)
+        local goldValue = internalStats:WaitForChild("Gold", 10)
+        local creditsValue = internalStats:WaitForChild("Credits", 10)
+        local damageMultiplierValue = internalStats:WaitForChild("DamageMultiplier", 10)
         
         -- Initial Update
         updateStats()
@@ -153,8 +127,8 @@ function StatsDisplay.Init(context: any)
         if creditsValue then valueJanitor:Add(creditsValue.Changed:Connect(updateStats)) end
         if damageMultiplierValue then valueJanitor:Add(damageMultiplierValue.Changed:Connect(updateStats)) end
         
-        -- Link to leaderstats for automatic cleanup
-        valueJanitor:LinkToInstance(leaderstats)
+        -- Link to internalStats for automatic cleanup
+        valueJanitor:LinkToInstance(internalStats)
     end):catch(function(err)
         warn("[StatsDisplay] Failed to setup tracking:", err)
     end)

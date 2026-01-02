@@ -29,6 +29,16 @@ return ByteNet.defineNamespace("game", function()
 			value = ByteNet.struct({}), -- No data needed, just a notification
 			reliabilityType = "reliable",
 		}),
+
+		-- System Message Packet (Server -> Client)
+		-- Unified message system for Success, Error, Warn, etc.
+		messageSystem = ByteNet.definePacket({
+			value = ByteNet.struct({
+				msgType = ByteNet.string,
+				message = ByteNet.string,
+			}),
+			reliabilityType = "reliable",
+		}),
 		
 		-- Player respawn request packet (Client -> Server)
 		-- Sent when player clicks respawn button on death screen

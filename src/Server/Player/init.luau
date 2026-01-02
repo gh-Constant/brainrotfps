@@ -10,7 +10,7 @@
 ]]
 
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ReplicatedStorage = game:GetService("ReplicatedStorage") -- Mutations and HttpService removed if unused
 local RunService = game:GetService("RunService")
 
 -- Get modules
@@ -18,16 +18,18 @@ local Rojo = ReplicatedStorage:WaitForChild("Rojo")
 local Packages = Rojo:WaitForChild("Packages")
 local Shared = Rojo:WaitForChild("Shared")
 
+local MoneyLib = require(Shared:WaitForChild("MoneyLib"))
+
 local ProfileStore = require(Packages:WaitForChild("profilestore"))
 local PlayerClass = require(Shared:WaitForChild("Player"))
 local Health = require(Shared:WaitForChild("Health"))
 local DeathHandler = require(script.DeathHandler)
 local PlayerBillboard = require(script.PlayerBillboard)
 local Packets = require(Shared:WaitForChild("Packets"))
+local MessageSystem = require(Shared:WaitForChild("MessageSystem"))
 
 -- Monetization
 local MonetizationService = require(script.Parent.Monetization.MonetizationService)
-local ProductConfig = require(Shared:WaitForChild("Monetization"):WaitForChild("ProductConfig"))
 
 -- Use lazy require for InventoryManager to avoid circular dependency
 local InventoryManager = nil
@@ -57,6 +59,7 @@ local DATA_TEMPLATE = {
     Credits = 0,
     TotalCreditsEarned = 0,
     MaxLevel = 1,
+    PlayerKills = 0,
 }
 
 -- Create ProfileStore
@@ -153,11 +156,8 @@ local function setupCharacter(character: Model, playerData: PlayerClass.Player?)
             -- Victim resets to Level 1, 0 XP
             victimData:ResetProgress()
             
-            -- Update leaderboard (PlayerKills)
-            task.spawn(function()
-                local lbService = getLeaderboardService()
-                lbService.IncrementScore(instigator, "PlayerKills", 1)
-            end)
+            -- Update PlayerData and Leaderboard
+            instigatorData:AddKill()
         end
     end)
 
@@ -185,35 +185,60 @@ local function onPlayerAdded(player: Player)
     -- Initialize connection tracking
     PlayerConnections[player] = {}
     
-    -- Create leaderstats IMMEDIATELY (before profile loads)
+    -- Create leaderstats (Visible to players, formatted)
     local leaderstats = Instance.new("Folder")
     leaderstats.Name = "leaderstats"
     leaderstats.Parent = player
     
+    local levelsDisplay = Instance.new("StringValue")
+    levelsDisplay.Name = "Levels"
+    levelsDisplay.Value = "1"
+    levelsDisplay.Parent = leaderstats
+
+    local killsDisplay = Instance.new("StringValue")
+    killsDisplay.Name = "Kills"
+    killsDisplay.Value = "0"
+    killsDisplay.Parent = leaderstats
+
+    local coinsDisplay = Instance.new("StringValue")
+    coinsDisplay.Name = "Coins"
+    coinsDisplay.Value = "0"
+    coinsDisplay.Parent = leaderstats
+
+    -- Create InternalStats (Hidden from leaderboard, used for logic/UI)
+    local internalStats = Instance.new("Folder")
+    internalStats.Name = "InternalStats"
+    internalStats.Parent = player
+    
     local levelValue = Instance.new("NumberValue")
     levelValue.Name = "Level"
     levelValue.Value = 1
-    levelValue.Parent = leaderstats
+    levelValue.Parent = internalStats
     
     local xpValue = Instance.new("NumberValue")
     xpValue.Name = "XP"
     xpValue.Value = 0
-    xpValue.Parent = leaderstats
+    xpValue.Parent = internalStats
     
     local goldValue = Instance.new("NumberValue")
     goldValue.Name = "Gold"
     goldValue.Value = 0
-    goldValue.Parent = leaderstats
+    goldValue.Parent = internalStats
     
     local creditsValue = Instance.new("NumberValue")
     creditsValue.Name = "Credits"
     creditsValue.Value = 0
-    creditsValue.Parent = leaderstats
+    creditsValue.Parent = internalStats
 
     local damageMultiplierValue = Instance.new("NumberValue")
     damageMultiplierValue.Name = "DamageMultiplier"
     damageMultiplierValue.Value = 1
-    damageMultiplierValue.Parent = leaderstats
+    damageMultiplierValue.Parent = internalStats
+
+    local killsValue = Instance.new("NumberValue")
+    killsValue.Name = "PlayerKills"
+    killsValue.Value = 0
+    killsValue.Parent = internalStats
     
     -- Start ProfileStore session
     local profile = PlayerProfileStore:StartSessionAsync(profileKey, {
@@ -259,6 +284,7 @@ local function onPlayerAdded(player: Player)
         TotalGoldEarned = profile.Data.TotalGoldEarned,
         Credits = profile.Data.Credits,
         TotalCreditsEarned = profile.Data.TotalCreditsEarned,
+        PlayerKills = profile.Data.PlayerKills,
     })
     
     -- Update leaderstats with loaded values
@@ -314,6 +340,7 @@ local function onPlayerAdded(player: Player)
             end
             -- Update leaderstats
             goldValue.Value = playerData.Gold
+            coinsDisplay.Value = MoneyLib.Format(playerData.Gold)
         end)
     end
     
@@ -337,6 +364,7 @@ local function onPlayerAdded(player: Player)
             end
             -- Update leaderstats
             xpValue.Value = playerData.Experience
+            levelsDisplay.Value = tostring(playerData.Level)
             
             -- Update leaderboard (TotalXP)
             -- We use IncrementScore to track gains over time (Daily/Weekly/AllTime)
@@ -346,6 +374,41 @@ local function onPlayerAdded(player: Player)
                     lbService.IncrementScore(player, "TotalXP", _delta)
                 end)
             end
+        end)
+    end
+
+    -- Sync DamageMultiplier to leaderstats for UI
+    local damageMultiplierChangedSignal = playerData.OnDamageMultiplierChanged
+    if damageMultiplierChangedSignal then
+        damageMultiplierChangedSignal:Connect(function(newMultiplier)
+            damageMultiplierValue.Value = newMultiplier
+            -- Trigger DPS update if weapon is held
+            -- (Will be handled by weapon change or damage multiplier change)
+        end)
+    end
+    
+    -- Initial sync
+    damageMultiplierValue.Value = playerData.DamageMultiplier
+    levelsDisplay.Value = tostring(playerData.Level)
+    coinsDisplay.Value = MoneyLib.Format(playerData.Gold)
+    killsDisplay.Value = tostring(playerData.PlayerKills)
+    killsValue.Value = playerData.PlayerKills
+
+    -- Sync Kills
+    local killsChangedSignal = playerData.OnKillsChanged
+    if killsChangedSignal then
+        killsChangedSignal:Connect(function(newKills)
+            if profile:IsActive() then
+                profile.Data.PlayerKills = newKills
+            end
+            killsValue.Value = newKills
+            killsDisplay.Value = tostring(newKills)
+            
+            -- Update leaderboard (PlayerKills) - ALREADY HANDLED BY DEATH LOGIC BUT GOOD TO SYNC
+            task.spawn(function()
+                local lbService = getLeaderboardService()
+                lbService.UpdateScore(player, "PlayerKills", newKills)
+            end)
         end)
     end
     
@@ -495,6 +558,7 @@ function PlayerManager.Init()
             local inCombat = character:GetAttribute("InCombat")
             if inCombat and not data.enabled then
                 -- Cannot disable PvP while in combat
+                MessageSystem.Send(player :: Player, "Error", "You cannot disable PvP while in combat!")
                 print(string.format("[PlayerManager] %s cannot disable PvP while in combat!", player.Name))
                 return
             end
@@ -506,24 +570,6 @@ function PlayerManager.Init()
     
     -- Initialize Monetization
     MonetizationService.Init()
-    
-    -- Listen for purchases
-    MonetizationService.OnGamePassPurchased:Connect(function(player, passId)
-        local playerData = ActivePlayers[player.UserId]
-        if not playerData then return end
-        
-        if passId == ProductConfig.GamePasses.DoubleDamage.Id then
-            playerData.DamageMultiplier = 2
-            local leaderstats = player:FindFirstChild("leaderstats")
-            if leaderstats then
-                local damageMult = leaderstats:FindFirstChild("DamageMultiplier") :: NumberValue?
-                if damageMult then
-                    damageMult.Value = 2
-                end
-            end
-            print(string.format("[PlayerManager] Updated %s Damage Multiplier to 2", player.Name))
-        end
-    end)
     
     print("[PlayerManager] Initialized!")
 end

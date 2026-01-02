@@ -27,7 +27,10 @@ function HomeButton.Init(uiContext: any)
         -- Check combat status
         local inCombat = character:GetAttribute("InCombat") == true
         if inCombat then
-             -- Optional: Feedback for player? User didn't specify, just doing nothing as requested ("when not in combat we get tp")
+            local ReplicatedStorage = game:GetService("ReplicatedStorage")
+            local Rojo = ReplicatedStorage:WaitForChild("Rojo")
+            local MessageSystem = require(Rojo:WaitForChild("Shared"):WaitForChild("MessageSystem"))
+            MessageSystem.Send("Error", "You cannot teleport while in combat!")
             return
         end
         

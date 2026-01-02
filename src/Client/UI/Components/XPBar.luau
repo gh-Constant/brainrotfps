@@ -34,11 +34,11 @@ end
 local function updateXP()
     if not xpBar then return end
     
-    local leaderstats = player:FindFirstChild("leaderstats")
-    if not leaderstats then return end
+    local internalStats = player:FindFirstChild("InternalStats")
+    if not internalStats then return end
     
-    local levelValue = leaderstats:FindFirstChild("Level")
-    local xpValueObj = leaderstats:FindFirstChild("XP")
+    local levelValue = internalStats:FindFirstChild("Level")
+    local xpValueObj = internalStats:FindFirstChild("XP")
     
     local level = levelValue and levelValue.Value or 1
     local currentXP = xpValueObj and xpValueObj.Value or 0
@@ -85,14 +85,14 @@ function XPBar.Init(context: any)
     
     -- Setup XP tracking with Promise
     Promise.try(function()
-        local leaderstats = player:WaitForChild("leaderstats", 10)
-        if not leaderstats then
-            error("leaderstats not found")
+        local internalStats = player:WaitForChild("InternalStats", 10)
+        if not internalStats then
+            error("InternalStats not found")
         end
-        return leaderstats
-    end):andThen(function(leaderstats)
-        local levelValue = leaderstats:WaitForChild("Level", 5)
-        local xpValueObj = leaderstats:WaitForChild("XP", 5)
+        return internalStats
+    end):andThen(function(internalStats)
+        local levelValue = internalStats:WaitForChild("Level", 5)
+        local xpValueObj = internalStats:WaitForChild("XP", 5)
         
         updateXP()
         
@@ -100,8 +100,8 @@ function XPBar.Init(context: any)
         if levelValue then valueJanitor:Add(levelValue.Changed:Connect(updateXP)) end
         if xpValueObj then valueJanitor:Add(xpValueObj.Changed:Connect(updateXP)) end
         
-        -- Link to leaderstats for automatic cleanup
-        valueJanitor:LinkToInstance(leaderstats)
+        -- Link to internalStats for automatic cleanup
+        valueJanitor:LinkToInstance(internalStats)
     end):catch(function(err)
         warn("[XPBar] Failed to setup tracking:", err)
     end)

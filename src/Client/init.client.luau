@@ -7,7 +7,6 @@
 
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
-
 local MovementController = require(script.Movement.MovementController)
 local InputController = require(script.Movement.InputController)
 local UI = require(script.UI)
@@ -16,6 +15,7 @@ local SystemLoader = require(script.SystemLoader)
 local GrenadeController = require(script.Weapons.GrenadeController)
 local BuffController = require(script.UI.Buffs.BuffController)
 local MobDisplayController = require(script:WaitForChild("Brainrot"):WaitForChild("MobDisplayController"))
+local RewardController = require(script.RewardController)
 
 -- Note: Core GUI is disabled in ReplicatedFirst/LoadingScreen
 
@@ -139,6 +139,15 @@ systemLoader:RegisterSystem({
     Priority = 8,
     Init = function(_context)
         IndexController.Init()
+    end,
+})
+
+-- System: Rewards
+systemLoader:RegisterSystem({
+    Name = "Rewards",
+    Priority = 9,
+    Init = function(context)
+        RewardController.Init(context)
     end,
 })
 

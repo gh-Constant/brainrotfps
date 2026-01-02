@@ -114,8 +114,17 @@ function GunInfos.Mount(instanceOrInstances: GuiObject | {GuiObject}, item: Inve
 	
 	local dpsLabel = findElement(instances, "Dps") :: TextLabel?
 	if dpsLabel then
-		-- DPS = Level 1 Damage * (FireRate / 60) * BulletCount
-		local level1Damage = getPlayerDamage(1) * damageMult
+        -- Get global multiplier from InternalStats
+        local player = game:GetService("Players").LocalPlayer
+        local internalStats = player:FindFirstChild("InternalStats")
+        local globalMultiplier = 1
+        if internalStats then
+            local multiplierValue = internalStats:FindFirstChild("DamageMultiplier")
+            globalMultiplier = multiplierValue and multiplierValue.Value or 1
+        end
+
+		-- DPS = Level 1 Damage * (FireRate / 60) * BulletCount * GlobalMultiplier
+		local level1Damage = getPlayerDamage(1) * damageMult * globalMultiplier
 		local shotsPerSecond = firerate / 60
 		local dps = math.floor(level1Damage * shotsPerSecond * bullets)
 		dpsLabel.Text = "Level 1 DPS: " .. tostring(dps)
