@@ -37,10 +37,11 @@ GrenadeService.Init()    -- Handles grenades
 PotionService.Init()     -- Handles potions
 IndexSystem.Init()       -- Handles mob index
 
--- Initialize Leaderboard System
-LeaderboardService.Init()
+-- Initialize Leaderboard System (Register BEFORE Init so scores load correctly)
 LeaderboardService.RegisterLeaderboard("TotalXP", { DisplayName = "Total XP" })
 LeaderboardService.RegisterLeaderboard("Level", { DisplayName = "Level" })
 LeaderboardService.RegisterLeaderboard("BrainrotKills", { DisplayName = "Brainrot Kills" })
 LeaderboardService.RegisterLeaderboard("TotalDamage", { DisplayName = "Total Damage" })
 LeaderboardService.RegisterLeaderboard("PlayerKills", { DisplayName = "Player Kills" })
+LeaderboardService.Init()
+

@@ -9,6 +9,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
 
 local Rojo = ReplicatedStorage:WaitForChild("Rojo")
 local Shared = Rojo:WaitForChild("Shared")
@@ -31,8 +32,9 @@ local HIGHLIGHT_OUTLINE_COLOR = Color3.fromRGB(255, 100, 100) -- Lighter red out
 
 -- Track active indicators
 local activeIndicators: {Instance} = {}
--- Track active highlights
-local activeHighlights: {Highlight} = {}
+
+-- Track active highlights (simple set for counting)
+local activeHighlightCount = 0
 
 -- Tween helper (Linear easing)
 local function tween(object: GuiObject, properties: {[string]: any}, duration: number)
@@ -44,36 +46,24 @@ local function tween(object: GuiObject, properties: {[string]: any}, duration: n
 	tweenObj:Play()
 end
 
-
--- Spawn a highlight on the hit target
+-- Spawn a highlight on the hit target (SIMPLIFIED - no animation, just Debris cleanup)
 local function spawnHighlight(target: Instance?)
 	if not target or not target:IsA("Model") then
 		return
 	end
 	
-	-- Check if target already has a highlight from us (avoid stacking)
+	-- Check if target already has a highlight from us (skip if so - don't stack)
 	local existingHighlight = target:FindFirstChild("HitHighlight")
-	if existingHighlight and existingHighlight:IsA("Highlight") then
-		-- Reset the existing highlight's cleanup timer by destroying and recreating
-		existingHighlight:Destroy()
+	if existingHighlight then
+		return -- Already has highlight, don't spam more
 	end
 	
-	-- Check if we're at the highlight limit - remove oldest if so
-	-- Ensure we clean up invalid ones first
-	for i = #activeHighlights, 1, -1 do
-		if not activeHighlights[i].Parent then
-			table.remove(activeHighlights, i)
-		end
+	-- Hard limit on total highlights (Roblox limit is 31, we use 10 for high fire-rate weapons)
+	if activeHighlightCount >= MAX_HIGHLIGHTS then
+		return -- At limit, skip this one
 	end
 	
-	if #activeHighlights >= MAX_HIGHLIGHTS then
-		local oldest = table.remove(activeHighlights, 1)
-		if oldest then
-			oldest:Destroy()
-		end
-	end
-	
-	-- Create the highlight protected call to avoid crashes if limit is still hit
+	-- Create the highlight (protected call to avoid crashes)
 	local success, highlight = pcall(function()
 		local h = Instance.new("Highlight")
 		h.Name = "HitHighlight"
@@ -91,36 +81,15 @@ local function spawnHighlight(target: Instance?)
 		return
 	end
 	
-	-- Track this highlight
-	table.insert(activeHighlights, highlight)
+	-- Track count
+	activeHighlightCount = activeHighlightCount + 1
 	
-	-- Animate fade out and cleanup
-	local startTime = tick()
-	local connection: RBXScriptConnection?
-	connection = game:GetService("RunService").Heartbeat:Connect(function()
-		local elapsed = tick() - startTime
-		local alpha = elapsed / HIGHLIGHT_DURATION
-		
-		if alpha >= 1 or not highlight.Parent then
-			if connection then
-				connection:Disconnect()
-			end
-			
-			-- Remove from tracking
-			local index = table.find(activeHighlights, highlight)
-			if index then
-				table.remove(activeHighlights, index)
-			end
-			
-			if highlight.Parent then
-				highlight:Destroy()
-			end
-			return
-		end
-		
-		-- Fade out the highlight
-		highlight.FillTransparency = 0.5 + (alpha * 0.5)
-		highlight.OutlineTransparency = alpha
+	-- Simple cleanup with Debris - no animation, no Heartbeat
+	Debris:AddItem(highlight, HIGHLIGHT_DURATION)
+	
+	-- Decrement count when destroyed
+	highlight.Destroying:Once(function()
+		activeHighlightCount = activeHighlightCount - 1
 	end)
 end
 

@@ -19,6 +19,15 @@ local Signal = require(Packages:WaitForChild("signal"))
 local PVPManager = require(HealthFolder:WaitForChild("PVPManager"))
 local CombatManager = require(HealthFolder:WaitForChild("CombatManager"))
 
+-- Logging helper (checks Config.Health.Logging attribute)
+local function log(message: string)
+    local config = ReplicatedStorage:FindFirstChild("Config")
+    local healthConfig = config and config:FindFirstChild("Health")
+    if healthConfig and healthConfig:GetAttribute("Logging") == true then
+        print(message)
+    end
+end
+
 
 local Health = {}
 Health.__index = Health
@@ -92,10 +101,10 @@ function Health.new(instance: Instance, maxHealth: number?): HealthObject
     end
     
     -- Initialize Attributes only for players (server-side)
-    print("[Health] Creating Health for", instance.Name, "- IsServer:", RunService:IsServer(), "IsClient:", RunService:IsClient(), "IsPlayer:", isPlayerCharacter)
+    log("[Health] Creating Health for " .. instance.Name .. " - IsServer: " .. tostring(RunService:IsServer()) .. " IsClient: " .. tostring(RunService:IsClient()) .. " IsPlayer: " .. tostring(isPlayerCharacter))
     
     if RunService:IsServer() and isPlayerCharacter then
-        print("[Health] Initializing attributes for player (server-side)")
+        log("[Health] Initializing attributes for player (server-side)")
         if not instance:GetAttribute(ATTR_MAX_HEALTH) then
             instance:SetAttribute(ATTR_MAX_HEALTH, maxHealth or 100)
         end
@@ -166,19 +175,17 @@ function Health.new(instance: Instance, maxHealth: number?): HealthObject
             
             -- Detect death
             if hp <= 0 and not instance:GetAttribute(ATTR_IS_DEAD) then
-                print("[Health] Death detected for", instance.Name, "HP:", hp)
-                print("[Health] IsServer:", RunService:IsServer(), "IsClient:", RunService:IsClient(), "IsStudio:", RunService:IsStudio())
+                log("[Health] Death detected for " .. instance.Name .. " HP: " .. tostring(hp))
+                log("[Health] IsServer: " .. tostring(RunService:IsServer()) .. " IsClient: " .. tostring(RunService:IsClient()) .. " IsStudio: " .. tostring(RunService:IsStudio()))
                 
                 if RunService:IsServer() then
-                    print("[Health] Setting IsDead attribute (server)")
+                    log("[Health] Setting IsDead attribute (server)")
                     instance:SetAttribute(ATTR_IS_DEAD, true)
-                else
-                    warn("[Health] Skipping IsDead attribute (client)")
                 end
                 
-                print("[Health] Firing Died event for", instance.Name)
+                log("[Health] Firing Died event for " .. instance.Name)
                 self.Died:Fire(self._lastInstigator) -- Pass killer if available
-                print("[Health] Died event fired for", instance.Name)
+                log("[Health] Died event fired for " .. instance.Name)
             end
         end
     end)

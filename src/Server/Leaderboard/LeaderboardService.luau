@@ -50,6 +50,15 @@ local FLUSH_INTERVAL = 60 -- Seconds between DataStore flushes
 -- Format: { [userId]: { ["TotalXP_Daily"]: 1500, ["BrainrotKills_AllTime"]: 42 } }
 local playerScoreCache: {[number]: {[string]: number}} = {}
 
+-- Logging helper (checks Config.Leaderboard.Logging attribute)
+local function log(message: string)
+    local config = ReplicatedStorage:FindFirstChild("Config")
+    local lbConfig = config and config:FindFirstChild("Leaderboard")
+    if lbConfig and lbConfig:GetAttribute("Logging") == true then
+        print(message)
+    end
+end
+
 --------------------------------------------------------------------------------
 -- Time Period Helpers
 --------------------------------------------------------------------------------
@@ -212,6 +221,8 @@ function LeaderboardService.UpdateScore(player: Player, valueName: string, score
         end
         scoreBuffer[bufferKey][userId] = score
     end
+    
+    log(string.format("[Leaderboard] UpdateScore: %s -> %s = %d", player.Name, valueName, score))
 end
 
 --[[
@@ -261,14 +272,21 @@ function LeaderboardService.IncrementScore(player: Player, valueName: string, de
         if playerScoreCache[userId] then
             playerScoreCache[userId][bufferKey] = newScore
         end
+        
+        -- Log only for AllTime period to avoid spam
+        if period == "AllTime" then
+            log(string.format("[Leaderboard] IncrementScore: %s -> %s +%d = %d (cached: %d)", 
+                player.Name, valueName, delta, newScore, cachedScore))
+        end
     end
 end
 
 --[[
     Loads existing scores from DataStore for a player.
-    Called on PlayerAdded to ensure increments add to persisted totals.
+    Returns a Promise that resolves when all scores are loaded.
     
     @param player - The player
+    @return Promise that resolves when loading is complete
 ]]
 function LeaderboardService.LoadPlayerScores(player: Player)
     local userId = player.UserId
@@ -278,9 +296,10 @@ function LeaderboardService.LoadPlayerScores(player: Player)
         playerScoreCache[userId] = {}
     end
     
+    local promises = {}
+    
     -- Load scores for each registered leaderboard
     for valueName, _ in pairs(registeredLeaderboards) do
-        -- Determine which periods to load
         local periods: {LeaderboardPeriod} = {"Daily", "Weekly", "Monthly", "AllTime"}
         if valueName == "Level" then
             periods = {"AllTime"}
@@ -291,24 +310,34 @@ function LeaderboardService.LoadPlayerScores(player: Player)
             local dataStore = getDataStore(valueName, period :: LeaderboardPeriod)
             local key = tostring(userId)
             
-            task.spawn(function()
+            local promise = Promise.new(function(resolve)
                 local success, result = pcall(function()
                     return dataStore:GetAsync(key)
                 end)
                 
                 if success and result then
-                    -- Decode the score and store in cache
                     local decodedScore = decodeScore(result)
                     playerScoreCache[userId] = playerScoreCache[userId] or {}
                     playerScoreCache[userId][bufferKey] = decodedScore
+                    
+                    -- Log only AllTime to avoid spam
+                    if period == "AllTime" then
+                        log(string.format("[Leaderboard] Loaded %s for %s: %d", valueName, player.Name, decodedScore))
+                    end
                 elseif not success then
                     warn(string.format("[LeaderboardService] Failed to load %s for %s: %s", 
                         bufferKey, player.Name, tostring(result)))
                 end
+                resolve()
             end)
+            
+            table.insert(promises, promise)
         end
     end
+    
+    return Promise.all(promises)
 end
+
 
 --[[
     Gets a page of leaderboard data.
@@ -559,14 +588,14 @@ function LeaderboardService.Init()
     -- Cache info for all current players and load their scores
     for _, player in Players:GetPlayers() do
         playerInfoCache[player.UserId] = { Username = player.Name, DisplayName = player.DisplayName }
-        LeaderboardService.LoadPlayerScores(player)
+        LeaderboardService.LoadPlayerScores(player):await()
     end
     
     Players.PlayerAdded:Connect(function(player)
         playerInfoCache[player.UserId] = { Username = player.Name, DisplayName = player.DisplayName }
         
-        -- Load existing scores from DataStore for this player
-        LeaderboardService.LoadPlayerScores(player)
+        -- Wait for scores to load before player can act
+        LeaderboardService.LoadPlayerScores(player):await()
     end)
 
     Players.PlayerRemoving:Connect(function(player)

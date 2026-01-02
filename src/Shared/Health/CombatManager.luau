@@ -11,44 +11,51 @@ local CombatManager = {}
 -- Constants
 local COMBAT_DURATION = 13 -- seconds
 local ATTR_IN_COMBAT = "InCombat"
-local ATTR_COMBAT_TIMER = "_CombatTimer"
 local ATTR_COMBAT_COUNTDOWN = "CombatCountdown"
 
 --[[
     Put a character into combat state with countdown timer.
     Only runs on server.
+    
+    OPTIMIZED: Instead of spawning a new countdown thread on each hit,
+    we just reset the countdown value. A single persistent thread per character
+    handles the countdown, preventing thread spam from rapid hits.
 ]]
 function CombatManager.EnterCombat(character: Model)
     if not RunService:IsServer() then return end
     if not character then return end
     
-    -- Set combat state
-    character:SetAttribute(ATTR_IN_COMBAT, true)
-    
-    -- Increment timer ID to invalidate previous timers
-    local currentTimer = (character:GetAttribute(ATTR_COMBAT_TIMER) :: number?) or 0
-    local newTimerId = currentTimer + 1
-    character:SetAttribute(ATTR_COMBAT_TIMER, newTimerId)
+    -- Reset countdown to full duration
     character:SetAttribute(ATTR_COMBAT_COUNTDOWN, COMBAT_DURATION)
     
-    -- Start countdown
+    -- If already in combat, just reset the timer - don't spawn a new thread
+    if character:GetAttribute(ATTR_IN_COMBAT) then
+        return
+    end
+    
+    -- Set combat state (first time entering combat)
+    character:SetAttribute(ATTR_IN_COMBAT, true)
+    
+    -- Start a single countdown loop for this combat session
     task.spawn(function()
-        for i = COMBAT_DURATION, 0, -1 do
-            -- Check if this timer is still valid
-            if not character or not character.Parent then
-                break
-            end
-            if character:GetAttribute(ATTR_COMBAT_TIMER) ~= newTimerId then
-                break
-            end
+        while character and character.Parent do
+            local countdown = character:GetAttribute(ATTR_COMBAT_COUNTDOWN) :: number?
             
-            character:SetAttribute(ATTR_COMBAT_COUNTDOWN, i)
-            
-            if i == 0 then
+            if not countdown or countdown <= 0 then
+                -- Combat ended
                 character:SetAttribute(ATTR_IN_COMBAT, false)
                 character:SetAttribute(ATTR_COMBAT_COUNTDOWN, nil)
-            else
-                task.wait(1)
+                break
+            end
+            
+            task.wait(1)
+            
+            -- Decrement countdown (check if still valid)
+            if character and character.Parent then
+                local currentCountdown = character:GetAttribute(ATTR_COMBAT_COUNTDOWN) :: number?
+                if currentCountdown and currentCountdown > 0 then
+                    character:SetAttribute(ATTR_COMBAT_COUNTDOWN, currentCountdown - 1)
+                end
             end
         end
     end)
@@ -78,11 +85,8 @@ function CombatManager.ExitCombat(character: Model)
     if not RunService:IsServer() then return end
     if not character then return end
     
-    -- Increment timer to invalidate any running countdown
-    local currentTimer = (character:GetAttribute(ATTR_COMBAT_TIMER) :: number?) or 0
-    character:SetAttribute(ATTR_COMBAT_TIMER, currentTimer + 1)
-    character:SetAttribute(ATTR_IN_COMBAT, false)
-    character:SetAttribute(ATTR_COMBAT_COUNTDOWN, nil)
+    -- Set countdown to 0 so the loop exits on next tick
+    character:SetAttribute(ATTR_COMBAT_COUNTDOWN, 0)
 end
 
 return CombatManager
