@@ -1,17 +1,16 @@
 local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
-local MemoryStoreService = game:GetService("MemoryStoreService")
 local Server = script.Parent -- src/Server
+
+local Rojo = ReplicatedStorage:WaitForChild("Rojo")
+local Packages = Rojo:WaitForChild("Packages")
+local Promise = require(Packages:WaitForChild("promise"))
 
 local AFKRewardsService = require(Server.Rewards.AFKRewardsService)
 local Packets = require(ReplicatedStorage.Rojo.Shared.Packets)
 
 local AntiAfkService = {}
-
--- MemoryStore Map for robust, short-term data persistence across rejoining
-local rejoinMap = MemoryStoreService:GetSortedMap("AntiAfkRejoin_v2")
 
 function AntiAfkService.Init()
     -- Listen for client rejoin request via ByteNet
@@ -20,63 +19,52 @@ function AntiAfkService.Init()
         AntiAfkService.Rejoin(player)
     end)
 
-    -- Function to handle player join logic (isolated for reuse)
-    -- Function to handle player join logic (isolated for reuse)
+    -- Function to handle player join logic
     local function onPlayerAdded(player)
-        local key = tostring(player.UserId)
-        print("[AntiAFK] Checking rejoin data for " .. player.Name)
+        local joinData = player:GetJoinData()
+        local teleportData = joinData and joinData.TeleportData
         
-        local success, rejoinData = pcall(function()
-            return rejoinMap:GetAsync(key)
-        end)
-
-        if success and rejoinData then
-            print("[AntiAFK] Data found:", rejoinData)
+        if teleportData and teleportData.isAutoRejoin then
+            print("[AntiAFK] Found TeleportData for " .. player.Name, teleportData)
             
-            if rejoinData.isAutoRejoin then
-                -- Restore session XP
-                if rejoinData.sessionXp then
-                    print("[AntiAFK] Restoring session XP: " .. rejoinData.sessionXp)
-                    AFKRewardsService.SetSessionData(player, rejoinData.sessionXp)
+            -- Restore session XP
+            if teleportData.sessionXp then
+                print("[AntiAFK] Restoring session XP: " .. teleportData.sessionXp)
+                AFKRewardsService.SetSessionData(player, teleportData.sessionXp)
+            end
+
+            -- Teleport logic
+            Promise.delay(2):andThen(function()
+                local afkFolder = workspace:FindFirstChild("AFK")
+                local zone = afkFolder and afkFolder:FindFirstChild("Zone")
+                local character = player.Character
+                
+                if not character then 
+                    warn("[AntiAFK] No character to teleport")
+                    return 
                 end
 
-                -- Teleport logic
-                local function onCharacterAdded(character)
-                    task.wait(2) -- Wait for load
-                    
-                    local afkFolder = workspace:FindFirstChild("AFK")
-                    local zone = afkFolder and afkFolder:FindFirstChild("Zone")
-                    
-                    if zone and zone:IsA("BasePart") then
-                        local cf = zone.CFrame * CFrame.new(0, 5, 0)
-                        if character.PrimaryPart then
-                            character:PivotTo(cf)
-                        elseif character:FindFirstChild("HumanoidRootPart") then
-                            character.HumanoidRootPart.CFrame = cf
-                        end
-                        print("[AntiAFK] Teleported " .. player.Name .. " back to AFK Zone")
-                    else
-                        warn("[AntiAFK] Zone part not found")
+                if zone and zone:IsA("BasePart") then
+                    local cf = zone.CFrame * CFrame.new(0, 5, 0)
+                    if character.PrimaryPart then
+                        character:PivotTo(cf)
+                    elseif character:FindFirstChild("HumanoidRootPart") then
+                        character.HumanoidRootPart.CFrame = cf
                     end
+                    print("[AntiAFK] Teleported " .. player.Name .. " back to AFK Zone")
+                else
+                    warn("[AntiAFK] Zone part not found")
                 end
-                
-                player.CharacterAdded:Connect(onCharacterAdded)
-                if player.Character then
-                    task.spawn(onCharacterAdded, player.Character)
-                end
-                
-                -- Cleanup
-                rejoinMap:RemoveAsync(key)
-            end
+            end):catch(function(err)
+                warn("[AntiAFK] Teleport back error: " .. tostring(err))
+            end)
         else
-            print("[AntiAFK] No rejoin data found or error: " .. tostring(rejoinData))
+            print("[AntiAFK] No auto-rejoin TeleportData found for " .. player.Name)
         end
     end
 
-    -- Handle players joining (Auto-Rejoin Logic)
+    -- Handle players joining
     Players.PlayerAdded:Connect(onPlayerAdded)
-    
-    -- Handle existing players
     for _, player in ipairs(Players:GetPlayers()) do
         task.spawn(onPlayerAdded, player)
     end
@@ -92,42 +80,32 @@ function AntiAfkService.Rejoin(player: Player)
     warn("[AntiAFK] Rejoining " .. player.Name)
     
     local sessionXp = AFKRewardsService.GetSessionData(player) or 0
-    local rejoinData = {
+    local teleportData = {
         isAutoRejoin = true,
         sessionXp = sessionXp,
         timestamp = os.time()
     }
     
-    local key = tostring(player.UserId)
+    print("[AntiAFK] Preparing Teleport with Data:", teleportData)
     
-    local success, err = pcall(function()
-        rejoinMap:SetAsync(key, rejoinData, 300)
-    end)
-    
-    if success then
-        print("[AntiAFK] Saved data to MemoryStore")
-        
+    Promise.try(function()
         local teleportOptions = Instance.new("TeleportOptions")
+        teleportOptions:SetTeleportData(teleportData)
         if game.JobId and game.JobId ~= "" then
             teleportOptions.ServerInstanceId = game.JobId
         end
-
-        local pv = 0 
-        while task.wait(0.5) do
-            warn("Waiting for rejoin...")
-            pv += 1
-            if pv >= 10 then
-                break
-            end
-        end
-
-        task.wait(5)
-        
-        TeleportService:TeleportAsync(game.PlaceId, {player}, teleportOptions)
-    else
-        warn("[AntiAFK] Failed to save data: " .. tostring(err))
+        return teleportOptions
+    end)
+    :andThen(function(teleportOptions)
+        warn("[AntiAFK] calling TeleportAsync...")
+        return Promise.try(function()
+            return TeleportService:TeleportAsync(game.PlaceId, {player}, teleportOptions)
+        end)
+    end)
+    :catch(function(err)
+        warn("[AntiAFK] Rejoin process failed: " .. tostring(err))
         rejoinDebounce[player] = nil
-    end
+    end)
 end
 
 return AntiAfkService

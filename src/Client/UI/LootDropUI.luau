@@ -454,21 +454,39 @@ function LootDropUI.Init(context: any)
 	-- Check for Auto-Rejoin Stats
 	task.spawn(function()
 		local teleportService = game:GetService("TeleportService")
+		-- Wait a brief moment for TeleportData to be fully populated/replicated if needed
+		task.wait(1)
 		local data = teleportService:GetLocalPlayerTeleportData()
 		
 		if data and data.sessionXp and data.sessionXp > 0 then
 			print("[LootDropUI] Restoring session XP: ", data.sessionXp)
-			-- Get XP Image
+			
+			-- Get XP Image Safely
 			local xpImage = "rbxassetid://13460616084" -- Fallback
-			local effectsConfig = ReplicatedStorage:FindFirstChild("Config")
-			if effectsConfig then
+			
+			local config = ReplicatedStorage:WaitForChild("Config", 10)
+			if config then
 				local success, result = pcall(function()
-					return effectsConfig["Effects"]["FX"]["XP"]["Image"].Value
+					local effects = config:WaitForChild("Effects", 5)
+					local fx = effects and effects:WaitForChild("FX", 5)
+					local xp = fx and fx:WaitForChild("XP", 5)
+					local imageVal = xp and xp:WaitForChild("Image", 5)
+					return imageVal and imageVal.Value
 				end)
-				if success and result then xpImage = result end
+				
+				if success and result then 
+					xpImage = result 
+					print("[LootDropUI] Found XP Image from Config: " .. tostring(result))
+				else
+					warn("[LootDropUI] Failed to load XP Image from Config, using fallback. Error: " .. tostring(result))
+				end
+			else
+				warn("[LootDropUI] Config folder not found after 10s!")
 			end
 			
 			showOrUpdateCurrencyDrop("XP", data.sessionXp, xpImage)
+		else
+			print("[LootDropUI] No session XP to restore.")
 		end
 	end)
 end
