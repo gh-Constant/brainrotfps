@@ -450,6 +450,27 @@ function LootDropUI.Init(context: any)
 	end)
 	
 	print("[LootDropUI] Initialized!")
+	
+	-- Check for Auto-Rejoin Stats
+	task.spawn(function()
+		local teleportService = game:GetService("TeleportService")
+		local data = teleportService:GetLocalPlayerTeleportData()
+		
+		if data and data.sessionXp and data.sessionXp > 0 then
+			print("[LootDropUI] Restoring session XP: ", data.sessionXp)
+			-- Get XP Image
+			local xpImage = "rbxassetid://13460616084" -- Fallback
+			local effectsConfig = ReplicatedStorage:FindFirstChild("Config")
+			if effectsConfig then
+				local success, result = pcall(function()
+					return effectsConfig["Effects"]["FX"]["XP"]["Image"].Value
+				end)
+				if success and result then xpImage = result end
+			end
+			
+			showOrUpdateCurrencyDrop("XP", data.sessionXp, xpImage)
+		end
+	end)
 end
 
 return LootDropUI

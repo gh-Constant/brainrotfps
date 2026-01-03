@@ -21,9 +21,18 @@ local AFKRewardsService = {}
 local REWARD_INTERVAL = 0.5
 local XP_AMOUNT = 1
 
+
 local activeZone = nil -- Store reference to prevent GC
 
+-- Track session accumulated XP per player
+local sessionData = {}
+
 function AFKRewardsService.Init()
+    -- Cleanup on player leave
+    PlayerManager.PlayerRemoving:Connect(function(player)
+        sessionData[player] = nil
+    end)
+    
     task.spawn(function()
         local afkFolder = workspace:WaitForChild("AFK", 30)
         local afkZonePart = afkFolder and afkFolder:WaitForChild("Zone", 30)
@@ -54,6 +63,9 @@ function AFKRewardsService.Init()
                     local playerData = PlayerManager.GetPlayerData(player)
                     if playerData then
                         playerData:AddExperience(XP_AMOUNT)
+                        
+                        -- Update session data
+                        sessionData[player] = (sessionData[player] or 0) + XP_AMOUNT
                         
                         -- LootUI Feedback
                         -- Attempt to find XP image from config, same as PlayerManager
@@ -102,6 +114,10 @@ function AFKRewardsService.Init()
         
         print("[AFKRewards] Initialized zone on " .. afkZonePart:GetFullName())
     end)
+end
+
+function AFKRewardsService.GetSessionData(player: Player): number
+    return sessionData[player] or 0
 end
 
 return AFKRewardsService

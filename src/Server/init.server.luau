@@ -22,6 +22,7 @@ local DailyRewardsService = require(script.Rewards.DailyRewardsService)
 local HourlyRewardsService = require(script.Rewards.HourlyRewardsService)
 local AFKRewardsService = require(script.Rewards.AFKRewardsService)
 local ChestService = require(script.Rewards.ChestService)
+local AntiAfkService = require(script.AntiAfkService)
 
 print("[Server] Server initialized!")
 
@@ -44,6 +45,7 @@ DailyRewardsService.Init() -- Handles daily login rewards
 HourlyRewardsService.Init() -- Handles hourly playtime rewards
 AFKRewardsService.Init()    -- Handles AFK zone rewards
 ChestService.Init() -- Handles group/premium chest rewards
+AntiAfkService.Init() -- Handles AFK rejoin logic
 
 -- Initialize Leaderboard System (Register BEFORE Init so scores load correctly)
 LeaderboardService.RegisterLeaderboard("TotalXP", { DisplayName = "Total XP" })
