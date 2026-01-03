@@ -243,6 +243,12 @@ function Actions.RemoveItem(
     
     if not item or not arrayIndex then return false end
     
+    -- Check for Locked status
+    if item.Metadata and item.Metadata.Locked then
+        warn(string.format("[Actions] Cannot remove locked item %s for %s", item.TemplateId, player.Name))
+        return false
+    end
+    
     local isStackable = Inventory.IsStackable(item.TemplateId)
     
     table.remove(inventory.Items, arrayIndex)

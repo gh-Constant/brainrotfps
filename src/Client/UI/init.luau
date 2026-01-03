@@ -33,6 +33,7 @@ local HomeButton = require(Components.HomeButton)
 
 -- Rewards UI
 local DailyRewardsUI = require(script.Rewards.DailyRewardsUI)
+local MobileControls = require(Components.MobileControls)
 
 local UI = {
     -- Shared utilities
@@ -104,6 +105,7 @@ function UI.Init(context: any)
     HomeButton.Init(uiContext)
     LootDropUI.Init(uiContext)
     DailyRewardsUI.Init(uiContext)
+    MobileControls.Init(uiContext)
     
     print("[UI] All systems initialized!")
 end

@@ -3,6 +3,7 @@ local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -38,7 +39,11 @@ local brainrotsConfig = config:WaitForChild("Brainrots")
 local uiConfig = brainrotsConfig:WaitForChild("UI")
 local billboardTemplate = uiConfig:WaitForChild("BillboardGui")
 
+
+
 local MOBS_TAG = "BrainrotMob"
+local BILLBOARD_MAX_DISTANCE = 150 -- Hide entire billboard if further than this
+local LOOT_DISPLAY_DISTANCE = 40   -- Hide loot list if further than this
 
 -- Cached templates and tweens
 local invTemplate = config:WaitForChild("Inventory"):WaitForChild("Templates"):WaitForChild("ItemSlot")
@@ -579,6 +584,43 @@ function MobDisplayController.Start()
 	end)
 	
 	print("[MobDisplayController] Started")
+	
+	-- Optimization Loop
+	-- Checks every few frames instead of every frame to save CPU
+	local UPDATE_INTERVAL = 0.2
+	local lastUpdate = 0
+	
+	RunService.Heartbeat:Connect(function(dt)
+		lastUpdate += dt
+		if lastUpdate < UPDATE_INTERVAL then return end
+		lastUpdate = 0
+		
+		local character = LocalPlayer.Character
+		local rootPart = if character then character.PrimaryPart else nil
+		if not rootPart then return end
+		
+		local myPos = rootPart.Position
+		
+		for _, display in activeDisplays do
+			if not display.Model.PrimaryPart then continue end
+			
+			local dist = (display.Model.PrimaryPart.Position - myPos).Magnitude
+			
+			-- 1. Cull Entire Billboard
+			local showBillboard = dist <= BILLBOARD_MAX_DISTANCE
+			if display.Billboard.Enabled ~= showBillboard then
+				display.Billboard.Enabled = showBillboard
+			end
+			
+			-- 2. Cull Expensive Loot Display (3D Viewports)
+			if showBillboard and display.DropContainer then
+				local showLoot = dist <= LOOT_DISPLAY_DISTANCE
+				if display.DropContainer.Visible ~= showLoot then
+					display.DropContainer.Visible = showLoot
+				end
+			end
+		end
+	end)
 end
 
 return MobDisplayController

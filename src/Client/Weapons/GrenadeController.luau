@@ -269,6 +269,25 @@ function GrenadeController.Init(_context: any)
 	print("[GrenadeController] Initialized with beam trajectory")
 end
 
+function GrenadeController.StartCharge()
+    local character = Players.LocalPlayer.Character
+    if character then
+        local tool = character:FindFirstChildWhichIsA("Tool")
+        if tool and tool:GetAttribute("IsGrenade") then
+            charging = true
+            chargeStartTime = os.clock()
+        end
+    end
+end
+
+function GrenadeController.EndCharge()
+    if charging then
+        charging = false
+        GrenadeController.Fire()
+        GrenadeController.ClearTrajectory()
+    end
+end
+
 function GrenadeController.Fire()
 	local character = Players.LocalPlayer.Character
 	if not character then return end

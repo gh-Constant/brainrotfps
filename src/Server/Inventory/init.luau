@@ -42,6 +42,7 @@ local DATA_TEMPLATE: InventoryData = {
     Items = {},
     ToolbarSlots = {},
     MaxSize = 100000000000,
+    StarterPackClaimed = false,
 }
 
 local InventoryProfileStore = ProfileStore.New(STORE_NAME, DATA_TEMPLATE)
@@ -165,6 +166,17 @@ function InventoryManager.LoadInventory(player: Player)
         ActiveProfiles[userId] = profile
         ActiveIndices[userId] = buildIndex(profile.Data.Items)
         PlayerJanitors[player] = Janitor.new()
+        
+        -- Checker Starter Pack
+        if not profile.Data.StarterPackClaimed then
+            print(string.format("[InventoryManager] Giving starter pack to %s", player.Name))
+            -- Give Lirilì Larilà
+            local newItem = InventoryManager.AddItem(player, "Lirilì Larilà", "Tool", "Common", { Locked = true })
+            if newItem then
+                InventoryManager.AssignToToolbar(player, newItem.Id, 1)
+            end
+            profile.Data.StarterPackClaimed = true
+        end
         
         -- Dup detect
         task.spawn(function()

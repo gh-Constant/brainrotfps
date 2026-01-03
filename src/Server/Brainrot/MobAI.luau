@@ -4,7 +4,7 @@ local BrainrotAnimations = game.ReplicatedStorage:WaitForChild("BrainrotAnimatio
 local MobAI = {}
 MobAI.__index = MobAI
 
-local ROTATE_SPEED = 10
+
 
 function MobAI.new(model)
 	local h = model:FindFirstChildWhichIsA("Humanoid")
@@ -50,15 +50,44 @@ function MobAI:Start()
 		end
 	end
 
+	-- IKControl Setup
+	local animator = self.Humanoid:FindFirstChildWhichIsA("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Parent = self.Humanoid
+	end
+
+	local ikControl = Instance.new("IKControl")
+	ikControl.Name = "LookAtIK"
+	ikControl.Type = Enum.IKControlType.LookAt
+	ikControl.SmoothTime = 0.2
+	
+	-- Determine chain (R6 vs R15 vs Custom)
+	local head = self.Model:FindFirstChild("Head")
+	local torso = self.Model:FindFirstChild("UpperTorso") or self.Model:FindFirstChild("Torso")
+	
+	if head and torso then
+		ikControl.EndEffector = head
+		ikControl.ChainRoot = torso
+		ikControl.Parent = self.Humanoid
+		self._ikControl = ikControl
+	else
+		-- Fallback or warning if rig is non-standard
+		ikControl:Destroy()
+	end
+
 	self._heartbeat = game:GetService("RunService").Heartbeat:Connect(function(deltaTime)
 		if not self._isActive or not self.Model.Parent then return end
 
-		local targetPlayer = getClosestPlayer(self.PrimaryPart.Position)
-		if targetPlayer and targetPlayer.Character and targetPlayer.Character.PrimaryPart then
-			local targetPos = targetPlayer.Character.PrimaryPart.Position
-			local currentCFrame = self.PrimaryPart.CFrame
-			local lookAt = CFrame.new(currentCFrame.Position, Vector3.new(targetPos.X, currentCFrame.Position.Y, targetPos.Z))
-			self.PrimaryPart.CFrame = currentCFrame:Lerp(lookAt, ROTATE_SPEED * deltaTime)
+		-- Update Target
+		if self._ikControl then
+			local targetPlayer = getClosestPlayer(self.PrimaryPart.Position)
+			if targetPlayer and targetPlayer.Character then
+				local targetPart = targetPlayer.Character:FindFirstChild("Head") or targetPlayer.Character.PrimaryPart
+				self._ikControl.Target = targetPart
+			else
+				self._ikControl.Target = nil
+			end
 		end
 	end)
 end
@@ -70,6 +99,16 @@ function MobAI:Stop()
 	if self._heartbeat then
 		self._heartbeat:Disconnect()
 		self._heartbeat = nil
+	end
+	
+	if self._ikControl then
+		self._ikControl:Destroy()
+		self._ikControl = nil
+	end
+	
+	if self._animTrack then
+		self._animTrack:Stop()
+		self._animTrack = nil
 	end
 end
 
