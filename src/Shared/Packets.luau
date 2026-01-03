@@ -346,5 +346,11 @@ return ByteNet.defineNamespace("game", function()
 			value = ByteNet.struct({}),
 			reliabilityType = "reliable",
 		}),
+		-- Request Rejoin (Client -> Server)
+		-- Triggered by Anti-AFK client to prevent idle kick
+		requestRejoin = ByteNet.definePacket({
+			value = ByteNet.struct({}),
+			reliabilityType = "reliable",
+		}),
 	}
 end)

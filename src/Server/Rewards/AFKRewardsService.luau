@@ -29,7 +29,8 @@ local sessionData = {}
 
 function AFKRewardsService.Init()
     -- Cleanup on player leave
-    PlayerManager.PlayerRemoving:Connect(function(player)
+    local Players = game:GetService("Players")
+    Players.PlayerRemoving:Connect(function(player)
         sessionData[player] = nil
     end)
     
@@ -118,6 +119,11 @@ end
 
 function AFKRewardsService.GetSessionData(player: Player): number
     return sessionData[player] or 0
+end
+
+-- NEW function to restore session data (e.g. from Anti-AFK rejoin)
+function AFKRewardsService.SetSessionData(player: Player, amount: number)
+    sessionData[player] = amount
 end
 
 return AFKRewardsService
