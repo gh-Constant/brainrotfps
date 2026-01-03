@@ -114,7 +114,15 @@ local function applyBoostBuff(player: Player, valueType: string, value: number, 
     local currentTime = os.time()
     
     -- Check for existing active buff to stack duration
-    local currentEndTime = playerData.ActiveBuffs[valueType] or 0
+    local currentBuffData = playerData.ActiveBuffs[valueType]
+    local currentEndTime = 0
+    
+    if type(currentBuffData) == "number" then
+        currentEndTime = currentBuffData
+    elseif type(currentBuffData) == "table" then
+        currentEndTime = currentBuffData.Expiry or 0
+    end
+    
     local newEndTime: number
     
     if currentEndTime > currentTime then
@@ -127,8 +135,12 @@ local function applyBoostBuff(player: Player, valueType: string, value: number, 
         newEndTime = currentTime + duration
     end
     
-    -- Save to PlayerData
-    playerData.ActiveBuffs[valueType] = newEndTime
+    -- Save to PlayerData (Rich format)
+    playerData.ActiveBuffs[valueType] = {
+        Expiry = newEndTime,
+        Value = value,
+        Icon = icon
+    }
     
     -- Cancel existing timer for this buff type in this session
     if ActiveBuffTimers[buffKey] then
@@ -148,7 +160,16 @@ local function applyBoostBuff(player: Player, valueType: string, value: number, 
     local timeRemaining = newEndTime - currentTime
     local timerThread = task.delay(timeRemaining, function()
         -- Clear from PlayerData if it matches (prevent race condition if overwritten)
-        if playerData.ActiveBuffs[valueType] == newEndTime then
+        local currentData = playerData.ActiveBuffs[valueType]
+        local isMatch = false
+        
+        if type(currentData) == "table" and currentData.Expiry == newEndTime then
+            isMatch = true
+        elseif type(currentData) == "number" and currentData == newEndTime then
+            isMatch = true
+        end
+        
+        if isMatch then
             playerData.ActiveBuffs[valueType] = nil
         end
         
@@ -174,42 +195,29 @@ local function restoreBuffs(player: Player)
     local currentTime = os.time()
     local buffsToRemove = {}
     
-    for valueType, endTime in pairs(playerData.ActiveBuffs) do
+    for valueType, data in pairs(playerData.ActiveBuffs) do
+        -- Handle both legacy (number) and new (table) formats
+        local endTime = 0
+        local value = 2 -- Default fallback
+        local icon = "" 
+        
+        if type(data) == "number" then
+            endTime = data
+        elseif type(data) == "table" then
+            endTime = data.Expiry or 0
+            value = data.Value or 2
+            icon = data.Icon or ""
+        end
+        
         if endTime > currentTime then
             -- Restore active buff
             local timeRemaining = endTime - currentTime
             local buffKey = player.UserId .. "_" .. valueType
             
-            -- Ideally we would get the original value/icon from config or saved data,
-            -- but for now we assume a standard multiplier if we don't store it.
-            -- IMPROVEMENT: Store value/icon in ActiveBuffs or separate field? 
-            -- Current PlayerData.ActiveBuffs is just {Type = EndTime}.
-            -- We can try to look up the last used value from attributes if they persisted on character, 
-            -- but attributes often reset.
-            -- For this MVP, we will use a default value if we can't infer it, or rely on the user having 
-            -- drunk a specific potion.
-            -- Actually, without storing the 'Value' (Multiplier) in PlayerData, we can't restore the EXACT multiplier.
-            -- We should assume simple logic or update PlayerData to store more info.
-            -- Given the prompt "timer get additionned", the duration is key.
-            -- Let's check attributes first. Attributes might not be there on rejoin.
-            
-            -- WORKAROUND: For now, we'll try to guess or use a standard value (e.g. 2x) or update PlayerData structure 
-            -- to be {EndTime = ..., Value = ...}. The request didn't explicitly ask for saving value, 
-            -- but it's implied for "save the timer".
-            -- I'll use a SAFE DEFAULT of 2.0 (x2) if unknown, but ideally we'd update the schema.
-            -- However, looking at BuffService, it reads `Buff_Potion_Types`.
-            -- Let's see if I can do a quick fix to save the Value in attributes to profile? 
-            -- No, attributes aren't saved automatically.
-            
-            -- Let's search PlayerData.ActiveBuffs definition again. I made it `{[string]: number}`.
-            -- Attempting to change it now might be risky without another plan step.
-            -- I will set the Attribute Value to 2 (common) or try to find a Potion of that type in inventory to guess? No.
-            -- I'll mark this as a "ToDo" but proceed with restoring the timer.
-            
             -- Re-apply attributes
-            player:SetAttribute("Buff_Potion_" .. valueType, 2) -- Defaulting to x2 multiplier for restored buffs
+            player:SetAttribute("Buff_Potion_" .. valueType, value)
             player:SetAttribute("Buff_Potion_" .. valueType .. "_EndTime", endTime)
-            player:SetAttribute("Buff_Potion_" .. valueType .. "_Icon", "rbxassetid://123456789") -- Placeholder or generic
+            player:SetAttribute("Buff_Potion_" .. valueType .. "_Icon", icon)
             
             print(string.format("[PotionService] Restored %s buff for %s (%ds remaining)", valueType, player.Name, timeRemaining))
             

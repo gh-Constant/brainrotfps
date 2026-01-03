@@ -94,7 +94,16 @@ local function calculateMultipliers(player: Player)
     -- Base (1.0) + All Bonuses
     local totalXPMultiplier = 1.0 + friendBoost + premiumBoost + xpGamePassBonus + potionXPBonus
     local totalGoldMultiplier = 1.0 + premiumBoost + goldGamePassBonus + potionGoldBonus
+    local totalXPMultiplier = 1.0 + friendBoost + premiumBoost + xpGamePassBonus + potionXPBonus
+    local totalGoldMultiplier = 1.0 + premiumBoost + goldGamePassBonus + potionGoldBonus
     local totalDamageMultiplier = 1.0 + damageGamePassBonus + potionDamageBonus
+    
+    -- Luck Calculation
+    local luckGamePassBonus = player:GetAttribute("GamePass_DoubleLuck") and 1.0 or 0
+    local potionLuckVal = player:GetAttribute("Buff_Potion_Luck") :: number or 1
+    local potionLuckBonus = math.max(0, potionLuckVal - 1)
+    
+    local totalLuckMultiplier = 1.0 + luckGamePassBonus + potionLuckBonus
     
     -- Apply to PlayerData
     playerData.ExperienceMultiplier = totalXPMultiplier
@@ -104,10 +113,11 @@ local function calculateMultipliers(player: Player)
     -- Update Attributes for Client UI
     player:SetAttribute("Buff_FriendBoost", friendBoost)
     player:SetAttribute("Buff_Premium", isPremium)
+    player:SetAttribute("TotalLuckMultiplier", totalLuckMultiplier)
     
     -- Debug print for verification
-    print(string.format("[BuffService] Updated %s: XP x%.2f, Gold x%.2f, Damage x%.2f (GP: %.1f, Pot: %.1f)", 
-        player.Name, totalXPMultiplier, totalGoldMultiplier, totalDamageMultiplier, damageGamePassBonus, potionDamageBonus))
+    print(string.format("[BuffService] Updated %s: XP x%.2f, Gold x%.2f, Damage x%.2f, Luck x%.2f (GP: %.1f, Pot: %.1f)", 
+        player.Name, totalXPMultiplier, totalGoldMultiplier, totalDamageMultiplier, totalLuckMultiplier, damageGamePassBonus, potionDamageBonus))
 end
 
 --[[
@@ -151,6 +161,8 @@ function BuffService.Init()
         player:GetAttributeChangedSignal("Buff_Potion_Coins"):Connect(function() calculateMultipliers(player) end)
         player:GetAttributeChangedSignal("Buff_Potion_BrainrotDamage"):Connect(function() calculateMultipliers(player) end)
         player:GetAttributeChangedSignal("Buff_Potion_MobDamage"):Connect(function() calculateMultipliers(player) end)
+        player:GetAttributeChangedSignal("Buff_Potion_Luck"):Connect(function() calculateMultipliers(player) end)
+        player:GetAttributeChangedSignal("GamePass_DoubleLuck"):Connect(function() calculateMultipliers(player) end)
         
         -- GamePass Damage Change
         player:GetAttributeChangedSignal("GamePass_DoubleDamage"):Connect(function() calculateMultipliers(player) end)

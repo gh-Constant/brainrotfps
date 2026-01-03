@@ -327,5 +327,24 @@ return ByteNet.defineNamespace("game", function()
 			}),
 			reliabilityType = "reliable",
 		}),
+		-- Discord Verification Packets
+		submitDiscordCode = ByteNet.definePacket({
+			value = ByteNet.struct({
+				code = ByteNet.string,
+			}),
+			reliabilityType = "reliable",
+		}),
+		-- Chest Data Sync (Server -> Client)
+		chestData = ByteNet.definePacket({
+			value = ByteNet.struct({
+				cooldowns = ByteNet.map(ByteNet.string, ByteNet.float64),
+			}),
+			reliabilityType = "reliable",
+		}),
+		-- Request Chest Data (Client -> Server)
+		requestChestData = ByteNet.definePacket({
+			value = ByteNet.struct({}),
+			reliabilityType = "reliable",
+		}),
 	}
 end)

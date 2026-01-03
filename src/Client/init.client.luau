@@ -15,6 +15,7 @@ local SystemLoader = require(script.SystemLoader)
 local GrenadeController = require(script.Weapons.GrenadeController)
 local BuffController = require(script.UI.Buffs.BuffController)
 local MobDisplayController = require(script:WaitForChild("Brainrot"):WaitForChild("MobDisplayController"))
+local ChestController = require(script:WaitForChild("Rewards"):WaitForChild("ChestController"))
 
 -- Note: Core GUI is disabled in ReplicatedFirst/LoadingScreen
 
@@ -138,6 +139,25 @@ systemLoader:RegisterSystem({
     Priority = 8,
     Init = function(_context)
         IndexController.Init()
+    end,
+})
+
+-- System: Discord UI
+local DiscordUI = require(script.UI.DiscordUI)
+systemLoader:RegisterSystem({
+    Name = "DiscordUI",
+    Priority = 9,
+    Init = function(_context)
+        DiscordUI.Init()
+    end,
+})
+
+-- System: Chest Timers
+systemLoader:RegisterSystem({
+    Name = "ChestTimers",
+    Priority = 10,
+    Init = function(_context)
+        ChestController.Init()
     end,
 })
 

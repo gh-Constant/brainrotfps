@@ -25,9 +25,11 @@ export type PlayerData = {
     -- Daily Rewards
     LastDailyRewardClaim: number, -- Unix timestamp of last claim
     DailyRewardStreak: number, -- Current day in cycle (1-7)
+    HasVerifiedDiscord: boolean,
     
     -- Buffs
-    ActiveBuffs: {[string]: number}, -- BuffType -> EndTime
+    ActiveBuffs: {[string]: number}, -- BuffName -> ExpiryTime
+    ChestCooldowns: {[string]: number}, -- ChestType -> LastClaimTime
 }
 
 export type Player = {
@@ -47,6 +49,7 @@ export type Player = {
     
     -- Buffs
     ActiveBuffs: {[string]: number},
+    ChestCooldowns: {[string]: number},
     
     -- Multipliers
     GoldMultiplier: number,
@@ -94,9 +97,11 @@ local DEFAULT_DATA: PlayerData = {
     -- Daily Rewards
     LastDailyRewardClaim = 0,
     DailyRewardStreak = 1,
+    HasVerifiedDiscord = false,
     
     -- Buffs
     ActiveBuffs = {},
+    ChestCooldowns = {},
 }
 
 -- Experience curve settings
@@ -139,9 +144,11 @@ function PlayerClass.new(robloxPlayer: Player, initialData: PlayerData?): Player
     -- Daily Rewards
     self.LastDailyRewardClaim = data.LastDailyRewardClaim or 0
     self.DailyRewardStreak = data.DailyRewardStreak or 1
+    self.HasVerifiedDiscord = data.HasVerifiedDiscord or false
     
     -- Buffs
     self.ActiveBuffs = data.ActiveBuffs or {}
+    self.ChestCooldowns = data.ChestCooldowns or {}
     
     -- Create signals for changes (using Signal library)
     self.OnLevelUp = Signal.new()
@@ -187,7 +194,9 @@ function PlayerClass:GetData(): PlayerData
         PlayerKills = self.PlayerKills,
         LastDailyRewardClaim = self.LastDailyRewardClaim,
         DailyRewardStreak = self.DailyRewardStreak,
+        HasVerifiedDiscord = self.HasVerifiedDiscord,
         ActiveBuffs = self.ActiveBuffs,
+        ChestCooldowns = self.ChestCooldowns,
     }
 end
 
@@ -206,7 +215,9 @@ function PlayerClass:SetData(data: PlayerData)
     self.PlayerKills = data.PlayerKills or DEFAULT_DATA.PlayerKills
     self.LastDailyRewardClaim = data.LastDailyRewardClaim or DEFAULT_DATA.LastDailyRewardClaim
     self.DailyRewardStreak = data.DailyRewardStreak or DEFAULT_DATA.DailyRewardStreak
+    self.HasVerifiedDiscord = data.HasVerifiedDiscord or DEFAULT_DATA.HasVerifiedDiscord
     self.ActiveBuffs = data.ActiveBuffs or DEFAULT_DATA.ActiveBuffs
+    self.ChestCooldowns = data.ChestCooldowns or DEFAULT_DATA.ChestCooldowns
 end
 
 --[[

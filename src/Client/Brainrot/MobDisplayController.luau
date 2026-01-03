@@ -460,16 +460,38 @@ local function onMobAdded(model: Instance)
 	if activeDisplays[model] then return end
 	
 	-- Wait for model to be fully replicated (prevents race condition with server tagging)
-	-- Wait for model to be fully replicated (prevents race condition with server tagging)
-	-- Use WaitForChild for the root part to ensure the model is actually ready in the workspace
-	-- This defaults to infinite wait (or very long) which is safer for streaming/replication
-	local rootPart = model:WaitForChild("HumanoidRootPart", 20)
+	-- Try to find a valid part to attach the billboard to
+	-- We check multiple candidates in order of preference
+	local function getBillboardPart(): BasePart?
+		return (model:FindFirstChild("Billboard") 
+			or model.PrimaryPart 
+			or model:FindFirstChild("HumanoidRootPart") 
+			or model:FindFirstChild("Head")
+			or model:FindFirstChild("Torso")
+			or model:FindFirstChild("UpperTorso")) :: BasePart?
+	end
+
+	local billboardPart = getBillboardPart()
 	
-	-- After root part exists, check for preferred billboard part
-	local billboardPart = (model:FindFirstChild("Billboard") or model.PrimaryPart or rootPart or model:FindFirstChild("Head")) :: BasePart?
+	-- If not found immediately, wait and poll
+	-- With Atomic Streaming enabled, this should rarely loop, but we keep it for safety.
+	if not billboardPart then
+		local maxAttempts = 20 -- 10 seconds total (0.5s interval)
+		for _ = 1, maxAttempts do
+			if not model.Parent then return end -- Mob destroyed while waiting
+			
+			billboardPart = getBillboardPart()
+			if billboardPart then break end
+			
+			task.wait(0.5)
+		end
+	end
 	
-	if not billboardPart or not billboardPart:IsA("BasePart") then
-		warn("[MobDisplayController] No valid Billboard part/PrimaryPart found for", model.Name, "after waiting")
+	if not billboardPart then
+		-- Only warn if the model still exists; it might be just streamed out or invalid
+		if model.Parent then
+			warn("[MobDisplayController] No valid Billboard part found for", model.Name, "(Streaming? Missing Root?)")
+		end
 		return
 	end
 	

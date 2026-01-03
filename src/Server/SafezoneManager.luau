@@ -92,4 +92,13 @@ function SafezoneManager.IsInSafezone(player: Player): boolean
 	return playersInSafezone[player] == true
 end
 
+function SafezoneManager.IsPointInSafezone(position: Vector3): boolean
+	for _, zone in ipairs(zones) do
+		if zone:findPoint(position) then
+			return true
+		end
+	end
+	return false
+end
+
 return SafezoneManager

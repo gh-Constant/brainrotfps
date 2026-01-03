@@ -842,6 +842,7 @@ function Toolbar.Refresh()
         end
     end
     
+
     -- Re-verify slotOrder to ensure no ghost slots
     for i = 1, CONFIG.MaxSlots do
         local tool = slotOrder[i]
@@ -851,6 +852,23 @@ function Toolbar.Refresh()
             end
         end
     end
+    
+    -- RESCAN: Check for tools that might have been dropped or seem new due to ID updates
+    -- This handles the race condition where "Remove" packet processed before "ToolbarUpdate"
+    -- causing the tool to be pruned because it holds the old ID.
+    local function checkAndRecoverTools(container: Instance)
+        for _, child in ipairs(container:GetChildren()) do
+            if child:IsA("Tool") and not toolSlots[child] then
+                addTool(child)
+            end
+        end
+    end
+
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if backpack then checkAndRecoverTools(backpack) end
+
+    local character = LocalPlayer.Character
+    if character then checkAndRecoverTools(character) end
 
     -- Update visuals for all active slots
     for _, slot in pairs(toolSlots) do

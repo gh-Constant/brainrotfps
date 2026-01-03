@@ -63,9 +63,11 @@ local DATA_TEMPLATE = {
     -- Daily Rewards
     LastDailyRewardClaim = 0,
     DailyRewardStreak = 1,
+    HasVerifiedDiscord = false,
     
     -- Buffs
     ActiveBuffs = {},
+    ChestCooldowns = {},
 }
 
 -- Create ProfileStore
@@ -293,7 +295,9 @@ local function onPlayerAdded(player: Player)
         PlayerKills = profile.Data.PlayerKills,
         LastDailyRewardClaim = profile.Data.LastDailyRewardClaim,
         DailyRewardStreak = profile.Data.DailyRewardStreak,
+        HasVerifiedDiscord = profile.Data.HasVerifiedDiscord,
         ActiveBuffs = profile.Data.ActiveBuffs,
+        ChestCooldowns = profile.Data.ChestCooldowns,
     })
     
     -- Update leaderstats with loaded values
@@ -482,6 +486,7 @@ local function onPlayerRemoving(player: Player)
             profile.Data.LastDailyRewardClaim = playerData.LastDailyRewardClaim
             profile.Data.DailyRewardStreak = playerData.DailyRewardStreak
             profile.Data.ActiveBuffs = playerData.ActiveBuffs
+            profile.Data.ChestCooldowns = playerData.ChestCooldowns
         end
         profile:EndSession()
     end
@@ -634,6 +639,7 @@ function PlayerManager.SavePlayer(player: Player)
         profile.Data.LastDailyRewardClaim = playerData.LastDailyRewardClaim
         profile.Data.DailyRewardStreak = playerData.DailyRewardStreak
         profile.Data.ActiveBuffs = playerData.ActiveBuffs
+        profile.Data.ChestCooldowns = playerData.ChestCooldowns
         profile:Save()
     end
 end
@@ -654,6 +660,7 @@ function PlayerManager.SaveAllAndClose()
                 profile.Data.LastDailyRewardClaim = playerData.LastDailyRewardClaim
                 profile.Data.DailyRewardStreak = playerData.DailyRewardStreak
                 profile.Data.ActiveBuffs = playerData.ActiveBuffs
+                profile.Data.ChestCooldowns = playerData.ChestCooldowns
             end
             profile:EndSession()
         end

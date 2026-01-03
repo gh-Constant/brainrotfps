@@ -16,6 +16,7 @@ local Zone = require(Packages:WaitForChild("zoneplus"))
 local Health = require(Shared:WaitForChild("Health"))
 local Packets = require(Shared:WaitForChild("Packets"))
 local PlayerManager = require(Server:WaitForChild("Player"))
+local SafezoneManager = require(Server:WaitForChild("SafezoneManager"))
 local config = ReplicatedStorage:WaitForChild("Config")
 local brainrotConfig = config:WaitForChild("Brainrots")
 local zonesConfig = brainrotConfig:WaitForChild("Zones")
@@ -156,7 +157,12 @@ local function getRandomSpawnPosition(part: BasePart): Vector3?
 			local upCheck = workspace:Raycast(hitPos + Vector3.new(0, 0.5, 0), Vector3.new(0, 5, 0), raycastParams)
 			if not upCheck then
 				-- Valid floor with open space above
-				table.insert(validPositions, hitPos + Vector3.new(0, 3, 0))
+				local spawnPos = hitPos + Vector3.new(0, 3, 0)
+				
+				-- Check if inside safezone (or close to one)
+				if not SafezoneManager.IsPointInSafezone(spawnPos) then
+					table.insert(validPositions, spawnPos)
+				end
 			end
 		end
 		
@@ -228,6 +234,10 @@ local function spawnBrainrot(group: ZoneGroup)
 	-- Pick weighted random model based on "Luck" attribute
 	local template = getWeightedRandomModel(models)
 	local brainrot = template:Clone()
+	
+	-- Enable Atomic Streaming (Fixes client "missing loose parts" issues)
+	-- This forces the model and all descendants to stream together as a unit
+	brainrot.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 	
 	-- Pick a random part from the group
 	if #group.parts == 0 then return end
@@ -640,6 +650,9 @@ function BrainrotSpawner.SpawnBrainrotWithMutation(zoneName: string, mobName: st
 	
 	-- Clone the mob
 	local brainrot = template:Clone()
+
+	-- Enable Atomic Streaming (Fixes client "missing loose parts" issues)
+	brainrot.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 	
 	-- Apply mutation if specified
 	if mutationName then

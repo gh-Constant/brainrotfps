@@ -52,8 +52,21 @@ function LootSystem.ProcessLoot(mobModel: Model, killer: Player)
         
         if chance < 1 then chance = 1 end
         
-        if math.random(1, chance) == 1 then
-            local itemConfig = ItemUtils.FindItemConfig(itemName)
+        -- Apply Luck Multiplier
+        -- Pre-fetch config to check Rarity
+        local itemConfig = ItemUtils.FindItemConfig(itemName)
+        local rarity = (itemConfig and itemConfig:GetAttribute("Rarity") or "Common") :: string
+        
+        -- Apply Luck Multiplier ONLY for non-common items
+        local luckMultiplier = killer:GetAttribute("TotalLuckMultiplier") :: number or 1
+        local adjustedChance = chance
+        
+        if rarity ~= "Common" and luckMultiplier > 1 then
+            -- Higher luck means lower "1 in X" chance value
+            adjustedChance = math.max(1, math.floor(chance / luckMultiplier))
+        end
+        
+        if math.random(1, adjustedChance) == 1 then
             local itemType = (itemConfig and itemConfig:GetAttribute("Type"))
             
             if not itemType then
@@ -64,8 +77,6 @@ function LootSystem.ProcessLoot(mobModel: Model, killer: Player)
                 warn("[LootSystem] Unknown item type for: " .. itemName)
                 continue
             end
-            
-            local rarity = (itemConfig and itemConfig:GetAttribute("Rarity") or "Common") :: string
             
             InventoryManager.AddItem(killer, itemName, itemType :: any, rarity, nil)
             
@@ -79,6 +90,11 @@ function LootSystem.ProcessLoot(mobModel: Model, killer: Player)
                         rarity = rarity,
                     },
                 }, killer)
+            end
+            
+            if luckMultiplier > 1 and rarity ~= "Common" then
+                 print(string.format("[LootSystem] 🍀 Lucky drop for %s! Item: %s, Rarity: %s (Luck: x%.1f, Chance: 1/%d -> 1/%d)", 
+                 killer.Name, itemName, rarity, luckMultiplier, chance, adjustedChance))
             end
         end
     end
